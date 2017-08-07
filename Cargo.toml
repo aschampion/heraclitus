@@ -1,0 +1,23 @@
+[package]
+name = "heraclitus"
+version = "0.1.0"
+license = "MIT/Apache-2.0"
+authors = ["Andrew Champion <andrew.champion@gmail.com>"]
+description = "A system for managing versioned, dependent data artifacts."
+
+[lib]
+name = "heraclitus"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hera"
+path = "src/bin.rs"
+
+[dependencies]
+daggy = "*"
+enum-set = "*"
+postgres = "0.13"
+schemamama = "0.2"
+schemamama_postgres = "0.2"
+url = "*"
+uuid = { version = "0.4", features = ["use_std", "v4"] }
