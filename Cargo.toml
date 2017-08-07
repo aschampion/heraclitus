@@ -1,0 +1,20 @@
+[package]
+name = "heraclitus"
+version = "0.1.0"
+license = "MIT/Apache-2.0"
+authors = ["Andrew Champion <andrew.champion@gmail.com>"]
+description = "A system for managing versioned, dependent data artifacts."
+
+[lib]
+name = "heraclitus"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hera"
+path = "src/bin.rs"
+
+[dependencies]
+daggy = "*"
+enum-set = "*"
+url = "*"
+uuid = "0.4"
