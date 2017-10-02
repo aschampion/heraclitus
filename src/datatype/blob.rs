@@ -1,26 +1,53 @@
+extern crate uuid;
+
+
 use std::sync::Arc;
 use std::sync::Mutex;
+
+use uuid::Uuid;
+
+use super::super::{Datatype, DatatypeRepresentationKind};
+use super::{DependencyDescription, DependencyStoreRestriction, Description, Store};
+
 
 pub struct Blob;
 
 impl super::Model for Blob {
     type Controller = ModelController;
 
-    fn info() -> super::Description {
-        super::Description {
-            name: "Blob",
-            version: 1,
-            dependencies: vec![super::DependencyDescription::new("test", "this", super::DependencyStoreRestriction::Stores(vec!(super::Store::Postgres).into_iter().collect()))],
+    fn info() -> Description {
+        Description {
+            datatype: Datatype::new(
+                // TODO: Fake UUID.
+                Uuid::parse_str("0").unwrap(),
+                "Blob".into(),
+                1,
+                vec![DatatypeRepresentationKind::State]
+                    .into_iter()
+                    .collect(),
+            ),
+            // TODO: Fake dependency.
+            dependencies: vec![
+                DependencyDescription::new(
+                    "test",
+                    "this",
+                    DependencyStoreRestriction::Stores(vec![Store::Postgres].into_iter().collect()),
+                ),
+            ],
         }
     }
 
-    fn controller(store: super::Store) -> Option<Arc<Mutex<Self::Controller>>> {
+    fn controller(store: Store) -> Option<Arc<Mutex<Self::Controller>>> {
         match store {
-            Postgres => Some(Arc::new(Mutex::new(PostgresStore {}))),
+            Store::Postgres => Some(Box::new(PostgresStore {})),
             _ => None,
         }
     }
 }
+
+// TODO instead have MetaController that can handle stuff hera needs to know,
+// like content hashing, but separate dtype-specific controls into separate
+// trait that dependent types can concretely call.
 
 trait ModelController: super::ModelController {
     // Does this return a version? No, should be graph controller, right? But then how is this version bootstrapped? What about squashing/staging in existing versions?
@@ -34,10 +61,11 @@ impl super::ModelController for PostgresStore {}
 
 impl ModelController for PostgresStore {
     fn write(&self, context: &::Context, version: &::Version, blob: &[u8]) {
-        return;
+        unimplemented!();
     }
 
     fn read(&self, context: &::Context, version: &::Version) -> Vec<u8> {
-        return vec![0,1,2];
+        // TODO: mocked.
+        return vec![0, 1, 2];
     }
 }

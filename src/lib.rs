@@ -1,19 +1,27 @@
 #![feature(conservative_impl_trait)]
 
 extern crate daggy;
+extern crate enum_set;
 extern crate url;
 extern crate uuid;
 
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::mem;
+
+use enum_set::EnumSet;
 use url::Url;
 use uuid::Uuid;
 
+
 mod datatype;
+mod store;
 
 #[cfg(test)]
 mod tests {
     #[test]
-    fn it_works() {
-    }
+    fn it_works() {}
 }
 
 pub fn noop() {
@@ -30,14 +38,14 @@ struct Identity {
 
 #[derive(Clone, Copy)]
 #[repr(u32)]
-enum DatatypeRepresentationKind {
+pub enum DatatypeRepresentationKind {
     State,
     Delta,
     CumulativeDelta,
 }
 
 // Boilerplate necessary for EnumSet compatibility.
-impl self::enum_set::CLike for DatatypeRepresentationKind {
+impl enum_set::CLike for DatatypeRepresentationKind {
     fn to_u32(&self) -> u32 {
         *self as u32
     }
@@ -47,11 +55,39 @@ impl self::enum_set::CLike for DatatypeRepresentationKind {
     }
 }
 
-struct Datatype {
+pub struct Datatype {
     id: Identity,
     name: String,
     version: u64,
     representations: EnumSet<DatatypeRepresentationKind>,
+}
+
+impl Datatype {
+    fn new(
+        uuid: Uuid,
+        name: String,
+        version: u64,
+        representations: EnumSet<DatatypeRepresentationKind>,
+    ) -> Datatype {
+        let mut dtype = Datatype {
+            id: Identity { uuid, hash: 0 },
+            name,
+            version,
+            representations,
+        };
+        let mut s = DefaultHasher::new();
+        dtype.hash(&mut s);
+        dtype.id.hash = s.finish();
+        dtype
+    }
+}
+
+impl Hash for Datatype {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.version.hash(state);
+        self.representations.hash(state);
+    }
 }
 
 struct DatatypeRelation {
@@ -124,9 +160,9 @@ enum PartCompletion {
 }
 
 struct Hunk<'a> {
+    // Is this a Hunk or a Patch (in which case changeset items would be hunks)?
     id: Identity,
     version: &'a Version<'a>,
     partition: Partition<'a>,
     completion: PartCompletion,
 }
-
