@@ -1,14 +1,13 @@
 #![feature(conservative_impl_trait)]
-#![feature(use_extern_macros)]
 
 extern crate daggy;
 extern crate enum_set;
-extern crate url;
-extern crate uuid;
 extern crate postgres;
 #[macro_use]
 extern crate schemamama;
 extern crate schemamama_postgres;
+extern crate url;
+extern crate uuid;
 
 
 use std::collections::hash_map::DefaultHasher;

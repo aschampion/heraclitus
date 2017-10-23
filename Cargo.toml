@@ -20,4 +20,4 @@ postgres = "0.13"
 schemamama = "0.2"
 schemamama_postgres = "0.2"
 url = "*"
-uuid = "0.4"
+uuid = { version = "0.4", features = ["use_std", "v4"] }
