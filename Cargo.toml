@@ -16,5 +16,8 @@ path = "src/bin.rs"
 [dependencies]
 daggy = "*"
 enum-set = "*"
+postgres = "0.13"
+schemamama = "0.2"
+schemamama_postgres = "0.2"
 url = "*"
 uuid = "0.4"

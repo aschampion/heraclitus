@@ -1,9 +1,14 @@
 #![feature(conservative_impl_trait)]
+#![feature(use_extern_macros)]
 
 extern crate daggy;
 extern crate enum_set;
 extern crate url;
 extern crate uuid;
+extern crate postgres;
+#[macro_use]
+extern crate schemamama;
+extern crate schemamama_postgres;
 
 
 use std::collections::hash_map::DefaultHasher;
@@ -13,9 +18,11 @@ use std::mem;
 use enum_set::EnumSet;
 use url::Url;
 use uuid::Uuid;
+// use schemamama;
 
 
 mod datatype;
+mod repo;
 mod store;
 
 #[cfg(test)]
@@ -108,6 +115,7 @@ struct Context {
     repo: Repository,
 }
 
+/// A graph expressing the dependence structure between sets of data artifacts.
 struct ArtifactGraph<'a> {
     id: Identity,
     artifacts: daggy::Dag<ArtifactNode<'a>, ArtifactRelation>,

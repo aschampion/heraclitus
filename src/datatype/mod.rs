@@ -65,12 +65,18 @@ impl DependencyDescription {
 // ...doesn't work. Every consumer would rebuild, etc.
 //
 
+pub trait MetaController {
+    // Content hashing, etc.
+}
+
 pub trait Model {
-    type Controller: ModelController + ?Sized;
+    // Necessary to be able to create this as a trait object. See:
+    // https://www.reddit.com/r/rust/comments/620m1v/never_hearing_the_trait_x_cannot_be_made_into_an/dfirs5s/
+    //fn clone(&self) -> Self where Self: Sized;
 
-    fn info() -> Description;
+    fn info(&self) -> Description;
 
-    fn controller(Store) -> Option<Box<Self::Controller>>;
+    fn controller(&self, Store) -> Option<Box<MetaController>>;
 }
 
 pub trait ModelController {} // TODO: Are there any general controller fns?
@@ -84,7 +90,7 @@ pub trait ModelController {} // TODO: Are there any general controller fns?
 
 pub fn build_module_datatype_models() -> Vec<Box<Model>> {
     vec![
-        blob::Blob{},
+        Box::new(blob::Blob{}),
     ]
 }
 
@@ -94,8 +100,8 @@ pub struct DatatypesController {
 
 impl DatatypesController {
     fn default() -> DatatypesController {
-        let dcon = DatatypesController {};
-        dcon.register_datatype_models(build_module_datatype_models());
+        let mut dcon = DatatypesController {datatype_models: Vec::new()};
+        dcon.register_datatype_models(&mut build_module_datatype_models());
         dcon
     }
 

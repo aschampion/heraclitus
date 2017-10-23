@@ -13,9 +13,7 @@ use super::{DependencyDescription, DependencyStoreRestriction, Description, Stor
 pub struct Blob;
 
 impl super::Model for Blob {
-    type Controller = ModelController;
-
-    fn info() -> Description {
+    fn info(&self) -> Description {
         Description {
             datatype: Datatype::new(
                 // TODO: Fake UUID.
@@ -37,7 +35,7 @@ impl super::Model for Blob {
         }
     }
 
-    fn controller(store: Store) -> Option<Arc<Mutex<Self::Controller>>> {
+    fn controller(&self, store: Store) -> Option<Box<super::MetaController>> {
         match store {
             Store::Postgres => Some(Box::new(PostgresStore {})),
             _ => None,
@@ -56,6 +54,8 @@ trait ModelController: super::ModelController {
 }
 
 struct PostgresStore {}
+
+impl super::MetaController for PostgresStore {}
 
 impl super::ModelController for PostgresStore {}
 
