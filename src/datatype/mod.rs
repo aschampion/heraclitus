@@ -80,7 +80,7 @@ pub trait Model {
 
     fn info(&self) -> Description;
 
-    // fn controller(&self, Store) -> Option<Box<MetaController>>;
+    fn controller(&self, Store) -> Option<StoreMetaController>;
 }
 
 pub trait ModelController {} // TODO: Are there any general controller fns?
@@ -92,6 +92,19 @@ pub trait ModelController {} // TODO: Are there any general controller fns?
 // - Sync/compare datatype defs with store
 //    - Fresh init vs diff update
 
+pub enum StoreMetaController {
+    Postgres(Box<::repo::PostgresMigratable>),
+}
+
+impl Into<Box<::repo::PostgresMigratable>> for StoreMetaController {
+    fn into(self) -> Box<::repo::PostgresMigratable> {
+        match self {
+            StoreMetaController::Postgres(smc) => smc,
+            _ => panic!("StoreMetaController was not Postgres!"),
+        }
+    }
+}
+
 pub fn build_module_datatype_models() -> Vec<Box<Model>> {
     vec![
         Box::new(blob::Blob{}),
@@ -100,7 +113,7 @@ pub fn build_module_datatype_models() -> Vec<Box<Model>> {
 
 pub struct DatatypesRegistry {
     graph: super::Metadata,
-    types: HashMap<String, Box<Model>>,
+    pub types: HashMap<String, Box<Model>>,
 }
 
 impl DatatypesRegistry {

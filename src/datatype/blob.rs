@@ -41,12 +41,12 @@ impl super::Model for Blob {
         }
     }
 
-    // fn controller(&self, store: Store) -> Option<Box<super::MetaController>> {
-    //     match store {
-    //         Store::Postgres => Some(Box::new(PostgresStore {})),
-    //         _ => None,
-    //     }
-    // }
+    fn controller(&self, store: Store) -> Option<super::StoreMetaController> {
+        match store {
+            Store::Postgres => Some(super::StoreMetaController::Postgres(Box::new(PostgresStore {}))),
+            _ => None,
+        }
+    }
 }
 
 // TODO instead have MetaController that can handle stuff hera needs to know,
@@ -132,13 +132,14 @@ migration!(PGMigrationBlobs, 1, "create blob table");
 
 impl PostgresMigration for PGMigrationBlobs {
     fn up(&self, transaction: &Transaction) -> Result<(), PostgresError> {
-        transaction.execute("CREATE TABLE blob_dtype;", &[]).map(|_| ())
+        transaction.execute("CREATE TABLE blob_dtype (id BIGINT PRIMARY KEY);", &[]).map(|_| ())
     }
 
     fn down(&self, transaction: &Transaction) -> Result<(), PostgresError> {
         transaction.execute("DROP TABLE blob_dtype;", &[]).map(|_| ())
     }
 }
+
 
 impl super::MetaController<PostgresRepoController> for PostgresStore {
     // fn register_with_repo(&self, repo_controller: &mut PostgresRepoController) {
