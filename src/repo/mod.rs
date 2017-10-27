@@ -64,6 +64,10 @@ impl RepoController for PostgresRepoController {
     }
 }
 
+// pub fn register_postgres_migrations<T: ::Datatype::Model>(migration: &mut Migrator);
+
+
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -71,6 +75,7 @@ mod tests {
         use super::*;
 
         let repo = ::Repository {
+            // TODO: fake UUID, version
             id: ::Identity{uuid: Uuid::new_v4(), hash: 0},
             name: "Test repo".into(),
             url: Url::parse("postgresql://hera_test:hera_test@localhost/hera_test").unwrap()
