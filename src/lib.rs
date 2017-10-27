@@ -110,8 +110,9 @@ struct Repository {
     url: Url,
 }
 
-struct Context {
+struct Context<T> {
     repo: Repository,
+    store_type: T
 }
 
 /// A graph expressing the dependence structure between sets of data artifacts.
