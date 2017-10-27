@@ -1,3 +1,5 @@
+extern crate daggy;
+
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::mem;
@@ -65,7 +67,9 @@ impl DependencyDescription {
 // ...doesn't work. Every consumer would rebuild, etc.
 //
 
-pub trait MetaController {
+pub trait MetaController<T: ::repo::RepoController> {
+    // fn register_with_repo(&self, repo_controller: &mut T);
+
     // Content hashing, etc.
 }
 
@@ -76,7 +80,7 @@ pub trait Model {
 
     fn info(&self) -> Description;
 
-    fn controller(&self, Store) -> Option<Box<MetaController>>;
+    // fn controller(&self, Store) -> Option<Box<MetaController>>;
 }
 
 pub trait ModelController {} // TODO: Are there any general controller fns?
@@ -93,6 +97,54 @@ pub fn build_module_datatype_models() -> Vec<Box<Model>> {
         Box::new(blob::Blob{}),
     ]
 }
+
+pub struct DatatypesRegistry {
+    graph: super::Metadata,
+    types: HashMap<String, Box<Model>>,
+}
+
+impl DatatypesRegistry {
+    pub fn new() -> DatatypesRegistry {
+        DatatypesRegistry {
+            graph: ::Metadata { datatypes: daggy::Dag::new() },
+            types: HashMap::new(),
+        }
+    }
+
+    pub fn register_datatype_models(&mut self, models: Vec<Box<Model>>) {
+        let mut idx_cache = HashMap::new();
+        for model in &models {
+            // Add datatype nodes.
+            let description = model.info();
+            let name = description.datatype.name.clone();
+            let idx = self.graph.datatypes.add_node(description.datatype);
+            idx_cache.insert(name, idx);
+        }
+
+        for model in &models {
+            // Add dependency edges.
+            let description = model.info();
+            let node_idx = idx_cache.get(&description.datatype.name).expect("Unknown datatype.");
+            for dependency in description.dependencies {
+                let dep_idx = idx_cache.get(dependency.datatype_name).expect("Unknown datatype.");
+                let relation = ::DatatypeRelation{name: dependency.name.into()};
+                self.graph.datatypes.add_edge(*node_idx, *dep_idx, relation).unwrap();
+            }
+        }
+
+        // Add model lookup.
+        for model in models {
+            let description = model.info();
+            self.types.insert(description.datatype.name, model);
+        }
+    }
+}
+
+// pub trait DatatypesLibrary {
+//     fn walk_foo<T> {
+//         (blob::Blob as &T)
+//     }
+// }
 
 pub struct DatatypesController {
     datatype_models: Vec<Box<Model>>,

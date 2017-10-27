@@ -11,9 +11,10 @@ use schemamama_postgres::{PostgresAdapter, PostgresMigration};
 use url::Url;
 use uuid::Uuid;
 
+use ::datatype::DatatypesRegistry;
 
 pub trait RepoController {
-    fn init(&self) -> Result<(), String>;
+    fn init(&self, dtypes_registry: &DatatypesRegistry) -> Result<(), String>;
 }
 
 fn get_repo_controller(repo: &super::Repository) -> Box<RepoController> {
@@ -23,15 +24,33 @@ fn get_repo_controller(repo: &super::Repository) -> Box<RepoController> {
     }
 }
 
+pub struct FakeRepoController {}
+
+impl RepoController for FakeRepoController {
+    fn init(&self, dtypes_registry: &DatatypesRegistry) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+pub trait PostgresMigratable {
+    fn register_migrations(&self, migrator: &mut Migrator<PostgresAdapter>);
+}
+
 pub struct PostgresRepoController {
     url: Url,
+    migratables: Vec<Box<PostgresMigratable>>,
 }
 
 impl PostgresRepoController {
     fn new(repo: &super::Repository) -> PostgresRepoController {
         PostgresRepoController {
             url: repo.url.clone(),
+            migratables: Vec::new(),
         }
+    }
+
+    pub fn register_postgres_migratable(&mut self, migratable: Box<PostgresMigratable>) {
+        self.migratables.push(migratable);
     }
 }
 
@@ -49,7 +68,7 @@ impl PostgresMigration for PGMigrationDatatypes {
 }
 
 impl RepoController for PostgresRepoController {
-    fn init(&self) -> Result<(), String> {
+    fn init(&self, dtypes_registry: &DatatypesRegistry) -> Result<(), String> {
         let connection = postgres::Connection::connect(self.url.as_str(), postgres::TlsMode::None)
                 .map_err(|e| e.to_string())?;
         let adapter = PostgresAdapter::new(&connection);
@@ -59,7 +78,8 @@ impl RepoController for PostgresRepoController {
 
         migrator.register(Box::new(PGMigrationDatatypes));
 
-        // Execute migrations all the way upwards:
+        self.migratables.iter().for_each(|m| m.register_migrations(&mut migrator));
+
         migrator.up(None).map_err(|e| e.to_string())
     }
 }
@@ -74,6 +94,9 @@ mod tests {
     fn test_postgres_repo_init() {
         use super::*;
 
+        let mut dtypes_registry = DatatypesRegistry::new();
+        dtypes_registry.register_datatype_models(::datatype::build_module_datatype_models());
+
         let repo = ::Repository {
             // TODO: fake UUID, version
             id: ::Identity{uuid: Uuid::new_v4(), hash: 0},
@@ -81,6 +104,6 @@ mod tests {
             url: Url::parse("postgresql://hera_test:hera_test@localhost/hera_test").unwrap()
         };
         let repo_cntrlr = get_repo_controller(&repo);
-        repo_cntrlr.init().unwrap()
+        repo_cntrlr.init(&dtypes_registry).unwrap()
     }
 }
