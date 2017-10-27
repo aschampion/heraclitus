@@ -78,6 +78,13 @@ impl RepoController for PostgresRepoController {
 
         migrator.register(Box::new(PGMigrationDatatypes));
 
+        for model in dtypes_registry.types.values() {
+            let smc: Box<PostgresMigratable> = model.controller(::store::Store::Postgres)
+                .expect("Model does not have a Postgres controller.")
+                .into();
+            smc.register_migrations(&mut migrator);
+        }
+
         self.migratables.iter().for_each(|m| m.register_migrations(&mut migrator));
 
         migrator.up(None).map_err(|e| e.to_string())
