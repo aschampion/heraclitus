@@ -96,6 +96,7 @@ impl Hash for Datatype {
     }
 }
 
+#[derive(Debug)]
 struct DatatypeRelation {
     name: String,
 }
@@ -110,8 +111,8 @@ struct Repository {
     url: Url,
 }
 
-struct Context<T> {
-    repo: Repository,
+struct Context<T> where T: repo::RepoController {
+    // repo: Repository,
     store_type: T
 }
 
