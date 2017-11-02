@@ -2,22 +2,34 @@
 
 extern crate daggy;
 extern crate enum_set;
+#[macro_use]
+extern crate lazy_static;
 extern crate postgres;
 #[macro_use]
 extern crate schemamama;
 extern crate schemamama_postgres;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 extern crate url;
 extern crate uuid;
 
 
+use std::collections::{HashMap, VecDeque};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::io;
 use std::mem;
 
+use daggy::Walker;
 use enum_set::EnumSet;
 use url::Url;
 use uuid::Uuid;
 // use schemamama;
+
+use datatype::{DatatypesRegistry};
+use datatype::artifact_graph::{ArtifactGraphDescription, ArtifactNodeDescription};
 
 
 mod datatype;
@@ -34,9 +46,16 @@ pub fn noop() {
     println!("Test");
 }
 
+#[derive(Debug)]
+pub enum Error {
+    Io(io::Error),
+    Store(String),
+}
+
 //struct InternalId(u64);
 
-struct Identity {
+#[derive(Clone, Copy)]
+pub struct Identity {
     uuid: Uuid,
     hash: u64,
     //internal: InternalId,
@@ -61,6 +80,10 @@ impl enum_set::CLike for DatatypeRepresentationKind {
     }
 }
 
+lazy_static! {
+    static ref DATATYPES_UUID_NAMESPACE: Uuid = Uuid::parse_str("a95d827d-3a11-405e-b9e0-e43ffa620d33").unwrap();
+}
+
 pub struct Datatype {
     id: Identity,
     name: String,
@@ -70,11 +93,11 @@ pub struct Datatype {
 
 impl Datatype {
     fn new(
-        uuid: Uuid,
         name: String,
         version: u64,
         representations: EnumSet<DatatypeRepresentationKind>,
     ) -> Datatype {
+        let uuid = Uuid::new_v5(&DATATYPES_UUID_NAMESPACE, &name);
         let mut dtype = Datatype {
             id: Identity { uuid, hash: 0 },
             name,
@@ -96,8 +119,8 @@ impl Hash for Datatype {
     }
 }
 
-#[derive(Debug)]
-struct DatatypeRelation {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DatatypeRelation {
     name: String,
 }
 
@@ -111,37 +134,140 @@ struct Repository {
     url: Url,
 }
 
-struct Context<T> where T: repo::RepoController {
-    // repo: Repository,
-    store_type: T
+pub struct Context {
+    dtypes_registry: datatype::DatatypesRegistry,
+    repo_control: repo::StoreRepoController,
 }
 
 /// A graph expressing the dependence structure between sets of data artifacts.
-struct ArtifactGraph<'a> {
+pub struct ArtifactGraph<'a> {
     id: Identity,
     artifacts: daggy::Dag<ArtifactNode<'a>, ArtifactRelation>,
 }
 
-struct Artifact<'a> {
+impl<'a> ArtifactGraph<'a> {
+    fn from_description(
+            desc: &ArtifactGraphDescription,
+            dtypes_registry: &'a DatatypesRegistry) -> ArtifactGraph<'a> {
+        let desc_graph = desc.artifacts.graph();
+        // TODO: replace with petgraph .externals(Incoming)
+        let mut to_visit = desc_graph.node_indices()
+                .filter(|i| desc.artifacts.parents(*i).iter(&desc.artifacts).count() == 0)
+                .collect::<VecDeque<_>>();
+
+        let mut artifacts: daggy::Dag<ArtifactNode, ArtifactRelation> = daggy::Dag::new();
+        let mut idx_map = HashMap::new();
+        let mut ag_hash = DefaultHasher::new();
+
+        // Walk the description graph in descending dependency order to build
+        // up hashes for artifacts while copying to the new graph.
+        loop {
+            match to_visit.pop_front() {
+                Some(node_idx) => {
+                    let mut id = Identity { uuid: Uuid::new_v4(), hash: 0 };
+                    let mut s = DefaultHasher::new();
+
+                    // TODO: replace with petgraph neighbors
+                    for (_, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
+                        let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
+                        let new_p = artifacts.node_weight(*new_p_idx).expect("Graph is malformed.");
+                        match new_p {
+                            &ArtifactNode::Producer(ref inner) => inner.id.hash.hash(&mut s),
+                            &ArtifactNode::Artifact(ref inner) => inner.id.hash.hash(&mut s),
+                        }
+                    }
+
+                    let node = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
+                    let artifact = match node {
+                        &ArtifactNodeDescription::Producer(ref p_desc) => {
+                            let mut producer = Producer { id: id, name: p_desc.name.clone() };
+                            producer.hash(&mut s);
+                            producer.id.hash = s.finish();
+                            producer.id.hash.hash(&mut ag_hash);
+                            ArtifactNode::Producer(producer)
+                        },
+                        &ArtifactNodeDescription::Artifact(ref a_desc) => {
+                            let mut art = Artifact {
+                                id: id,
+                                name: a_desc.name.clone(),
+                                dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
+                            };
+                            art.hash(&mut s);
+                            art.id.hash = s.finish();
+                            art.id.hash.hash(&mut ag_hash);
+                            ArtifactNode::Artifact(art)
+                        },
+                    };
+
+                    let new_idx = artifacts.add_node(artifact);
+                    idx_map.insert(node_idx, new_idx);
+
+                    for (e_idx, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
+                        let edge = desc.artifacts.edge_weight(e_idx).expect("Graph is malformed.").clone();
+                        artifacts.add_edge(*idx_map.get(&p_idx).expect("Graph is malformed."), new_idx, edge)
+                                 .expect("Graph is malformed.");
+                    }
+
+                    for (_, c_idx) in desc.artifacts.children(node_idx).iter(&desc.artifacts) {
+                        to_visit.push_back(c_idx);
+                    }
+                },
+                None => break
+            }
+        }
+
+        ArtifactGraph {
+            id: Identity {
+                uuid: Uuid::new_v4(),
+                hash: ag_hash.finish(),
+            },
+            artifacts: artifacts,
+        }
+    }
+}
+
+/// An `Artifact` represents a collection of instances of a `Datatype` that can
+/// exist in dependent relationships with other artifacts and producers.
+///
+/// TODO: An artifact's hash should be based on:
+/// - Its datatype's hash
+/// - Its name
+/// - The hashes of the artifacts on which it depends (which must be
+///   deterministically ordered)
+pub struct Artifact<'a> {
     id: Identity,
     name: Option<String>,
     dtype: &'a Datatype,
 }
 
-struct Producer {
+impl<'a> Hash for Artifact<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dtype.id.hash.hash(state);
+        self.name.hash(state);
+    }
+}
+
+pub struct Producer {
     id: Identity,
     name: String,
 }
 
-enum ArtifactNode<'a> {
+impl Hash for Producer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
+pub enum ArtifactNode<'a> {
     Producer(Producer),
     Artifact(Artifact<'a>),
 }
 
-enum ArtifactRelation {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum ArtifactRelation {
     DtypeDepends(DatatypeRelation),
     ProducedBy(String),
-    PruducedFrom(String),
+    ProducedFrom(String),
 }
 
 enum VersionStatus {

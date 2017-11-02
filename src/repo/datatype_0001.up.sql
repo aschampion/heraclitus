@@ -1,7 +1,14 @@
 CREATE TABLE datatype (
-  id bigint PRIMARY KEY,
+  id bigserial PRIMARY KEY,
   version bigint NOT NULL,
   name text UNIQUE NOT NULL
+) WITH (
+  OIDS=FALSE
+);
+
+CREATE TABLE identity_template (
+  uuid_ uuid UNIQUE NOT NULL,
+  hash bigint NOT NULL
 ) WITH (
   OIDS=FALSE
 );

@@ -9,13 +9,15 @@ use std::sync::Mutex;
 use enum_set;
 use enum_set::EnumSet;
 
+use super::Datatype;
 use super::store::Store;
 
 
+pub mod artifact_graph;
 pub mod blob;
 
 pub struct Description {
-    datatype: super::Datatype,
+    pub datatype: Datatype,
     dependencies: Vec<DependencyDescription>,
 }
 
@@ -100,46 +102,55 @@ impl Into<Box<::repo::PostgresMigratable>> for StoreMetaController {
     fn into(self) -> Box<::repo::PostgresMigratable> {
         match self {
             StoreMetaController::Postgres(smc) => smc,
-            _ => panic!("StoreMetaController was not Postgres!"),
+            _ => panic!("Unknown store"),
         }
     }
 }
 
 pub fn build_module_datatype_models() -> Vec<Box<Model>> {
     vec![
-        Box::new(blob::Blob{}),
+        Box::new(artifact_graph::ArtifactGraphDtype {}),
+        Box::new(blob::Blob {}),
     ]
 }
 
 pub struct DatatypesRegistry {
     graph: super::Metadata,
-    pub types: HashMap<String, Box<Model>>,
+    types_idx: HashMap<String, daggy::NodeIndex>,
+    pub models: HashMap<String, Box<Model>>,
 }
 
 impl DatatypesRegistry {
     pub fn new() -> DatatypesRegistry {
         DatatypesRegistry {
             graph: ::Metadata { datatypes: daggy::Dag::new() },
-            types: HashMap::new(),
+            types_idx: HashMap::new(),
+            models: HashMap::new(),
+        }
+    }
+
+    pub fn get_datatype(&self, name: &str) -> Option<&Datatype> {
+        match self.types_idx.get(name) {
+            Some(idx) => self.graph.datatypes.node_weight(*idx),
+            None => None,
         }
     }
 
     pub fn register_datatype_models(&mut self, models: Vec<Box<Model>>) {
-        let mut idx_cache = HashMap::new();
         for model in &models {
             // Add datatype nodes.
             let description = model.info();
             let name = description.datatype.name.clone();
             let idx = self.graph.datatypes.add_node(description.datatype);
-            idx_cache.insert(name, idx);
+            self.types_idx.insert(name, idx);
         }
 
         for model in &models {
             // Add dependency edges.
             let description = model.info();
-            let node_idx = idx_cache.get(&description.datatype.name).expect("Unknown datatype.");
+            let node_idx = self.types_idx.get(&description.datatype.name).expect("Unknown datatype.");
             for dependency in description.dependencies {
-                let dep_idx = idx_cache.get(dependency.datatype_name).expect("Unknown datatype.");
+                let dep_idx = self.types_idx.get(dependency.datatype_name).expect("Unknown datatype.");
                 let relation = ::DatatypeRelation{name: dependency.name.into()};
                 self.graph.datatypes.add_edge(*node_idx, *dep_idx, relation).unwrap();
             }
@@ -148,7 +159,7 @@ impl DatatypesRegistry {
         // Add model lookup.
         for model in models {
             let description = model.info();
-            self.types.insert(description.datatype.name, model);
+            self.models.insert(description.datatype.name, model);
         }
     }
 }
