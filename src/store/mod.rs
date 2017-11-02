@@ -23,3 +23,18 @@ impl enum_set::CLike for Store {
         mem::transmute(v)
     }
 }
+
+
+pub enum Stored<T> {
+    Postgres(T),
+}
+
+impl<T> Stored<T> {
+    pub fn inner(&mut self) -> &mut T {
+        use self::Stored::*;
+
+        match *self {
+            Postgres(ref mut i) => i
+        }
+    }
+}

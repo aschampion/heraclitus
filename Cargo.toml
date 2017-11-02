@@ -16,8 +16,13 @@ path = "src/bin.rs"
 [dependencies]
 daggy = "*"
 enum-set = "*"
-postgres = "0.13"
+lazy_static = "*"
+petgraph = { version = "*", features = ["serde-1"] }
+postgres = { version = "0.13", features = ["with-uuid"] }
 schemamama = "0.2"
 schemamama_postgres = "0.2"
+serde = "*"
+serde_derive = "*"
+serde_json = "*"
 url = "*"
-uuid = { version = "0.4", features = ["use_std", "v4"] }
+uuid = { version = "0.4", features = ["use_std", "v4", "v5"] }

@@ -23,7 +23,7 @@ impl super::Model for Blob {
         Description {
             datatype: Datatype::new(
                 // TODO: Fake UUID.
-                Uuid::new_v4(),
+                // Uuid::new_v4(),
                 "Blob".into(),
                 1,
                 vec![DatatypeRepresentationKind::State]
@@ -59,6 +59,16 @@ impl super::Model for Blob {
 // 3. For fns generic to store: ??? PostgresDatatypeModelController? (Ugh.)
 //    (Or MetaController<StoreType>?)
 // 4. For fns specific to store's implementation of this dtype: concrete struct impl
+//    ^^ SHOULD BE CRATE PRIVATE
+
+// For the enum-based modelcontroller scheme, these would be:
+// 1. MetaController
+// 2. ModelController
+// 3. [Postgres]MetaController
+//
+// ... and the specific controller returned by `Model.controller` can be a
+// compose of these traits, because it need not be the same trait for all
+// store backends.
 //
 // - What facets of this work through trait objects and what through
 //   monomorphization?
@@ -128,7 +138,7 @@ trait ModelController: super::ModelController {
 struct PostgresStore {}
 
 struct PGMigrationBlobs;
-migration!(PGMigrationBlobs, 1, "create blob table");
+migration!(PGMigrationBlobs, 3, "create blob table");
 
 impl PostgresMigration for PGMigrationBlobs {
     fn up(&self, transaction: &Transaction) -> Result<(), PostgresError> {
