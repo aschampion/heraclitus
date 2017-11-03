@@ -16,7 +16,7 @@ use url::Url;
 use uuid::Uuid;
 
 use ::{Context, Error};
-use ::datatype::DatatypesRegistry;
+use ::datatype::{DatatypesRegistry, PostgresMetaController};
 use ::store::Stored;
 
 // pub type StoreRepoController = Stored<Box<RepoController>>;
@@ -153,7 +153,7 @@ impl RepoController for PostgresRepoController {
         migrator.register(Box::new(PGMigrationDatatypes));
 
         for model in dtypes_registry.models.values() {
-            let smc: Box<PostgresMigratable> = model.controller(::store::Store::Postgres)
+            let smc: Box<PostgresMetaController> = model.controller(::store::Store::Postgres)
                 .expect("Model does not have a Postgres controller.")
                 .into();
             smc.register_migrations(&mut migrator);

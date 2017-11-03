@@ -104,7 +104,7 @@ impl PostgresMigration for PGMigrationArtifactGraphs {
 }
 
 
-impl super::MetaController<PostgresRepoController> for PostgresStore {
+impl super::MetaController for PostgresStore {
     // fn register_with_repo(&self, repo_controller: &mut PostgresRepoController) {
     //     repo_controller.register_postgres_migratable(Box::new(*self));
     // }
@@ -115,6 +115,8 @@ impl PostgresMigratable for PostgresStore {
         migrator.register(Box::new(PGMigrationArtifactGraphs));
     }
 }
+
+impl super::PostgresMetaController for PostgresStore {}
 
 impl ModelController for PostgresStore {
     fn list_graphs(&self) -> Vec<Identity> {
