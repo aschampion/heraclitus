@@ -4,6 +4,7 @@ extern crate daggy;
 extern crate enum_set;
 #[macro_use]
 extern crate lazy_static;
+extern crate petgraph;
 extern crate postgres;
 #[macro_use]
 extern crate schemamama;
@@ -150,9 +151,7 @@ impl<'a> ArtifactGraph<'a> {
             desc: &ArtifactGraphDescription,
             dtypes_registry: &'a DatatypesRegistry) -> ArtifactGraph<'a> {
         let desc_graph = desc.artifacts.graph();
-        // TODO: replace with petgraph .externals(Incoming)
-        let mut to_visit = desc_graph.node_indices()
-                .filter(|i| desc.artifacts.parents(*i).iter(&desc.artifacts).count() == 0)
+        let mut to_visit = desc_graph.externals(petgraph::Direction::Incoming)
                 .collect::<VecDeque<_>>();
 
         let mut artifacts: daggy::Dag<ArtifactNode, ArtifactRelation> = daggy::Dag::new();
@@ -168,6 +167,7 @@ impl<'a> ArtifactGraph<'a> {
                     let mut s = DefaultHasher::new();
 
                     // TODO: replace with petgraph neighbors
+                    // TODO: this ordering needs to be deterministic
                     for (_, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
                         let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
                         let new_p = artifacts.node_weight(*new_p_idx).expect("Graph is malformed.");
@@ -224,16 +224,57 @@ impl<'a> ArtifactGraph<'a> {
             artifacts: artifacts,
         }
     }
+
+    fn verify_hash(&self) -> bool {
+        let desc_graph = self.artifacts.graph();
+        let mut to_visit = desc_graph.externals(petgraph::Direction::Incoming)
+                .collect::<VecDeque<_>>();
+
+        let mut ag_hash = DefaultHasher::new();
+
+        // Walk the description graph in descending dependency order.
+        loop {
+            match to_visit.pop_front() {
+                Some(node_idx) => {
+                    let mut s = DefaultHasher::new();
+
+                    // TODO: replace with petgraph neighbors
+                    // TODO: this ordering needs to be deterministic
+                    for (_, p_idx) in self.artifacts.parents(node_idx).iter(&self.artifacts) {
+                        match self.artifacts.node_weight(p_idx).expect("Graph is malformed.") {
+                            &ArtifactNode::Producer(ref inner) => inner.id.hash.hash(&mut s),
+                            &ArtifactNode::Artifact(ref inner) => inner.id.hash.hash(&mut s),
+                        }
+                    }
+
+                    let node = self.artifacts.node_weight(node_idx).expect("Graph is malformed.");
+                    match node {
+                        &ArtifactNode::Producer(ref p) => {
+                            p.hash(&mut s);
+                            if s.finish() != p.id.hash { return false; }
+                            p.id.hash.hash(&mut ag_hash);
+                        },
+                        &ArtifactNode::Artifact(ref a) => {
+                            a.hash(&mut s);
+                            if s.finish() != a.id.hash { return false; }
+                            a.id.hash.hash(&mut ag_hash);
+                        },
+                    };
+
+                    for (_, c_idx) in self.artifacts.children(node_idx).iter(&self.artifacts) {
+                        to_visit.push_back(c_idx);
+                    }
+                },
+                None => break
+            }
+        }
+
+        self.id.hash == ag_hash.finish()
+    }
 }
 
 /// An `Artifact` represents a collection of instances of a `Datatype` that can
 /// exist in dependent relationships with other artifacts and producers.
-///
-/// TODO: An artifact's hash should be based on:
-/// - Its datatype's hash
-/// - Its name
-/// - The hashes of the artifacts on which it depends (which must be
-///   deterministically ordered)
 pub struct Artifact<'a> {
     id: Identity,
     name: Option<String>,
@@ -266,7 +307,6 @@ pub enum ArtifactNode<'a> {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ArtifactRelation {
     DtypeDepends(DatatypeRelation),
-    ProducedBy(String),
     ProducedFrom(String),
 }
 
