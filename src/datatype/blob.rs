@@ -151,7 +151,7 @@ impl PostgresMigration for PGMigrationBlobs {
 }
 
 
-impl super::MetaController<PostgresRepoController> for PostgresStore {
+impl super::MetaController for PostgresStore {
     // fn register_with_repo(&self, repo_controller: &mut PostgresRepoController) {
     //     repo_controller.register_postgres_migratable(Box::new(*self));
     // }
@@ -162,6 +162,8 @@ impl PostgresMigratable for PostgresStore {
         migrator.register(Box::new(PGMigrationBlobs));
     }
 }
+
+impl super::PostgresMetaController for PostgresStore {}
 
 impl super::ModelController for PostgresStore {}
 

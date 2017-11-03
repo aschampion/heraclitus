@@ -69,10 +69,12 @@ impl DependencyDescription {
 // ...doesn't work. Every consumer would rebuild, etc.
 //
 
-pub trait MetaController<T: ::repo::RepoController> {
-    // fn register_with_repo(&self, repo_controller: &mut T);
-
-    // Content hashing, etc.
+pub trait MetaController {
+    // fn version_graph<'a>(
+    //         &self,
+    //         repo_control: &mut ::repo::StoreRepoController,
+    //         artifact: &'a Artifact
+    // ) -> Result<VersionGraph<'a>, Error>;
 }
 
 pub trait Model {
@@ -85,7 +87,7 @@ pub trait Model {
     fn controller(&self, Store) -> Option<StoreMetaController>;
 }
 
-pub trait ModelController {} // TODO: Are there any general controller fns?
+pub trait ModelController {}
 
 // TODO:
 // - When/where are UUIDs generated? Do UUIDs change on versions? How does the map with hash equality?
@@ -94,15 +96,17 @@ pub trait ModelController {} // TODO: Are there any general controller fns?
 // - Sync/compare datatype defs with store
 //    - Fresh init vs diff update
 
+pub trait PostgresMetaController: MetaController + ::repo::PostgresMigratable {}
+
 pub enum StoreMetaController {
-    Postgres(Box<::repo::PostgresMigratable>),
+    Postgres(Box<PostgresMetaController>),
 }
 
-impl Into<Box<::repo::PostgresMigratable>> for StoreMetaController {
-    fn into(self) -> Box<::repo::PostgresMigratable> {
+impl Into<Box<PostgresMetaController>> for StoreMetaController {
+    fn into(self) -> Box<PostgresMetaController> {
         match self {
             StoreMetaController::Postgres(smc) => smc,
-            _ => panic!("Unknown store"),
+            _ => panic!("Wrong store type."),
         }
     }
 }
