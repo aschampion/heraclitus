@@ -1,14 +1,16 @@
 extern crate daggy;
+extern crate petgraph;
 extern crate serde;
 extern crate serde_json;
 extern crate uuid;
 
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use daggy::petgraph::visit::EdgeRef;
+use daggy::Walker;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use postgres::types::ToSql;
@@ -17,8 +19,11 @@ use schemamama_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
 use url::Url;
 
-use ::{Artifact, ArtifactGraph, ArtifactNode, ArtifactRelation, Context, DatatypeRelation, Error, Identity, Producer};
-use super::super::{Datatype, DatatypeRepresentationKind};
+use ::{
+    Artifact, ArtifactGraph, ArtifactNode, ArtifactRelation, Context,
+    Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Identity,
+    PartCompletion, Producer,
+    Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
 use super::{DatatypesRegistry, DependencyDescription, DependencyStoreRestriction, Description, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
@@ -57,14 +62,35 @@ pub trait ModelController {
     fn create_graph(
             &mut self,
             repo_control: &mut ::repo::StoreRepoController,
-            ag: &ArtifactGraph) -> Result<(), Error>;
+            art_graph: &ArtifactGraph) -> Result<(), Error>;
 
     fn get_graph<'a>(
             &self,
             repo_control: &mut ::repo::StoreRepoController,
             dtypes_registry: &'a DatatypesRegistry,
             id: &Identity) -> Result<ArtifactGraph<'a>, Error>;
+
+    fn create_staging_version(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        ver_graph: &VersionGraph,
+        v_idx: VersionGraphIndex,
+    ) -> Result<(), Error>;
+
+    fn commit_version(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        id: &Identity,
+    ) -> Result<(), Error>;
+
+    fn get_version<'a>(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &'a ArtifactGraph,
+        id: &Identity,
+    ) -> Result<(VersionGraphIndex, VersionGraph<'a>), Error>;
 }
+
 
 pub struct ArtifactGraphDescription {
     pub artifacts: daggy::Dag<ArtifactNodeDescription, ArtifactRelation>,
@@ -95,11 +121,11 @@ migration!(PGMigrationArtifactGraphs, 2, "create artifact graph table");
 
 impl PostgresMigration for PGMigrationArtifactGraphs {
     fn up(&self, transaction: &Transaction) -> Result<(), PostgresError> {
-        transaction.batch_execute(include_str!("artifact_graph_0001.up.sql"))
+        transaction.batch_execute(include_str!("sql/artifact_graph_0001.up.sql"))
     }
 
     fn down(&self, transaction: &Transaction) -> Result<(), PostgresError> {
-        transaction.execute("DROP TABLE artifact_graph;", &[]).map(|_| ())
+        transaction.batch_execute(include_str!("sql/artifact_graph_0001.down.sql"))
     }
 }
 
@@ -126,7 +152,7 @@ impl ModelController for PostgresStore {
     fn create_graph(
             &mut self,
             repo_control: &mut ::repo::StoreRepoController,
-            ag: &ArtifactGraph) -> Result<(), Error> {
+            art_graph: &ArtifactGraph) -> Result<(), Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
             _ => panic!("PostgresStore received a non-Postgres context")
@@ -138,33 +164,42 @@ impl ModelController for PostgresStore {
         let ag_id_row = trans.query(r#"
                 INSERT INTO artifact_graph (uuid_, hash)
                 VALUES ($1, $2) RETURNING id;
-                "#, &[&ag.id.uuid, &(ag.id.hash as i64)])?;
+            "#, &[&art_graph.id.uuid, &(art_graph.id.hash as i64)])?;
         // let ag_id = ag_id_row.into_iter().nth(0).ok_or(Error::Store("Insert failed.".into()))?;
         let ag_id: i64 = ag_id_row.get(0).get(0);
 
         let mut id_map = HashMap::new();
         let insert_producer = trans.prepare(r#"
-                INSERT INTO producer (uuid_, hash, name, artifact_graph_id)
-                VALUES ($1, $2, $3, $4)
-                RETURNING id;"#)?;
+                WITH insert_artifact_node AS (
+                    INSERT INTO artifact_node (uuid_, hash, artifact_graph_id)
+                    VALUES ($1, $2, $3)
+                    RETURNING id)
+                INSERT INTO producer (artifact_node_id, name)
+                SELECT id, $4 FROM insert_artifact_node
+                RETURNING artifact_node_id;
+            "#)?;
         let insert_artifact = trans.prepare(r#"
-                INSERT INTO artifact (uuid_, hash, name, datatype_id, artifact_graph_id)
-                SELECT r.testthis, r.hash, r.name, d.id, r.artifact_graph_id
-                FROM (VALUES ($1::uuid, $2::bigint, $3, $4, $5::bigint))
-                AS r (testthis, hash, name, datatype_name, artifact_graph_id)
-                JOIN datatype d ON d.name = r.datatype_name
-                RETURNING id;"#)?;
+                WITH insert_artifact_node AS (
+                    INSERT INTO artifact_node (uuid_, hash, artifact_graph_id)
+                    VALUES ($1, $2, $3)
+                    RETURNING id)
+                INSERT INTO artifact (artifact_node_id, name, datatype_id)
+                SELECT ian.id, $4, d.id
+                FROM insert_artifact_node ian
+                JOIN datatype d ON d.name = $5
+                RETURNING artifact_node_id;
+            "#)?;
 
-        for idx in ag.artifacts.graph().node_indices() {
-            let node = ag.artifacts.node_weight(idx).unwrap();
+        for idx in art_graph.artifacts.graph().node_indices() {
+            let node = art_graph.artifacts.node_weight(idx).unwrap();
             let node_id_row = match node {
                 &ArtifactNode::Producer(ref prod) =>
                     insert_producer.query(&[
-                        &prod.id.uuid, &(prod.id.hash as i64), &prod.name, &ag_id])?,
+                        &prod.id.uuid, &(prod.id.hash as i64), &ag_id, &prod.name])?,
                 &ArtifactNode::Artifact(ref art) =>
                     insert_artifact.query(&[
-                        &art.id.uuid, &(art.id.hash as i64), &art.name,
-                        &art.dtype.name, &ag_id])?,
+                        &art.id.uuid, &(art.id.hash as i64), &ag_id,
+                         &art.name, &art.dtype.name])?,
             };
             let node_id: i64 = node_id_row.get(0).get(0);
 
@@ -172,13 +207,15 @@ impl ModelController for PostgresStore {
         }
 
         let art_prod_edge = trans.prepare(r#"
-                INSERT INTO artifact_producer_edge (source_id, dependent_id, name)
-                VALUES ($1, $2, $3);"#)?;
+                INSERT INTO artifact_edge (source_id, dependent_id, name, edge_type)
+                VALUES ($1, $2, $3, 'producer');
+            "#)?;
         let art_dtype_edge = trans.prepare(r#"
-                INSERT INTO artifact_dtype_edge (source_id, dependent_id, name)
-                VALUES ($1, $2, $3);"#)?;
+                INSERT INTO artifact_edge (source_id, dependent_id, name, edge_type)
+                VALUES ($1, $2, $3, 'dtype');
+            "#)?;
 
-        for e in ag.artifacts.graph().edge_references() {
+        for e in art_graph.artifacts.graph().edge_references() {
             let source_id = id_map.get(&e.source()).expect("Graph is malformed.");
             let dependent_id = id_map.get(&e.target()).expect("Graph is malformed.");
             match e.weight() {
@@ -206,6 +243,8 @@ impl ModelController for PostgresStore {
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
 
+        // TODO: not using the identity hash. Requires some decisions about how
+        // to handle get-by-UUID vs. get-with-verified-hash.
         let ag_rows = trans.query(r#"
                 SELECT id, uuid_, hash
                 FROM artifact_graph
@@ -222,21 +261,25 @@ impl ModelController for PostgresStore {
                     an.id,
                     an.uuid_,
                     an.hash,
-                    an.name,
+                    a.name,
                     d.name
-                FROM (
-                    SELECT id, uuid_, hash, name, datatype_id
-                    FROM artifact
-                    WHERE artifact_graph_id = $1
+                FROM artifact a
+                JOIN artifact_node an ON an.id = a.artifact_node_id
+                JOIN datatype d ON a.datatype_id = d.id
+                WHERE artifact_graph_id = $1
 
-                    UNION
+                UNION
 
-                    SELECT id, uuid_, hash, name, NULL
-                    FROM producer
-                    WHERE artifact_graph_id = $1)
-                    AS an (id, uuid_, hash, name, datatype_id)
-                LEFT JOIN datatype d ON an.datatype_id = d.id;
-                "#, &[&ag_row.get::<_, i64>(0)])?;
+                SELECT
+                    an.id,
+                    an.uuid_,
+                    an.hash,
+                    p.name,
+                    NULL
+                FROM producer p
+                JOIN artifact_node an ON an.id = p.artifact_node_id
+                WHERE artifact_graph_id = $1;
+            "#, &[&ag_row.get::<_, i64>(0)])?;
 
         let mut artifacts: daggy::Dag<ArtifactNode, ArtifactRelation> = daggy::Dag::new();
         let mut idx_map = HashMap::new();
@@ -268,24 +311,15 @@ impl ModelController for PostgresStore {
                     ae.source_id,
                     ae.dependent_id,
                     ae.name,
-                    ae.class
-                FROM (
-                    SELECT pe.source_id, pe.dependent_id, pe.name, pe.tableoid::regclass::text
-                    FROM artifact_producer_edge pe
-                    WHERE pe.source_id = ANY($1::bigint[])
-
-                    UNION
-
-                    SELECT de.source_id, de.dependent_id, de.name, de.tableoid::regclass::text
-                    FROM artifact_producer_edge de
-                    WHERE de.source_id = ANY($1::bigint[]))
-                    AS ae (source_id, dependent_id, name, class);
-                "#, &[&idx_map.keys().collect::<Vec<_>>()])?;
+                    ae.edge_type::text
+                FROM artifact_edge ae
+                WHERE ae.source_id = ANY($1::bigint[]);
+            "#, &[&idx_map.keys().collect::<Vec<_>>()])?;
 
         for e in &edges {
             let relation = match e.get::<_, String>(3).as_ref() {
-                "artifact_producer_edge" => ArtifactRelation::ProducedFrom(e.get(2)),
-                "artifact_dtype_edge" => ArtifactRelation::DtypeDepends(DatatypeRelation {
+                "producer" => ArtifactRelation::ProducedFrom(e.get(2)),
+                "dtype" => ArtifactRelation::DtypeDepends(DatatypeRelation {
                     name: e.get(2),
                 }),
                 _ => return Err(Error::Store("Unknown artifact graph edge reltype.".into())),
@@ -301,6 +335,197 @@ impl ModelController for PostgresStore {
             id: ag_id,
             artifacts: artifacts,
         })
+    }
+
+    fn create_staging_version(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        ver_graph: &VersionGraph,
+        v_idx: VersionGraphIndex,
+    ) -> Result<(), Error> {
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        let ver = ver_graph.node_weight(v_idx).expect("Index is not in version graph");
+        // TODO: should we check that hash is nil here?
+
+        let ver_id_row = trans.query(r#"
+                INSERT INTO version (uuid_, hash, artifact_node_id)
+                SELECT r.uuid_, r.hash, an.id
+                FROM (VALUES ($1::uuid, $2::bigint, $3::uuid))
+                AS r (uuid_, hash, an_uuid)
+                JOIN artifact_node an ON an.uuid_ = r.an_uuid
+                RETURNING id;
+            "#, &[&ver.id.uuid, &(ver.id.hash as i64), &ver.artifact.id().uuid])?;
+        let ver_id: i64 = ver_id_row.get(0).get(0);
+
+        let insert_parent = trans.prepare(r#"
+                INSERT INTO version_parent (parent_id, child_id)
+                SELECT v.id, r.child_id
+                FROM (VALUES ($1::uuid, $2::bigint))
+                AS r (parent_uuid, child_id)
+                JOIN version v ON v.uuid_ = r.parent_uuid;
+            "#)?;
+        let insert_relation = trans.prepare(r#"
+                INSERT INTO version_relation
+                  (source_version_id, dependent_version_id, source_id, dependent_id)
+                SELECT vp.id, r.child_id, vp.artifact_node_id, vc.artifact_node_id
+                FROM (VALUES ($1::uuid, $2::bigint))
+                AS r (parent_uuid, child_id)
+                JOIN version vp ON vp.uuid_ = r.parent_uuid
+                JOIN version vc ON vc.id = r.child_id;
+            "#)?;
+
+        for (e_idx, p_idx) in ver_graph.parents(v_idx).iter(&ver_graph) {
+            let edge = ver_graph.edge_weight(e_idx).expect("Graph is malformed.");
+            let parent = ver_graph.node_weight(p_idx).expect("Graph is malformed");
+            match *edge {
+                VersionRelation::Dependence(ref art_rel) => &insert_relation,
+                VersionRelation::Parent => &insert_parent,
+            }.execute(&[&parent.id.uuid, &ver_id])?;
+        }
+
+        trans.set_commit();
+        Ok(())
+    }
+
+    fn commit_version(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        id: &Identity,
+    ) -> Result<(), Error> {
+        // TODO: implement once PG version has status
+        Ok(())
+    }
+
+    fn get_version<'a>(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &'a ArtifactGraph,
+        id: &Identity,
+    ) -> Result<(VersionGraphIndex, VersionGraph<'a>), Error> {
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        let mut ver_graph = VersionGraph::new();
+        let mut idx_map = BTreeMap::new();
+
+        // TODO: not using hash. See other comments.
+        let ver_node_rows = trans.query(r#"
+                SELECT v.id, v.uuid_, v.hash, an.uuid_, an.hash
+                FROM version v
+                JOIN artifact_node an ON an.id = v.artifact_node_id
+                WHERE v.uuid_ = $1::uuid
+            "#, &[&id.uuid])?;
+        let ver_node_row = ver_node_rows.get(0);
+        let ver_node_id: i64 = ver_node_row.get(0);
+        let an_id = Identity {
+            uuid: ver_node_row.get(3),
+            hash: ver_node_row.get::<_, i64>(4) as u64,
+        };
+        let (art_idx, art) = art_graph.find_artifact_by_id(&an_id).expect("Version references unkown artifact");
+        let ver_node = Version {
+            id: Identity {
+                uuid: ver_node_row.get(1),
+                hash: ver_node_row.get::<_, i64>(2) as u64,
+            },
+            artifact: art,
+            status: VersionStatus::Staging,  // TODO
+            representation: DatatypeRepresentationKind::State,  // TODO
+        };
+        let ver_node_idx = ver_graph.add_node(ver_node);
+        idx_map.insert(ver_node_id, ver_node_idx);
+
+        let ancestry_node_rows = trans.query(r#"
+                SELECT v.id, v.uuid_, v.hash, an.uuid_, an.hash, vp.parent_id, vp.child_id
+                FROM version_parent vp
+                JOIN version v
+                  ON ((vp.parent_id = $1 AND v.id = vp.child_id)
+                    OR (vp.child_id = $1 AND v.id = vp.parent_id))
+                JOIN artifact_node an ON an.id = v.artifact_node_id;
+            "#, &[&ver_node_id])?;
+        for row in &ancestry_node_rows {
+            let db_id = row.get::<_, i64>(0);
+            let an_id = Identity {
+                uuid: row.get(3),
+                hash: row.get::<_, i64>(4) as u64,
+            };
+            let v_node = Version {
+                id: Identity {
+                    uuid: row.get(1),
+                    hash: row.get::<_, i64>(2) as u64,
+                },
+                artifact: art_graph.find_artifact_by_id(&an_id).expect("Version references unkown artifact").1,
+                status: VersionStatus::Staging,  // TODO
+                representation: DatatypeRepresentationKind::State,  // TODO
+            };
+
+            let v_idx = ver_graph.add_node(v_node);
+            idx_map.insert(db_id, v_idx);
+
+            let edge = VersionRelation::Parent;
+            let parent_idx = idx_map.get(&row.get(5)).expect("Graph is malformed.");
+            let child_idx = idx_map.get(&row.get(6)).expect("Graph is malformed.");
+            ver_graph.add_edge(*parent_idx, *child_idx, edge);
+        }
+
+        let dependence_node_rows = trans.query(r#"
+                SELECT
+                  v.id, v.uuid_, v.hash,
+                  an.uuid_, an.hash,
+                  vr.dependent_version_id = $1
+                FROM version_relation vr
+                JOIN version v
+                  ON ((vr.dependent_version_id = $1 AND v.id = vr.source_version_id)
+                    OR (vr.source_version_id = $1 AND v.id = vr.dependent_version_id))
+                JOIN artifact_node an ON an.id = v.artifact_node_id;
+            "#, &[&ver_node_id])?;
+        for row in &dependence_node_rows {
+            let db_id = row.get::<_, i64>(0);
+            let an_id = Identity {
+                uuid: row.get(3),
+                hash: row.get::<_, i64>(4) as u64,
+            };
+            let (an_idx, an) = art_graph.find_artifact_by_id(&an_id).expect("Version references unkown artifact");
+            let v_node = Version {
+                id: Identity {
+                    uuid: row.get(1),
+                    hash: row.get::<_, i64>(2) as u64,
+                },
+                artifact: an,
+                status: VersionStatus::Staging,  // TODO
+                representation: DatatypeRepresentationKind::State,  // TODO
+            };
+
+            let v_idx = ver_graph.add_node(v_node);
+
+            let inbound = row.get(5);
+            let art_rel_idx = if inbound {
+                art_graph.artifacts.find_edge(an_idx, art_idx)
+            } else {
+                art_graph.artifacts.find_edge(art_idx, an_idx)
+            }.expect("Version graph references unknown artifact relation");
+            let art_rel = art_graph.artifacts.edge_weight(art_rel_idx).expect("Graph is malformed");
+            let edge = VersionRelation::Dependence(art_rel);
+            let (parent_idx, child_idx) = if inbound {
+                (v_idx, ver_node_idx)
+            } else {
+                (ver_node_idx, v_idx)
+            };
+            ver_graph.add_edge(parent_idx, child_idx, edge);
+        }
+
+        Ok((ver_node_idx, ver_graph))
     }
 }
 
@@ -319,41 +544,80 @@ mod tests {
             name: Some("Test Blob".into()),
             dtype: "Blob".into() });
         let blob_node_idx = artifacts.add_node(blob_node);
-        artifacts.add_edge(prod_node_idx, blob_node_idx, ArtifactRelation::ProducedFrom("Test Dep".into()));
+        artifacts.add_edge(
+            prod_node_idx,
+            blob_node_idx,
+            ArtifactRelation::ProducedFrom("Test Dep".into())).unwrap();
         let ag_desc = ArtifactGraphDescription {
             artifacts: artifacts,
         };
 
         let mut context = ::repo::tests::init_postgres_repo();
 
-        let ag = ArtifactGraph::from_description(&ag_desc, &context.dtypes_registry);
+        let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, &context.dtypes_registry);
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
         let mut model_ctrl: Box<ModelController> = Box::new(PostgresStore {});
 
         model_ctrl.create_graph(&mut context.repo_control, &ag).unwrap();
 
-        let ag2 = model_ctrl.get_graph(&mut context.repo_control, &context.dtypes_registry, &ag.id).unwrap();
+        let ag2 = model_ctrl.get_graph(&mut context.repo_control, &context.dtypes_registry, &ag.id)
+                            .unwrap();
         assert!(ag2.verify_hash());
-        assert!(ag.id.hash == ag2.id.hash);
+        assert_eq!(ag.id.hash, ag2.id.hash);
 
-        // let serialized = serde_json::to_string(artifacts.graph()).unwrap();
-        // println!("serialized = {}", serialized);
+        let mut ver_graph = VersionGraph::new();
+        let prod_node_idx_real = idx_map.get(&prod_node_idx).expect("Couldn't find producer");
+        let ver_prod = Version {
+            id: Identity {uuid: Uuid::new_v4(), hash: 0},
+            artifact: ag.artifacts.node_weight(*prod_node_idx_real).expect("Couldn't find producer"),
+            status: VersionStatus::Staging,
+            representation: DatatypeRepresentationKind::State,
+        };
+        let ver_prod_idx = ver_graph.add_node(ver_prod);
 
+        model_ctrl.create_staging_version(
+            &mut context.repo_control,
+            &ver_graph,
+            ver_prod_idx.clone()).unwrap();
+        // model_ctrl.commit_version(
+        //     &mut context.repo_control,
+        //     &ver_prod.id);
 
-        // let data = r#"{
-        //               "nodes": [
-        //                 {
-        //                   "Artifact": {
-        //                     "name": "Test Blob",
-        //                     "dtype": "blob"
-        //                   }
-        //                 }
-        //               ],
-        //               "node_holes": [],
-        //               "edge_property": "directed",
-        //               "edges": []
-        //             }"#;
+        let ver_node_idx_real = idx_map.get(&blob_node_idx).expect("Couldn't find blob");
+        let ver_blob = Version {
+            id: Identity {uuid: Uuid::new_v4(), hash: 0},
+            artifact: ag.artifacts.node_weight(*ver_node_idx_real).expect("Couldn't find blob"),
+            status: VersionStatus::Staging,
+            representation: DatatypeRepresentationKind::State,
+        };
+        let ver_blob_id = ver_blob.id.clone();
+        let ver_blob_idx = ver_graph.add_node(ver_blob);
 
-        // let deserialized: Point = serde_json::from_str(&data).unwrap();
+        let prod_blob_idx_real = ag.artifacts.find_edge(*prod_node_idx_real, *ver_node_idx_real)
+                                             .expect("Couldn't find relation");
+        let prod_blob_edge_real = ag.artifacts.edge_weight(prod_blob_idx_real).expect("Couldn't find relation");
+        ver_graph.add_edge(
+            ver_prod_idx,
+            ver_blob_idx,
+            VersionRelation::Dependence(prod_blob_edge_real)).unwrap();
+
+        model_ctrl.create_staging_version(
+            &mut context.repo_control,
+            &ver_graph,
+            ver_blob_idx.clone()).unwrap();
+        // model_ctrl.commit_version(
+        //     &mut context.repo_control,
+        //     &ver_blob.id);
+
+        let (ver_blob_idx2, ver_graph2) = model_ctrl.get_version(
+            &mut context.repo_control,
+            &ag,
+            &ver_blob_id).unwrap();
+
+        assert!(petgraph::algo::is_isomorphic_matching(
+            &ver_graph.graph(),
+            &ver_graph2.graph(),
+            |a, b| a.id == b.id,
+            |_, _| true));
     }
 }
