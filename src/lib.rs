@@ -17,7 +17,7 @@ extern crate url;
 extern crate uuid;
 
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io;
@@ -55,14 +55,14 @@ pub enum Error {
 
 //struct InternalId(u64);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Identity {
     uuid: Uuid,
-    hash: u64,
+    hash: u64, // TODO: does, e.g., a delta version hash its whole state or the delta state?
     //internal: InternalId,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[repr(u32)]
 pub enum DatatypeRepresentationKind {
     State,
@@ -85,7 +85,10 @@ lazy_static! {
     static ref DATATYPES_UUID_NAMESPACE: Uuid = Uuid::parse_str("a95d827d-3a11-405e-b9e0-e43ffa620d33").unwrap();
 }
 
+#[derive(Debug)]
 pub struct Datatype {
+    // TODO: Not clear that identity is needed as canonical resolution is
+    // through name, but here for consistency with other data structures.
     id: Identity,
     name: String,
     version: u64,
@@ -140,22 +143,25 @@ pub struct Context {
     repo_control: repo::StoreRepoController,
 }
 
+type ArtifactGraphIndexType = petgraph::graph::DefaultIx;
+pub type ArtifactGraphIndex = petgraph::graph::NodeIndex<ArtifactGraphIndexType>;
 /// A graph expressing the dependence structure between sets of data artifacts.
 pub struct ArtifactGraph<'a> {
     id: Identity,
-    artifacts: daggy::Dag<ArtifactNode<'a>, ArtifactRelation>,
+    artifacts: daggy::Dag<ArtifactNode<'a>, ArtifactRelation, ArtifactGraphIndexType>,
 }
 
 impl<'a> ArtifactGraph<'a> {
     fn from_description(
-            desc: &ArtifactGraphDescription,
-            dtypes_registry: &'a DatatypesRegistry) -> ArtifactGraph<'a> {
+        desc: &ArtifactGraphDescription,
+        dtypes_registry: &'a DatatypesRegistry
+    ) -> (ArtifactGraph<'a>, BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex>) {
         let desc_graph = desc.artifacts.graph();
         let mut to_visit = desc_graph.externals(petgraph::Direction::Incoming)
                 .collect::<VecDeque<_>>();
 
         let mut artifacts: daggy::Dag<ArtifactNode, ArtifactRelation> = daggy::Dag::new();
-        let mut idx_map = HashMap::new();
+        let mut idx_map = BTreeMap::new();
         let mut ag_hash = DefaultHasher::new();
 
         // Walk the description graph in descending dependency order to build
@@ -216,13 +222,13 @@ impl<'a> ArtifactGraph<'a> {
             }
         }
 
-        ArtifactGraph {
+        (ArtifactGraph {
             id: Identity {
                 uuid: Uuid::new_v4(),
                 hash: ag_hash.finish(),
             },
             artifacts: artifacts,
-        }
+        }, idx_map)
     }
 
     fn verify_hash(&self) -> bool {
@@ -271,10 +277,26 @@ impl<'a> ArtifactGraph<'a> {
 
         self.id.hash == ag_hash.finish()
     }
+
+    fn find_artifact_by_id(
+        &self,
+        id: &Identity
+    ) -> Option<(ArtifactGraphIndex, &ArtifactNode)> {
+        let graph = self.artifacts.graph();
+        for node_idx in graph.node_indices() {
+            let node = graph.node_weight(node_idx).expect("Graph is malformed");
+            if node.id() == id {
+                return Some((node_idx, node))
+            }
+        }
+
+        None
+    }
 }
 
 /// An `Artifact` represents a collection of instances of a `Datatype` that can
 /// exist in dependent relationships with other artifacts and producers.
+#[derive(Debug)]
 pub struct Artifact<'a> {
     id: Identity,
     name: Option<String>,
@@ -288,9 +310,18 @@ impl<'a> Hash for Artifact<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Producer {
     id: Identity,
     name: String,
+    // TODO:
+    // - Does this producer handle changes incrementally or cumulatively/in batches?
+    // - Types:
+    //   - Handle only
+    //   - RPC/push notify
+    //   - Directly invoked
+    //     - Rust/FFI call (how is this serialized?)
+    //     - Script?
 }
 
 impl Hash for Producer {
@@ -299,9 +330,19 @@ impl Hash for Producer {
     }
 }
 
+#[derive(Debug)]
 pub enum ArtifactNode<'a> {
     Producer(Producer),
     Artifact(Artifact<'a>),
+}
+
+impl<'a> ArtifactNode<'a> {
+    fn id(&self) -> &Identity {
+        match self {
+            &ArtifactNode::Producer(ref p) => &p.id,
+            &ArtifactNode::Artifact(ref a) => &a.id,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -310,34 +351,61 @@ pub enum ArtifactRelation {
     ProducedFrom(String),
 }
 
-enum VersionStatus {
+
+type VersionGraphIndexType = petgraph::graph::DefaultIx;
+pub type VersionGraphIndex = petgraph::graph::NodeIndex<VersionGraphIndexType>;
+pub type VersionGraph<'a> = daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType>;
+// TODO: should either use the below in most interfaces or make the above also have pruning.
+pub type VersionSubgraph<'a> = daggy::Dag<VersionNode<'a>, VersionRelation<'a>, VersionGraphIndexType>;
+
+#[derive(Debug)]
+pub enum VersionRelation<'a>{
+    Dependence(&'a ArtifactRelation),
+    Parent,
+}
+
+#[derive(Debug)]
+pub enum VersionStatus {
     Staging,
     Committed,
 }
 
-type VersionGraph<'a> = daggy::Dag<Version<'a>, ArtifactRelation>;
+#[derive(Debug)]
+pub enum VersionNode<'a> {
+    Complete(Version<'a>),
+    Pruned(Version<'a>),
+}
 
-struct Version<'a> {
+#[derive(Debug)]
+pub struct Version<'a> {
     id: Identity,
-    artifact: &'a Artifact<'a>,
+    artifact: &'a ArtifactNode<'a>,
     status: VersionStatus,
     representation: DatatypeRepresentationKind,
 }
 
-struct Partition<'a> {
+pub type PartitionIndex = u64;
+const UNARY_PARTITION_INDEX: PartitionIndex = 0;
+
+#[derive(Debug)]
+pub struct Partition<'a> {
     partitioning: &'a Version<'a>,
-    index: u64,
+    index: PartitionIndex,
+    // TODO: also need to be able to handle partition types (leaf v. neighborhood, level, arbitrary)
 }
 
-enum PartCompletion {
+#[derive(Debug)]
+pub enum PartCompletion {
     Complete,
     Ragged,
 }
 
-struct Hunk<'a> {
+#[derive(Debug)]
+pub struct Hunk<'a> {
     // Is this a Hunk or a Patch (in which case changeset items would be hunks)?
     id: Identity,
     version: &'a Version<'a>,
-    partition: Partition<'a>,
+    partition: Option<Partition<'a>>,
     completion: PartCompletion,
+    // TODO: do hunks also need a DatatypeRepresentationKind?
 }

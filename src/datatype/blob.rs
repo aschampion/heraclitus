@@ -11,7 +11,7 @@ use schemamama_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
 use url::Url;
 
-use super::super::{Datatype, DatatypeRepresentationKind};
+use super::super::{Datatype, DatatypeRepresentationKind, Error, Hunk};
 use super::{DependencyDescription, DependencyStoreRestriction, Description, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
@@ -75,12 +75,17 @@ impl super::Model for Blob {
 // - Below we have this ModelController extend a generic trait, in addition to
 //   composing with the MetaController trait. Which is preferrable?
 
-trait ModelController: super::ModelController {
+pub trait ModelController: super::ModelController {
     // Does this return a version? No, should be graph controller, right? But
     // then how is this version bootstrapped? What about squashing/staging in
     // existing versions?
-    // fn write(&self, context: &::Context, version: &::Version, blob: &[u8]);
-    // fn read(&self, context: &::Context, version: &::Version) -> Vec<u8>;
+    fn write(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunk: &::Hunk,
+        blob: &[u8],
+    ) -> Result<(), Error>;
+    // fn read(&self, context: &::Context, version: &::Hunk) -> Vec<u8>;
 }
 
 // // Sketching: could this all be done with monomorph?
@@ -142,7 +147,7 @@ migration!(PGMigrationBlobs, 3, "create blob table");
 
 impl PostgresMigration for PGMigrationBlobs {
     fn up(&self, transaction: &Transaction) -> Result<(), PostgresError> {
-        transaction.execute("CREATE TABLE blob_dtype (id BIGINT PRIMARY KEY);", &[]).map(|_| ())
+        transaction.batch_execute(include_str!("sql/blob_0001.up.sql"))
     }
 
     fn down(&self, transaction: &Transaction) -> Result<(), PostgresError> {
@@ -168,9 +173,14 @@ impl super::PostgresMetaController for PostgresStore {}
 impl super::ModelController for PostgresStore {}
 
 impl ModelController for PostgresStore {
-//     fn write(&self, context: &::Context, version: &::Version, blob: &[u8]) {
-//         unimplemented!();
-//     }
+    fn write(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunk: &::Hunk,
+        blob: &[u8],
+    ) -> Result<(), Error> {
+        unimplemented!()
+    }
 
 //     fn read(&self, context: &::Context, version: &::Version) -> Vec<u8> {
 //         // TODO: mocked.

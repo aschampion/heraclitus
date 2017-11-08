@@ -33,19 +33,61 @@ Guidelines
   - TODO:
     - [x] AG schema
     - [x] Artifact schema
-    - [ ] How do the lifetimes work? Need to depend on DatatypeRegistry somehow?
+    - [x] How do the lifetimes work? Need to depend on DatatypeRegistry somehow?
     - [ ] list_graphs
-    - [ ] create_graph
-      - [ ] Who creates identity? Client, store controller, or store/DB?
+    - [x] create_graph
+      - [x] Who creates identity? Client, store controller, or store/DB?
         - DB would seem to be out because some backends may not have generators, plus would seem to be
           best to do it at common locus where the data is already loaded, so client or store control.
-    - [ ] get_graph
+    - [x] get_graph
+- [ ] Goal: version graph for blob dtype (no partitions?)
+  - Who owns version tables?
+    - If each datatype, may still want to provide macro for creating default PG handling for version tables.
+    - If artifact graph datatype controller, will want to provide macros for other dtypes to use those tables (unless the version graph getter is also moved to the ag controller)
+    - Do datatypes need to directly access version tables to do clever partitioning, materialization, etc.? This is the only motivation I can imagine for having dtype-specific version tables.
+    - Answer: for now, clearly AG or another general controller.
+  - Can multiple roots exist in a version graph?
+    - Git can, so may as well.
+  - May not be able to ignore partitions.
+    - Instead, assume partitions are static/immutable, and only deal with the unary partitioning.
+    - Must every datatype depend on a partitioning, even if the partitioning is unary?
+      - If access is through Hunks/Chunks, would seem to be simplest.
+      - Partitions would usually point to the unary partition for their partitioning. Unary partition points to itself (identity) -- but this is a cycle (self-loop), so maybe special case None partition handling is fine? Yes, no "partition" datatype relation will load a fake unary partition. Tricky how not to let this get serialized back with AGs or affect their hash, though.
+    - How to get Version's map of current partition chunks? Chunks only reference their creation version.
+      - For now, get a list of all partition IDs from the partition. Walk backwards down the version graph accumulating partitions at each version for partion indices that weren't previously set. If you encounter an unexpected ID, means something is malformed bc partition changed w/o updating partitions right. Will have to think through how to handle unset partition and other partition completion issues separately. Can further optimize on top of this fallback later.
+    - Need a few things:
+      - [ ] Partitioning trait that all partition datatypes implement
+        - [ ] Will also eventually need more tailored generic types, e.g., spatial partitionings for partitions that have bounds to allow for generic repartitioning/partition split/merge
+      - [ ] Way to get this from datatype controllers
+      - [ ] Unary partition
+      - [ ] Dummy unary partition instance/singleton
+      - [ ] Decide: how are dummy unary partitions not serialized/etc?
+      - [ ] Postgres: need way for controllers to get unique IDs/prefix for dtype+artifact+version
 - [ ] Goal: artifact graph with producer: test fake dtypes `nodes` and `components`, with a producer that computes CCs of node arborescences
   - Demonstrates:
     - Producer flow
     - Registration of custom dtypes
     - Dependent states
 - [ ] Goal: delta state updates in fake dtypes test
+- [ ] Goal: partitions in fake dtypes test
+- [ ] Goal: branches/tags/reflist
+- [ ] Goal: rocket list of dtypes/ags (hera-server)
+- [ ] Goal: plotly plot of dtypes/ags (hera-server)
+  - 3 stratified plot areas: dtypes, AG, VG
+
+
+- Are producers just datatypes?
+  - Need to be in version graph to preserve art vers relationships across producer nodes
+  - Their version ID would make it easy to store logs/metadata output
+  - OK: for now leave them as separate concept but incude them in version graph
+
+
+Dtype controllers and web view:
+- Dtypes also have (non-model) APIControllers. The expose higher-level semantic operations, but are only able to interface with (non-store-specific) ModelControllers. Not clear if these are HTTP specific. (Decision: they aren't)
+  - These higher level controls should also be more focused on the payload datatypes and note take the internal datastructures (AGs, VGs, etc.) as arguments, only identifiers for them.
+  - FFI use should be able to call either the ModelControllers or APIControllers
+    - Scratch that, use as a rust lib should be able to call either, FFI will most likely only be able to call API controllers because of lifetimes
+- Also have view controllers (in JS/TypeScript or via emscripten?) that can only talk to HTTP APIControllers. These can be embedded in the web frontend, so that it doesn't need to be aware of every dtype.
 
 
 - There is some common abstracted structure between descriptions, identified entities, instantiated entities, etc. For example, AG is both the DAG and the DAG + ID. Should structure this.

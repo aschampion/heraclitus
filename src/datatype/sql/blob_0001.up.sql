@@ -1,0 +1,6 @@
+CREATE TABLE blob_dtype (
+  hunk_id bigint PRIMARY KEY REFERENCES hunk (id) DEFERRABLE INITIALLY IMMEDIATE,
+  blob bytea NOT NULL
+) WITH (
+  OIDS=FALSE
+);

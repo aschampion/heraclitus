@@ -1,0 +1,99 @@
+CREATE TABLE artifact_graph (
+  id bigserial PRIMARY KEY,
+  LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES
+  -- name text UNIQUE NOT NULL
+) WITH (
+  OIDS=FALSE
+);
+
+CREATE TABLE artifact_node (
+  id bigserial PRIMARY KEY,
+  LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
+  artifact_graph_id bigint NOT NULL REFERENCES artifact_graph (id) DEFERRABLE INITIALLY IMMEDIATE
+) WITH (
+  OIDS=FALSE
+);
+
+-- Cannot use inheritance for artifact/producer because FKs will reference them.
+CREATE TABLE artifact (
+  artifact_node_id bigint PRIMARY KEY REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE,
+  datatype_id bigint NOT NULL REFERENCES datatype (id),
+  name text
+) WITH (
+  OIDS=FALSE
+);
+
+CREATE TABLE producer (
+  artifact_node_id bigint PRIMARY KEY REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE,
+  name text NOT NULL
+) WITH (
+  OIDS=FALSE
+);
+
+CREATE TYPE artifact_edge_type AS ENUM (
+  'dtype',
+  'producer'
+);
+
+CREATE TABLE artifact_edge (
+  source_id bigint NOT NULL REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE,
+  dependent_id bigint NOT NULL REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE,
+  edge_type artifact_edge_type NOT NULL,
+  name text NOT NULL,
+  PRIMARY KEY (source_id, dependent_id)
+) WITH (
+  OIDS=FALSE
+);
+
+-- Cannot use inheritance for edge types because FKs will reference them.
+-- CREATE TABLE artifact_producer_edge (
+--   name text NOT NULL
+-- ) INHERITS (artifact_edge)
+-- WITH (
+--   OIDS=FALSE
+-- );
+
+-- CREATE TABLE artifact_dtype_edge (
+--   name text NOT NULL
+-- ) INHERITS (artifact_edge)
+-- WITH (
+--   OIDS=FALSE
+-- );
+
+CREATE TABLE version (
+  id bigserial PRIMARY KEY,
+  LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
+  artifact_node_id bigint NOT NULL REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE
+  -- TODO ignoring version status
+  -- TODO ignoring datatype representation kind
+) WITH (
+  OIDS=FALSE
+);
+
+CREATE TABLE version_parent (
+  parent_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
+  child_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE
+  -- TODO existence of this relation implies versions reference same artifact, may be a check constraint
+) WITH (
+  OIDS=FALSE
+);
+
+CREATE TABLE version_relation (
+  source_version_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
+  dependent_version_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
+  source_id bigint NOT NULL,
+  dependent_id bigint NOT NULL,
+  FOREIGN KEY (source_id, dependent_id) REFERENCES artifact_edge (source_id, dependent_id) DEFERRABLE INITIALLY IMMEDIATE
+) WITH (
+  OIDS=FALSE
+);
+
+CREATE TABLE hunk (
+  id bigserial PRIMARY KEY,
+  LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
+  version_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
+  partition_id bigint
+  -- TODO ignoring completion
+) WITH (
+  OIDS=FALSE
+);

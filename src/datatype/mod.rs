@@ -15,6 +15,7 @@ use super::store::Store;
 
 pub mod artifact_graph;
 pub mod blob;
+pub mod partitioning;
 
 pub struct Description {
     pub datatype: Datatype,
