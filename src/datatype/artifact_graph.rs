@@ -6,8 +6,6 @@ extern crate uuid;
 
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
-use std::sync::Mutex;
 
 use daggy::petgraph::visit::EdgeRef;
 use daggy::Walker;
@@ -21,8 +19,8 @@ use url::Url;
 
 use ::{
     Artifact, ArtifactGraph, ArtifactNode, ArtifactRelation, Context,
-    Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Identity,
-    PartCompletion, Producer,
+    Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Hunk, Identity,
+    PartCompletion, Partition, Producer,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
 use super::{DatatypesRegistry, DependencyDescription, DependencyStoreRestriction, Description, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
@@ -34,24 +32,35 @@ impl super::Model for ArtifactGraphDtype {
     fn info(&self) -> Description {
         Description {
             datatype: Datatype::new(
-                // TODO: Fake UUID.
-                // Uuid::new_v4(),
                 "ArtifactGraph".into(),
                 1,
                 vec![DatatypeRepresentationKind::State]
                     .into_iter()
                     .collect(),
             ),
-            // TODO: Fake dependency.
             dependencies: vec![],
         }
     }
 
-    fn controller(&self, store: Store) -> Option<super::StoreMetaController> {
+    fn meta_controller(&self, store: Store) -> Option<super::StoreMetaController> {
         match store {
             Store::Postgres => Some(super::StoreMetaController::Postgres(Box::new(PostgresStore {}))),
             _ => None,
         }
+    }
+
+    fn partitioning_controller(
+        &self,
+        store: Store
+    ) -> Option<Box<super::partitioning::PartitioningController>> {
+        None
+    }
+}
+
+pub fn model_controller(store: Store) -> impl ModelController {
+    match store {
+        Store::Postgres => PostgresStore {},
+        _ => unimplemented!(),
     }
 }
 
@@ -89,6 +98,12 @@ pub trait ModelController {
         art_graph: &'a ArtifactGraph,
         id: &Identity,
     ) -> Result<(VersionGraphIndex, VersionGraph<'a>), Error>;
+
+    fn create_hunk(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunk: &Hunk,
+    ) -> Result<(), Error>;
 }
 
 
@@ -351,8 +366,9 @@ impl ModelController for PostgresStore {
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
 
-        let ver = ver_graph.node_weight(v_idx).expect("Index is not in version graph");
+        let ver = ver_graph.versions.node_weight(v_idx).expect("Index is not in version graph");
         // TODO: should we check that hash is nil here?
+        // TODO: should check that if a root version, must be State and not Delta.
 
         let ver_id_row = trans.query(r#"
                 INSERT INTO version (uuid_, hash, artifact_node_id)
@@ -381,9 +397,9 @@ impl ModelController for PostgresStore {
                 JOIN version vc ON vc.id = r.child_id;
             "#)?;
 
-        for (e_idx, p_idx) in ver_graph.parents(v_idx).iter(&ver_graph) {
-            let edge = ver_graph.edge_weight(e_idx).expect("Graph is malformed.");
-            let parent = ver_graph.node_weight(p_idx).expect("Graph is malformed");
+        for (e_idx, p_idx) in ver_graph.versions.parents(v_idx).iter(&ver_graph.versions) {
+            let edge = ver_graph.versions.edge_weight(e_idx).expect("Graph is malformed.");
+            let parent = ver_graph.versions.node_weight(p_idx).expect("Graph is malformed");
             match *edge {
                 VersionRelation::Dependence(ref art_rel) => &insert_relation,
                 VersionRelation::Parent => &insert_parent,
@@ -443,7 +459,7 @@ impl ModelController for PostgresStore {
             status: VersionStatus::Staging,  // TODO
             representation: DatatypeRepresentationKind::State,  // TODO
         };
-        let ver_node_idx = ver_graph.add_node(ver_node);
+        let ver_node_idx = ver_graph.versions.add_node(ver_node);
         idx_map.insert(ver_node_id, ver_node_idx);
 
         let ancestry_node_rows = trans.query(r#"
@@ -470,13 +486,13 @@ impl ModelController for PostgresStore {
                 representation: DatatypeRepresentationKind::State,  // TODO
             };
 
-            let v_idx = ver_graph.add_node(v_node);
+            let v_idx = ver_graph.versions.add_node(v_node);
             idx_map.insert(db_id, v_idx);
 
             let edge = VersionRelation::Parent;
             let parent_idx = idx_map.get(&row.get(5)).expect("Graph is malformed.");
             let child_idx = idx_map.get(&row.get(6)).expect("Graph is malformed.");
-            ver_graph.add_edge(*parent_idx, *child_idx, edge);
+            ver_graph.versions.add_edge(*parent_idx, *child_idx, edge);
         }
 
         let dependence_node_rows = trans.query(r#"
@@ -507,7 +523,7 @@ impl ModelController for PostgresStore {
                 representation: DatatypeRepresentationKind::State,  // TODO
             };
 
-            let v_idx = ver_graph.add_node(v_node);
+            let v_idx = ver_graph.versions.add_node(v_node);
 
             let inbound = row.get(5);
             let art_rel_idx = if inbound {
@@ -522,10 +538,38 @@ impl ModelController for PostgresStore {
             } else {
                 (ver_node_idx, v_idx)
             };
-            ver_graph.add_edge(parent_idx, child_idx, edge);
+            ver_graph.versions.add_edge(parent_idx, child_idx, edge);
         }
 
         Ok((ver_node_idx, ver_graph))
+    }
+
+    fn create_hunk(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunk: &Hunk,
+    ) -> Result<(), Error> {
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        trans.execute(r#"
+                INSERT INTO hunk (uuid_, hash, version_id, partition_id)
+                SELECT r.uuid_, r.hash, v.id, r.partition_id
+                FROM (VALUES ($1::uuid, $2::bigint, $3::uuid, $4::bigint, $5::bigint))
+                  AS r (uuid_, hash, v_uuid, v_hash, partition_id)
+                JOIN version v
+                  ON (v.uuid_ = r.v_uuid AND v.hash = r.v_hash);
+            "#, &[&hunk.id.uuid, &(hunk.id.hash as i64),
+                  &hunk.version.id.uuid, &(hunk.version.id.hash as i64),
+                  &(hunk.partition.index as i64)])?;
+
+        trans.set_commit();
+        Ok(())
     }
 }
 
@@ -535,7 +579,9 @@ mod tests {
     #[test]
     fn test_postgres_create_graph() {
         use super::*;
+        use ::datatype::blob::ModelController as BlobModelController;
 
+        let store = Store::Postgres;
         let mut artifacts: daggy::Dag<ArtifactNodeDescription, ArtifactRelation> = daggy::Dag::new();
         let prod_node = ArtifactNodeDescription::Producer(ProducerDescription {
             name: "Test Producer".into()});
@@ -552,11 +598,11 @@ mod tests {
             artifacts: artifacts,
         };
 
-        let mut context = ::repo::tests::init_postgres_repo();
+        let mut context = ::repo::tests::init_repo(store);
 
         let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, &context.dtypes_registry);
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
-        let mut model_ctrl: Box<ModelController> = Box::new(PostgresStore {});
+        let mut model_ctrl = model_controller(store);
 
         model_ctrl.create_graph(&mut context.repo_control, &ag).unwrap();
 
@@ -573,7 +619,7 @@ mod tests {
             status: VersionStatus::Staging,
             representation: DatatypeRepresentationKind::State,
         };
-        let ver_prod_idx = ver_graph.add_node(ver_prod);
+        let ver_prod_idx = ver_graph.versions.add_node(ver_prod);
 
         model_ctrl.create_staging_version(
             &mut context.repo_control,
@@ -591,12 +637,12 @@ mod tests {
             representation: DatatypeRepresentationKind::State,
         };
         let ver_blob_id = ver_blob.id.clone();
-        let ver_blob_idx = ver_graph.add_node(ver_blob);
+        let ver_blob_idx = ver_graph.versions.add_node(ver_blob);
 
         let prod_blob_idx_real = ag.artifacts.find_edge(*prod_node_idx_real, *ver_node_idx_real)
                                              .expect("Couldn't find relation");
         let prod_blob_edge_real = ag.artifacts.edge_weight(prod_blob_idx_real).expect("Couldn't find relation");
-        ver_graph.add_edge(
+        ver_graph.versions.add_edge(
             ver_prod_idx,
             ver_blob_idx,
             VersionRelation::Dependence(prod_blob_edge_real)).unwrap();
@@ -605,6 +651,53 @@ mod tests {
             &mut context.repo_control,
             &ver_graph,
             ver_blob_idx.clone()).unwrap();
+
+        let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx);
+        let ver_part_dtype = match *ver_partitioning.artifact {
+            ArtifactNode::Artifact(ref art) => &art.dtype,
+            _ => panic!("Partitioning artifact node is not an artifact"),
+        };
+        let ver_part_control = context.dtypes_registry.models
+                                      .get(&ver_part_dtype.name)
+                                      .expect("Datatype must be known")
+                                      .partitioning_controller(store)
+                                      .expect("Partitioning must have controller for store");
+
+        let mut blob_control = ::datatype::blob::model_controller(store);
+        let ver_blob_real = ver_graph.versions.node_weight(ver_blob_idx).unwrap();
+        let ver_hunks = ver_part_control
+                .get_partition_ids(&mut context.repo_control, ver_partitioning)
+                .iter()
+                .map(|partition_id| Hunk {
+                    id: Identity {
+                        uuid: Uuid::new_v4(),
+                        hash: 0,
+                    },
+                    version: ver_blob_real,
+                    partition: Partition {
+                        partitioning: ver_partitioning,
+                        index: partition_id.to_owned(),
+                    },
+                    completion: PartCompletion::Complete,
+                }).collect::<Vec<_>>();
+
+        // Can't do this in an iterator because of borrow conflict on context?
+        let fake_blob = vec![0, 1, 2, 3, 4, 5, 6];
+        for hunk in &ver_hunks {
+            model_ctrl.create_hunk(
+                &mut context.repo_control,
+                &hunk).unwrap();
+            blob_control.write(
+                &mut context.repo_control,
+                &hunk,
+                &fake_blob).unwrap();
+        }
+
+        for hunk in &ver_hunks {
+            let blob = blob_control.read(&mut context.repo_control, &hunk).unwrap();
+            assert_eq!(blob, fake_blob);
+        }
+
         // model_ctrl.commit_version(
         //     &mut context.repo_control,
         //     &ver_blob.id);
@@ -615,8 +708,8 @@ mod tests {
             &ver_blob_id).unwrap();
 
         assert!(petgraph::algo::is_isomorphic_matching(
-            &ver_graph.graph(),
-            &ver_graph2.graph(),
+            &ver_graph.versions.graph(),
+            &ver_graph2.versions.graph(),
             |a, b| a.id == b.id,
             |_, _| true));
     }

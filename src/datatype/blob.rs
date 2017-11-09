@@ -1,9 +1,6 @@
 extern crate uuid;
 
 
-use std::sync::Arc;
-use std::sync::Mutex;
-
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemamama::Migrator;
@@ -41,11 +38,25 @@ impl super::Model for Blob {
         }
     }
 
-    fn controller(&self, store: Store) -> Option<super::StoreMetaController> {
+    fn meta_controller(&self, store: Store) -> Option<super::StoreMetaController> {
         match store {
             Store::Postgres => Some(super::StoreMetaController::Postgres(Box::new(PostgresStore {}))),
             _ => None,
         }
+    }
+
+    fn partitioning_controller(
+        &self,
+        store: Store
+    ) -> Option<Box<super::partitioning::PartitioningController>> {
+        None
+    }
+}
+
+pub fn model_controller(store: Store) -> impl ModelController {
+    match store {
+        Store::Postgres => PostgresStore {},
+        _ => unimplemented!(),
     }
 }
 
@@ -85,7 +96,12 @@ pub trait ModelController: super::ModelController {
         hunk: &::Hunk,
         blob: &[u8],
     ) -> Result<(), Error>;
-    // fn read(&self, context: &::Context, version: &::Hunk) -> Vec<u8>;
+
+    fn read(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunk: &::Hunk,
+    ) -> Result<Vec<u8>, Error>;
 }
 
 // // Sketching: could this all be done with monomorph?
@@ -140,7 +156,7 @@ pub trait ModelController: super::ModelController {
 // // Why is above better than below? Callers can call with a Context<T> without
 // // needing to name the specialized type/trait/whatever.
 
-struct PostgresStore {}
+pub struct PostgresStore {}
 
 struct PGMigrationBlobs;
 migration!(PGMigrationBlobs, 3, "create blob table");
@@ -179,13 +195,51 @@ impl ModelController for PostgresStore {
         hunk: &::Hunk,
         blob: &[u8],
     ) -> Result<(), Error> {
-        unimplemented!()
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        trans.execute(r#"
+                INSERT INTO blob_dtype (hunk_id, blob)
+                SELECT h.id, r.blob
+                FROM (VALUES ($1::uuid, $2::bigint, $3::bytea))
+                  AS r (uuid_, hash, blob)
+                JOIN hunk h
+                  ON (h.uuid_ = r.uuid_ AND h.hash = r.hash);
+            "#, &[&hunk.id.uuid, &(hunk.id.hash as i64), &blob])?;
+
+        trans.set_commit();
+        Ok(())
     }
 
-//     fn read(&self, context: &::Context, version: &::Version) -> Vec<u8> {
-//         // TODO: mocked.
-//         return vec![0, 1, 2];
-//     }
+    fn read(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunk: &::Hunk,
+    ) -> Result<Vec<u8>, Error> {
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        let blob_rows = trans.query(r#"
+                SELECT b.blob
+                FROM blob_dtype b
+                JOIN hunk h
+                  ON (h.id = b.hunk_id)
+                WHERE h.uuid_ = $1::uuid AND h.hash = $2::bigint;
+            "#, &[&hunk.id.uuid, &(hunk.id.hash as i64)])?;
+        let blob = blob_rows.get(0).get(0);
+
+        Ok(blob)
+    }
 }
 
 
