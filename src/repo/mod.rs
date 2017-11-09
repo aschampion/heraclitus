@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use ::{Context, Error};
 use ::datatype::{DatatypesRegistry, PostgresMetaController};
-use ::store::Stored;
+use ::store::{Store, Stored};
 
 // pub type StoreRepoController = Stored<Box<RepoController>>;
 pub enum StoreRepoController {
@@ -153,7 +153,7 @@ impl RepoController for PostgresRepoController {
         migrator.register(Box::new(PGMigrationDatatypes));
 
         for model in dtypes_registry.models.values() {
-            let smc: Box<PostgresMetaController> = model.controller(::store::Store::Postgres)
+            let smc: Box<PostgresMetaController> = model.meta_controller(::store::Store::Postgres)
                 .expect("Model does not have a Postgres controller.")
                 .into();
             smc.register_migrations(&mut migrator);
@@ -180,16 +180,22 @@ impl RepoController for PostgresRepoController {
 pub(crate) mod tests {
     use super::*;
 
-    pub fn init_postgres_repo() -> Context {
+    pub fn init_repo(store: Store) -> Context {
         let mut dtypes_registry = DatatypesRegistry::new();
         dtypes_registry.register_datatype_models(::datatype::build_module_datatype_models());
+
+        let url = match store {
+            Store::Postgres =>
+                // Url::parse("postgresql://hera_test:hera_test@localhost/hera_test").unwrap(),
+                Url::parse("postgresql://postgres@localhost/?search_path=pg_temp").unwrap(),
+            _ => unimplemented!()
+        };
 
         let repo = ::Repository {
             // TODO: fake UUID, version
             id: ::Identity{uuid: Uuid::new_v4(), hash: 0},
             name: "Test repo".into(),
-            // url: Url::parse("postgresql://hera_test:hera_test@localhost/hera_test").unwrap()
-            url: Url::parse("postgresql://postgres@localhost/?search_path=pg_temp").unwrap()
+            url: url,
         };
         let mut repo_cntrlr = get_repo_controller(&repo);
         repo_cntrlr.init(&dtypes_registry).unwrap();
@@ -202,6 +208,6 @@ pub(crate) mod tests {
 
     #[test]
     fn test_postgres_repo_init() {
-        init_postgres_repo();
+        init_repo(Store::Postgres);
     }
 }

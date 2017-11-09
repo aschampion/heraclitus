@@ -25,6 +25,7 @@ use std::mem;
 
 use daggy::Walker;
 use enum_set::EnumSet;
+use petgraph::visit::EdgeRef;
 use url::Url;
 use uuid::Uuid;
 // use schemamama;
@@ -36,12 +37,6 @@ use datatype::artifact_graph::{ArtifactGraphDescription, ArtifactNodeDescription
 mod datatype;
 mod repo;
 mod store;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {}
-}
 
 pub fn noop() {
     println!("Test");
@@ -58,7 +53,11 @@ pub enum Error {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Identity {
     uuid: Uuid,
-    hash: u64, // TODO: does, e.g., a delta version hash its whole state or the delta state?
+    hash: u64,
+    // TODO: does, e.g., a delta version hash its whole state or the delta state?
+    // could be multiple hashees for these, for now say that state versions
+    // hash whole state, delta versions hash deltas (but this is garbage, same
+    // delta versions would be ident even if state is different).
     //internal: InternalId,
 }
 
@@ -123,7 +122,7 @@ impl Hash for Datatype {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct DatatypeRelation {
     name: String,
 }
@@ -292,6 +291,21 @@ impl<'a> ArtifactGraph<'a> {
 
         None
     }
+
+    fn find_artifact_by_uuid(
+        &self,
+        uuid: &Uuid
+    ) -> Option<(ArtifactGraphIndex, &ArtifactNode)> {
+        let graph = self.artifacts.graph();
+        for node_idx in graph.node_indices() {
+            let node = graph.node_weight(node_idx).expect("Graph is malformed");
+            if node.id().uuid == *uuid {
+                return Some((node_idx, node))
+            }
+        }
+
+        None
+    }
 }
 
 /// An `Artifact` represents a collection of instances of a `Datatype` that can
@@ -310,6 +324,7 @@ impl<'a> Hash for Artifact<'a> {
     }
 }
 
+// TODO: Beginning to lean towards producers just being normal artifacts.
 #[derive(Debug)]
 pub struct Producer {
     id: Identity,
@@ -345,7 +360,7 @@ impl<'a> ArtifactNode<'a> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ArtifactRelation {
     DtypeDepends(DatatypeRelation),
     ProducedFrom(String),
@@ -354,11 +369,52 @@ pub enum ArtifactRelation {
 
 type VersionGraphIndexType = petgraph::graph::DefaultIx;
 pub type VersionGraphIndex = petgraph::graph::NodeIndex<VersionGraphIndexType>;
-pub type VersionGraph<'a> = daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType>;
+pub struct VersionGraph<'a> {
+    versions: daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType>,
+}
 // TODO: should either use the below in most interfaces or make the above also have pruning.
 pub type VersionSubgraph<'a> = daggy::Dag<VersionNode<'a>, VersionRelation<'a>, VersionGraphIndexType>;
 
-#[derive(Debug)]
+impl<'a> VersionGraph<'a> {
+    fn new() -> VersionGraph<'a> {
+        VersionGraph {
+            versions: daggy::Dag::new()
+        }
+    }
+
+    fn get_related_version(
+        &self,
+        v_idx: VersionGraphIndex,
+        relation: &VersionRelation,
+        dir: petgraph::Direction,
+    ) -> Option<VersionGraphIndex> {
+        self.versions.graph().edges_directed(v_idx, dir)
+            .find(|e| e.weight() == relation)
+            .map(|e| match dir {
+                petgraph::Direction::Outgoing => e.target(),
+                petgraph::Direction::Incoming => e.source(),
+            })
+    }
+
+    fn get_partitioning(
+        &self,
+        v_idx: VersionGraphIndex
+    ) -> &Version {
+        let partitioning_art_relation = ArtifactRelation::DtypeDepends(DatatypeRelation {
+                name: "Partitioning".into(),
+            });
+        let partitioning_relation = VersionRelation::Dependence(&partitioning_art_relation);
+        self.get_related_version(
+                v_idx,
+                &partitioning_relation,
+                petgraph::Direction::Incoming)
+            .map_or(
+                &datatype::partitioning::UNARY_PARTITIONING_VERSION,
+                |p_idx| self.versions.node_weight(p_idx).expect("Impossible non-existent index"))
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum VersionRelation<'a>{
     Dependence(&'a ArtifactRelation),
     Parent,
@@ -385,7 +441,6 @@ pub struct Version<'a> {
 }
 
 pub type PartitionIndex = u64;
-const UNARY_PARTITION_INDEX: PartitionIndex = 0;
 
 #[derive(Debug)]
 pub struct Partition<'a> {
@@ -405,7 +460,7 @@ pub struct Hunk<'a> {
     // Is this a Hunk or a Patch (in which case changeset items would be hunks)?
     id: Identity,
     version: &'a Version<'a>,
-    partition: Option<Partition<'a>>,
+    partition: Partition<'a>,
     completion: PartCompletion,
     // TODO: do hunks also need a DatatypeRepresentationKind?
 }

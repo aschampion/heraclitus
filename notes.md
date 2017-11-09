@@ -9,6 +9,7 @@ Ignoring
 - Multi repo DBs
 - Different dtype graphs for different AGs
 - AG versioning
+- AG/VG caching
 
 
 Guidelines
@@ -41,12 +42,12 @@ Guidelines
           best to do it at common locus where the data is already loaded, so client or store control.
     - [x] get_graph
 - [ ] Goal: version graph for blob dtype (no partitions?)
-  - Who owns version tables?
+  - [x] Who owns version tables?
     - If each datatype, may still want to provide macro for creating default PG handling for version tables.
     - If artifact graph datatype controller, will want to provide macros for other dtypes to use those tables (unless the version graph getter is also moved to the ag controller)
     - Do datatypes need to directly access version tables to do clever partitioning, materialization, etc.? This is the only motivation I can imagine for having dtype-specific version tables.
     - Answer: for now, clearly AG or another general controller.
-  - Can multiple roots exist in a version graph?
+  - [x] Can multiple roots exist in a version graph?
     - Git can, so may as well.
   - May not be able to ignore partitions.
     - Instead, assume partitions are static/immutable, and only deal with the unary partitioning.
@@ -56,13 +57,20 @@ Guidelines
     - How to get Version's map of current partition chunks? Chunks only reference their creation version.
       - For now, get a list of all partition IDs from the partition. Walk backwards down the version graph accumulating partitions at each version for partion indices that weren't previously set. If you encounter an unexpected ID, means something is malformed bc partition changed w/o updating partitions right. Will have to think through how to handle unset partition and other partition completion issues separately. Can further optimize on top of this fallback later.
     - Need a few things:
-      - [ ] Partitioning trait that all partition datatypes implement
+      - [x] Partitioning trait that all partition datatypes implement
         - [ ] Will also eventually need more tailored generic types, e.g., spatial partitionings for partitions that have bounds to allow for generic repartitioning/partition split/merge
-      - [ ] Way to get this from datatype controllers
-      - [ ] Unary partition
-      - [ ] Dummy unary partition instance/singleton
-      - [ ] Decide: how are dummy unary partitions not serialized/etc?
+      - [x] Way to get this from datatype controllers
+      - [x] Unary partition
+      - [x] Dummy unary partition instance/singleton
+      - [.] When does dummy partition get injected?
+        - When retrieving partition relation from version graph
+          - Problem: all of these interfere with uniform hashing behavior
+        - Art/version graph must have it
+        - Art/version graph must have it AND all artifacts must explicitly relate
+        - Only injected when partitioning is needed, possibly even with a dummy partition directly, not even dummy partitioning
+      - [x] Decide: how are dummy unary partitions not serialized/etc? UnaryPartitioning controller handles it.
       - [ ] Postgres: need way for controllers to get unique IDs/prefix for dtype+artifact+version
+        - Do we really need this? Already have hunk ID.
 - [ ] Goal: artifact graph with producer: test fake dtypes `nodes` and `components`, with a producer that computes CCs of node arborescences
   - Demonstrates:
     - Producer flow
@@ -70,6 +78,7 @@ Guidelines
     - Dependent states
 - [ ] Goal: delta state updates in fake dtypes test
 - [ ] Goal: partitions in fake dtypes test
+- [ ] Goal: organize, e.g., postgres stores out of datatypes
 - [ ] Goal: branches/tags/reflist
 - [ ] Goal: rocket list of dtypes/ags (hera-server)
 - [ ] Goal: plotly plot of dtypes/ags (hera-server)

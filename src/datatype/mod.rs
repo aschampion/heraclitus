@@ -3,8 +3,6 @@ extern crate daggy;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::mem;
-use std::sync::Arc;
-use std::sync::Mutex;
 
 use enum_set;
 use enum_set::EnumSet;
@@ -85,7 +83,10 @@ pub trait Model {
 
     fn info(&self) -> Description;
 
-    fn controller(&self, Store) -> Option<StoreMetaController>;
+    fn meta_controller(&self, Store) -> Option<StoreMetaController>;
+
+    /// If this datatype acts as a partitioning controller, construct one.
+    fn partitioning_controller(&self, store: Store) -> Option<Box<partitioning::PartitioningController>>;
 }
 
 pub trait ModelController {}
@@ -115,6 +116,7 @@ impl Into<Box<PostgresMetaController>> for StoreMetaController {
 pub fn build_module_datatype_models() -> Vec<Box<Model>> {
     vec![
         Box::new(artifact_graph::ArtifactGraphDtype {}),
+        Box::new(partitioning::UnaryPartitioning {}),
         Box::new(blob::Blob {}),
     ]
 }
