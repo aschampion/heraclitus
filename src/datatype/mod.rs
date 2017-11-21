@@ -141,13 +141,60 @@ pub fn module_interfaces() -> Vec<&'static InterfaceDescription> {
     ]
 }
 
-pub fn module_datatype_models() -> Vec<Box<Model>> {
-    vec![
-        Box::new(artifact_graph::ArtifactGraphDtype {}),
-        Box::new(partitioning::UnaryPartitioning {}),
-        Box::new(blob::Blob {}),
-        Box::new(producer::NoopProducer {}),
-    ]
+// pub fn module_datatype_models() -> Vec<Box<Model>> {
+//     vec![
+//         Box::new(artifact_graph::ArtifactGraphDtype {}),
+//         Box::new(partitioning::UnaryPartitioning {}),
+//         Box::new(blob::Blob {}),
+//         Box::new(producer::NoopProducer {}),
+//     ]
+// }
+
+pub enum DefaultDatatypes {
+    ArtifactGraph(artifact_graph::ArtifactGraphDtype),
+    UnaryPartitioning(partitioning::UnaryPartitioning),
+    Blob(blob::Blob),
+    NoopProducer(producer::NoopProducer),
+}
+
+pub trait DatatypesCollection: Sized {
+    fn variant_names() -> Vec<&'static str>;
+
+    fn from_name(name: &str) -> Option<Self>;
+
+    fn as_model(&self) -> &Model;
+
+    fn all_variants() -> Vec<Self> {
+        Self::variant_names()
+            .iter()
+            .map(|name| Self::from_name(name).expect("Impossible"))
+            .collect()
+    }
+}
+
+impl DatatypesCollection for DefaultDatatypes {
+    fn variant_names() -> Vec<&'static str> {
+        vec!["ArtifactGraph", "UnaryPartitioning", "Blob", "NoopProducer"]
+    }
+
+    fn from_name(name: &str) -> Option<DefaultDatatypes> {
+        match name {
+            "ArtifactGraph" => Some(DefaultDatatypes::ArtifactGraph(artifact_graph::ArtifactGraphDtype {})),
+            "UnaryPartitioning" => Some(DefaultDatatypes::UnaryPartitioning(partitioning::UnaryPartitioning {})),
+            "Blob" => Some(DefaultDatatypes::Blob(blob::Blob {})),
+            "NoopProducer" => Some(DefaultDatatypes::NoopProducer(producer::NoopProducer {})),
+            _ => None,
+        }
+    }
+
+    fn as_model(&self) -> &Model {
+        match *self {
+            DefaultDatatypes::ArtifactGraph(ref d) => d,
+            DefaultDatatypes::UnaryPartitioning(ref d) => d,
+            DefaultDatatypes::Blob(ref d) => d,
+            DefaultDatatypes::NoopProducer(ref d) => d,
+        }
+    }
 }
 
 
@@ -184,15 +231,15 @@ impl InterfaceRegistry {
     }
 }
 
-pub struct DatatypesRegistry {
+pub struct DatatypesRegistry<T: DatatypesCollection> {
     interfaces: InterfaceRegistry,
     graph: super::DatatypeGraph,
     dtypes_idx: HashMap<String, daggy::NodeIndex>,
-    pub models: HashMap<String, Box<Model>>,
+    pub models: HashMap<String, T>,
 }
 
-impl DatatypesRegistry {
-    pub fn new() -> DatatypesRegistry {
+impl<T: DatatypesCollection> DatatypesRegistry<T> {
+    pub fn new() -> DatatypesRegistry<T> {
         DatatypesRegistry {
             interfaces: InterfaceRegistry::new(),
             graph: super::DatatypeGraph::new(),
@@ -216,10 +263,10 @@ impl DatatypesRegistry {
         self.interfaces.register_interfaces(interfaces);
     }
 
-    pub fn register_datatype_models(&mut self, models: Vec<Box<Model>>) {
+    pub fn register_datatype_models(&mut self, models: Vec<T>) {
         for model in &models {
             // Add datatype nodes.
-            let description = model.info();
+            let description = model.as_model().info();
             let name = description.name.clone();
             let idx = self.graph.add_node(description.to_datatype(&self.interfaces));
             self.dtypes_idx.insert(name, idx);
@@ -227,7 +274,7 @@ impl DatatypesRegistry {
 
         for model in &models {
             // Add dependency edges.
-            let description = model.info();
+            let description = model.as_model().info();
             let node_idx = self.dtypes_idx.get(&description.name).expect("Unknown datatype.");
             for dependency in description.dependencies {
                 let dep_idx = self.dtypes_idx.get(dependency.datatype_name).expect("Depends on unknown datatype.");
@@ -238,7 +285,7 @@ impl DatatypesRegistry {
 
         // Add model lookup.
         for model in models {
-            let description = model.info();
+            let description = model.as_model().info();
             self.models.insert(description.name, model);
         }
     }
@@ -270,10 +317,14 @@ impl DatatypesRegistry {
 pub(crate) mod tests {
     use super::*;
 
-    pub fn init_default_dtypes_registry() -> DatatypesRegistry {
+    pub fn init_default_dtypes_registry() -> DatatypesRegistry<DefaultDatatypes> {
         let mut dtypes_registry = DatatypesRegistry::new();
         dtypes_registry.register_interfaces(module_interfaces());
-        dtypes_registry.register_datatype_models(module_datatype_models());
+        let models = DefaultDatatypes::all_variants();
+            // .iter()
+            // .map(|v| v.as_model())
+            // .collect();
+        dtypes_registry.register_datatype_models(models);
         dtypes_registry
     }
 }

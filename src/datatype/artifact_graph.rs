@@ -22,7 +22,7 @@ use ::{
     Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Hunk, Identity,
     PartCompletion, Partition,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
-use super::{DatatypesRegistry, DependencyDescription, DependencyStoreRestriction, Description, Store};
+use super::{DatatypesCollection, DatatypesRegistry, DependencyDescription, DependencyStoreRestriction, Description, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
@@ -72,10 +72,10 @@ pub trait ModelController {
             repo_control: &mut ::repo::StoreRepoController,
             art_graph: &ArtifactGraph) -> Result<(), Error>;
 
-    fn get_graph<'a>(
+    fn get_graph<'a, T: DatatypesCollection>(
             &self,
             repo_control: &mut ::repo::StoreRepoController,
-            dtypes_registry: &'a DatatypesRegistry,
+            dtypes_registry: &'a DatatypesRegistry<T>,
             id: &Identity) -> Result<ArtifactGraph<'a>, Error>;
 
     fn create_staging_version(
@@ -216,10 +216,10 @@ impl ModelController for PostgresStore {
         Ok(())
     }
 
-    fn get_graph<'a>(
+    fn get_graph<'a, T: DatatypesCollection>(
             &self,
             repo_control: &mut ::repo::StoreRepoController,
-            dtypes_registry: &'a DatatypesRegistry,
+            dtypes_registry: &'a DatatypesRegistry<T>,
             id: &Identity) -> Result<ArtifactGraph<'a>, Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
@@ -644,6 +644,7 @@ mod tests {
         let ver_part_control = context.dtypes_registry.models
                                       .get(&ver_partitioning.artifact.dtype.name)
                                       .expect("Datatype must be known")
+                                      .as_model()
                                       .partitioning_controller(store)
                                       .expect("Partitioning must have controller for store");
 
