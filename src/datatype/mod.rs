@@ -1,6 +1,6 @@
 extern crate daggy;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::mem;
 
@@ -13,18 +13,34 @@ use super::store::Store;
 
 pub mod artifact_graph;
 pub mod blob;
+pub mod interface;
 pub mod partitioning;
+pub mod producer;
 
 pub struct Description {
-    pub datatype: Datatype,
+    name: String,
+    version: u64,
+    representations: EnumSet<::DatatypeRepresentationKind>,
+    implements: Vec<&'static str>,
     dependencies: Vec<DependencyDescription>,
 }
 
-impl Hash for Description {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.datatype.hash(state);
+impl Description {
+    fn to_datatype(self, interfaces: &InterfaceRegistry) -> Datatype {
+        Datatype::new(
+            self.name,
+            self.version,
+            self.representations,
+            self.implements.iter().map(|name| interfaces.get_index(name)).collect(),
+        )
     }
 }
+
+// impl Hash for Description {
+//     fn hash<H: Hasher>(&self, state: &mut H) {
+//         self.datatype.hash(state);
+//     }
+// }
 
 pub enum DependencyStoreRestriction {
     Any,
@@ -51,6 +67,11 @@ impl DependencyDescription {
             store_restriction,
         }
     }
+}
+
+pub struct InterfaceDescription {
+    interface: ::Interface,
+    extends: HashSet<&'static str>,
 }
 
 // TODO:
@@ -86,7 +107,7 @@ pub trait Model {
     fn meta_controller(&self, Store) -> Option<StoreMetaController>;
 
     /// If this datatype acts as a partitioning controller, construct one.
-    fn partitioning_controller(&self, store: Store) -> Option<Box<partitioning::PartitioningController>>;
+    fn partitioning_controller(&self, store: Store) -> Option<Box<interface::PartitioningController>>;
 }
 
 pub trait ModelController {}
@@ -113,60 +134,112 @@ impl Into<Box<PostgresMetaController>> for StoreMetaController {
     }
 }
 
-pub fn build_module_datatype_models() -> Vec<Box<Model>> {
+pub fn module_interfaces() -> Vec<&'static InterfaceDescription> {
+    vec![
+        &*interface::INTERFACE_PARTITIONING_DESC,
+        &*interface::INTERFACE_PRODUCER_DESC,
+    ]
+}
+
+pub fn module_datatype_models() -> Vec<Box<Model>> {
     vec![
         Box::new(artifact_graph::ArtifactGraphDtype {}),
         Box::new(partitioning::UnaryPartitioning {}),
         Box::new(blob::Blob {}),
+        Box::new(producer::NoopProducer {}),
     ]
 }
 
+
+pub struct InterfaceRegistry {
+    extension: ::InterfaceExtension,
+    ifaces_idx: HashMap<&'static str, ::InterfaceIndex>,
+}
+
+impl InterfaceRegistry {
+    pub fn new() -> InterfaceRegistry {
+        InterfaceRegistry {
+            extension: ::InterfaceExtension::new(),
+            ifaces_idx: HashMap::new(),
+        }
+    }
+
+    pub fn get_index(&self, name: &str) -> ::InterfaceIndex {
+        *self.ifaces_idx.get(name).expect("Unknown interface")
+    }
+
+    pub fn register_interfaces(&mut self, interfaces: Vec<&InterfaceDescription>) {
+        for iface in &interfaces {
+            let idx = self.extension.add_node(iface.interface.clone());
+            self.ifaces_idx.insert(iface.interface.name, idx);
+        }
+
+        for iface in &interfaces {
+            let idx = self.ifaces_idx.get(iface.interface.name).expect("Impossible");
+            for super_iface in &iface.extends {
+                let super_idx = self.ifaces_idx.get(super_iface).expect("Unknown super interface");
+                self.extension.add_edge(*super_idx, *idx, ());
+            }
+        }
+    }
+}
+
 pub struct DatatypesRegistry {
-    graph: super::Metadata,
-    types_idx: HashMap<String, daggy::NodeIndex>,
+    interfaces: InterfaceRegistry,
+    graph: super::DatatypeGraph,
+    dtypes_idx: HashMap<String, daggy::NodeIndex>,
     pub models: HashMap<String, Box<Model>>,
 }
 
 impl DatatypesRegistry {
     pub fn new() -> DatatypesRegistry {
         DatatypesRegistry {
-            graph: ::Metadata { datatypes: daggy::Dag::new() },
-            types_idx: HashMap::new(),
+            interfaces: InterfaceRegistry::new(),
+            graph: super::DatatypeGraph::new(),
+            dtypes_idx: HashMap::new(),
             models: HashMap::new(),
         }
     }
 
     pub fn get_datatype(&self, name: &str) -> Option<&Datatype> {
-        match self.types_idx.get(name) {
-            Some(idx) => self.graph.datatypes.node_weight(*idx),
+        match self.dtypes_idx.get(name) {
+            Some(idx) => self.graph.node_weight(*idx),
             None => None,
         }
+    }
+
+    pub fn iter_dtypes<'a>(&'a self) -> impl Iterator<Item = &'a Datatype> {
+        self.graph.raw_nodes().iter().map(|node| &node.weight)
+    }
+
+    pub fn register_interfaces(&mut self, interfaces: Vec<&InterfaceDescription>) {
+        self.interfaces.register_interfaces(interfaces);
     }
 
     pub fn register_datatype_models(&mut self, models: Vec<Box<Model>>) {
         for model in &models {
             // Add datatype nodes.
             let description = model.info();
-            let name = description.datatype.name.clone();
-            let idx = self.graph.datatypes.add_node(description.datatype);
-            self.types_idx.insert(name, idx);
+            let name = description.name.clone();
+            let idx = self.graph.add_node(description.to_datatype(&self.interfaces));
+            self.dtypes_idx.insert(name, idx);
         }
 
         for model in &models {
             // Add dependency edges.
             let description = model.info();
-            let node_idx = self.types_idx.get(&description.datatype.name).expect("Unknown datatype.");
+            let node_idx = self.dtypes_idx.get(&description.name).expect("Unknown datatype.");
             for dependency in description.dependencies {
-                let dep_idx = self.types_idx.get(dependency.datatype_name).expect("Unknown datatype.");
+                let dep_idx = self.dtypes_idx.get(dependency.datatype_name).expect("Depends on unknown datatype.");
                 let relation = ::DatatypeRelation{name: dependency.name.into()};
-                self.graph.datatypes.add_edge(*node_idx, *dep_idx, relation).unwrap();
+                self.graph.add_edge(*node_idx, *dep_idx, relation).unwrap();
             }
         }
 
         // Add model lookup.
         for model in models {
             let description = model.info();
-            self.models.insert(description.datatype.name, model);
+            self.models.insert(description.name, model);
         }
     }
 }
@@ -177,18 +250,30 @@ impl DatatypesRegistry {
 //     }
 // }
 
-pub struct DatatypesController {
-    datatype_models: Vec<Box<Model>>,
-}
+// pub struct DatatypesController {
+//     datatype_models: Vec<Box<Model>>,
+// }
 
-impl DatatypesController {
-    fn default() -> DatatypesController {
-        let mut dcon = DatatypesController {datatype_models: Vec::new()};
-        dcon.register_datatype_models(&mut build_module_datatype_models());
-        dcon
-    }
+// impl DatatypesController {
+//     fn default() -> DatatypesController {
+//         let mut dcon = DatatypesController {datatype_models: Vec::new()};
+//         dcon.register_datatype_models(&mut build_module_datatype_models());
+//         dcon
+//     }
 
-    fn register_datatype_models(&mut self, models: &mut Vec<Box<Model>>) {
-        self.datatype_models.append(models);
+//     fn register_datatype_models(&mut self, models: &mut Vec<Box<Model>>) {
+//         self.datatype_models.append(models);
+//     }
+// }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    pub fn init_default_dtypes_registry() -> DatatypesRegistry {
+        let mut dtypes_registry = DatatypesRegistry::new();
+        dtypes_registry.register_interfaces(module_interfaces());
+        dtypes_registry.register_datatype_models(module_datatype_models());
+        dtypes_registry
     }
 }

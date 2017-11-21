@@ -163,9 +163,9 @@ impl RepoController for PostgresRepoController {
 
         let trans = connection.transaction()?;
         let stmt = trans.prepare("INSERT INTO datatype (version, name) VALUES ($1, $2)")?;
-        for model in dtypes_registry.models.values() {
-            let descr = model.info();
-            stmt.execute(&[&(descr.datatype.version as i64), &descr.datatype.name])?;
+        // TODO: Why is this using models instead of the datatypes graph?
+        for dtype in dtypes_registry.iter_dtypes() {
+            stmt.execute(&[&(dtype.version as i64), &dtype.name])?;
         }
 
         Ok(trans.commit()?)
@@ -180,9 +180,10 @@ impl RepoController for PostgresRepoController {
 pub(crate) mod tests {
     use super::*;
 
-    pub fn init_repo(store: Store) -> Context {
-        let mut dtypes_registry = DatatypesRegistry::new();
-        dtypes_registry.register_datatype_models(::datatype::build_module_datatype_models());
+    pub fn init_repo(
+            store: Store,
+            dtypes_registry: &DatatypesRegistry,
+        ) -> StoreRepoController {
 
         let url = match store {
             Store::Postgres =>
@@ -197,17 +198,25 @@ pub(crate) mod tests {
             name: "Test repo".into(),
             url: url,
         };
-        let mut repo_cntrlr = get_repo_controller(&repo);
-        repo_cntrlr.init(&dtypes_registry).unwrap();
+        let mut repo_control = get_repo_controller(&repo);
+        repo_control.init(&dtypes_registry).unwrap();
+
+        repo_control
+    }
+
+    pub fn init_default_context(store: Store) -> Context {
+        let dtypes_registry = ::datatype::tests::init_default_dtypes_registry();
+        let repo_control = init_repo(store, &dtypes_registry);
 
         Context {
             dtypes_registry: dtypes_registry,
-            repo_control: repo_cntrlr,
+            repo_control: repo_control,
         }
     }
 
     #[test]
     fn test_postgres_repo_init() {
-        init_repo(Store::Postgres);
+        let dtypes_registry = ::datatype::tests::init_default_dtypes_registry();
+        init_repo(Store::Postgres, &dtypes_registry);
     }
 }

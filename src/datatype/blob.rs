@@ -18,23 +18,13 @@ pub struct Blob;
 impl super::Model for Blob {
     fn info(&self) -> Description {
         Description {
-            datatype: Datatype::new(
-                // TODO: Fake UUID.
-                // Uuid::new_v4(),
-                "Blob".into(),
-                1,
-                vec![DatatypeRepresentationKind::State]
+            name: "Blob".into(),
+            version: 1,
+            representations: vec![DatatypeRepresentationKind::State]
                     .into_iter()
                     .collect(),
-            ),
-            // TODO: Fake dependency.
-            dependencies: vec![
-                // DependencyDescription::new(
-                //     "test",
-                //     "this",
-                //     DependencyStoreRestriction::Stores(vec![Store::Postgres].into_iter().collect()),
-                // ),
-            ],
+            implements: vec![],
+            dependencies: vec![],
         }
     }
 
@@ -48,7 +38,7 @@ impl super::Model for Blob {
     fn partitioning_controller(
         &self,
         store: Store
-    ) -> Option<Box<super::partitioning::PartitioningController>> {
+    ) -> Option<Box<super::interface::PartitioningController>> {
         None
     }
 }
@@ -87,20 +77,17 @@ pub fn model_controller(store: Store) -> impl ModelController {
 //   composing with the MetaController trait. Which is preferrable?
 
 pub trait ModelController: super::ModelController {
-    // Does this return a version? No, should be graph controller, right? But
-    // then how is this version bootstrapped? What about squashing/staging in
-    // existing versions?
     fn write(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
-        hunk: &::Hunk,
+        hunk: &Hunk,
         blob: &[u8],
     ) -> Result<(), Error>;
 
     fn read(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        hunk: &::Hunk,
+        hunk: &Hunk,
     ) -> Result<Vec<u8>, Error>;
 }
 
@@ -192,7 +179,7 @@ impl ModelController for PostgresStore {
     fn write(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
-        hunk: &::Hunk,
+        hunk: &Hunk,
         blob: &[u8],
     ) -> Result<(), Error> {
         let rc = match *repo_control {
@@ -219,7 +206,7 @@ impl ModelController for PostgresStore {
     fn read(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        hunk: &::Hunk,
+        hunk: &Hunk,
     ) -> Result<Vec<u8>, Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
