@@ -16,7 +16,7 @@ use url::Url;
 use uuid::Uuid;
 
 use ::{Context, Error};
-use ::datatype::{DatatypesRegistry, PostgresMetaController};
+use ::datatype::{DatatypesCollection, DatatypesRegistry, PostgresMetaController};
 use ::store::{Store, Stored};
 
 // pub type StoreRepoController = Stored<Box<RepoController>>;
@@ -47,7 +47,7 @@ pub enum StoreRepoController {
 // }
 
 impl RepoController for StoreRepoController {
-    fn init(&mut self, dtypes_registry: &DatatypesRegistry) -> Result<(), Error> {
+    fn init<T: DatatypesCollection>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         use self::StoreRepoController::*;
 
         match *self {
@@ -78,7 +78,7 @@ impl<T> From<SchemamamaError<T>> for Error where SchemamamaError<T>: ToString {
 }
 
 pub trait RepoController {
-    fn init(&mut self, dtypes_registry: &DatatypesRegistry) -> Result<(), Error>;
+    fn init<T: DatatypesCollection>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error>;
 }
 
 fn get_repo_controller(repo: &super::Repository) -> StoreRepoController {
@@ -92,7 +92,7 @@ fn get_repo_controller(repo: &super::Repository) -> StoreRepoController {
 pub struct FakeRepoController {}
 
 impl RepoController for FakeRepoController {
-    fn init(&mut self, dtypes_registry: &DatatypesRegistry) -> Result<(), Error> {
+    fn init<T: DatatypesCollection>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -143,7 +143,7 @@ impl PostgresMigration for PGMigrationDatatypes {
 }
 
 impl RepoController for PostgresRepoController {
-    fn init(&mut self, dtypes_registry: &DatatypesRegistry) -> Result<(), Error> {
+    fn init<T: DatatypesCollection>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         let connection = self.conn()?;
         let adapter = PostgresAdapter::new(connection);
         adapter.setup_schema()?;
@@ -153,7 +153,7 @@ impl RepoController for PostgresRepoController {
         migrator.register(Box::new(PGMigrationDatatypes));
 
         for model in dtypes_registry.models.values() {
-            let smc: Box<PostgresMetaController> = model.meta_controller(::store::Store::Postgres)
+            let smc: Box<PostgresMetaController> = model.as_model().meta_controller(::store::Store::Postgres)
                 .expect("Model does not have a Postgres controller.")
                 .into();
             smc.register_migrations(&mut migrator);
@@ -180,9 +180,9 @@ impl RepoController for PostgresRepoController {
 pub(crate) mod tests {
     use super::*;
 
-    pub fn init_repo(
+    pub fn init_repo<T: DatatypesCollection>(
             store: Store,
-            dtypes_registry: &DatatypesRegistry,
+            dtypes_registry: &DatatypesRegistry<T>,
         ) -> StoreRepoController {
 
         let url = match store {
@@ -204,7 +204,7 @@ pub(crate) mod tests {
         repo_control
     }
 
-    pub fn init_default_context(store: Store) -> Context {
+    pub fn init_default_context(store: Store) -> Context<::datatype::DefaultDatatypes> {
         let dtypes_registry = ::datatype::tests::init_default_dtypes_registry();
         let repo_control = init_repo(store, &dtypes_registry);
 
