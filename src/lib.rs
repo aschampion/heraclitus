@@ -17,7 +17,7 @@ extern crate url;
 extern crate uuid;
 
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io;
@@ -31,7 +31,7 @@ use uuid::Uuid;
 // use schemamama;
 
 use datatype::{DatatypesRegistry};
-use datatype::artifact_graph::{ArtifactGraphDescription, ArtifactNodeDescription};
+use datatype::artifact_graph::{ArtifactGraphDescription, ArtifactDescription};
 
 
 mod datatype;
@@ -60,6 +60,15 @@ pub struct Identity {
     // delta versions would be ident even if state is different).
     //internal: InternalId,
 }
+
+#[derive(Clone, Debug, Hash)]
+pub struct Interface {
+    name: &'static str,
+}
+
+type InterfaceIndexType = petgraph::graph::DefaultIx;
+pub type InterfaceIndex = petgraph::graph::NodeIndex<InterfaceIndexType>;
+type InterfaceExtension = daggy::Dag<Interface, (), InterfaceIndexType>;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u32)]
@@ -92,6 +101,7 @@ pub struct Datatype {
     name: String,
     version: u64,
     representations: EnumSet<DatatypeRepresentationKind>,
+    implements: HashSet<InterfaceIndex>,
 }
 
 impl Datatype {
@@ -99,6 +109,7 @@ impl Datatype {
         name: String,
         version: u64,
         representations: EnumSet<DatatypeRepresentationKind>,
+        implements: HashSet<InterfaceIndex>,
     ) -> Datatype {
         let uuid = Uuid::new_v5(&DATATYPES_UUID_NAMESPACE, &name);
         let mut dtype = Datatype {
@@ -106,6 +117,7 @@ impl Datatype {
             name,
             version,
             representations,
+            implements,
         };
         let mut s = DefaultHasher::new();
         dtype.hash(&mut s);
@@ -119,6 +131,7 @@ impl Hash for Datatype {
         self.name.hash(state);
         self.version.hash(state);
         self.representations.hash(state);
+        // self.implements.hash(state);
     }
 }
 
@@ -127,12 +140,10 @@ pub struct DatatypeRelation {
     name: String,
 }
 
-struct Metadata {
-    datatypes: daggy::Dag<Datatype, DatatypeRelation>,
-}
+type DatatypeGraph =  daggy::Dag<Datatype, DatatypeRelation>;
 
 struct Repository {
-    id: Identity,
+    id: Identity,  // TODO: no clear reason that repos need an identity. Except: cross-store deps.
     name: String,
     url: Url,
 }
@@ -144,13 +155,41 @@ pub struct Context {
 
 type ArtifactGraphIndexType = petgraph::graph::DefaultIx;
 pub type ArtifactGraphIndex = petgraph::graph::NodeIndex<ArtifactGraphIndexType>;
+pub(crate) type ArtifactGraphType<'a> = daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType>;
 /// A graph expressing the dependence structure between sets of data artifacts.
 pub struct ArtifactGraph<'a> {
     id: Identity,
-    artifacts: daggy::Dag<ArtifactNode<'a>, ArtifactRelation, ArtifactGraphIndexType>,
+    artifacts: ArtifactGraphType<'a>,
 }
 
 impl<'a> ArtifactGraph<'a> {
+    fn new_singleton(
+        datatype: &'a Datatype,
+        graph_uuid: Uuid,
+        artifact_uuid: Uuid,
+    ) -> ArtifactGraph<'a> {
+        let mut art_graph = ArtifactGraph {
+            id: Identity {
+                uuid: graph_uuid.clone(),
+                hash: 0,
+            },
+            artifacts: ArtifactGraphType::new(),
+        };
+        let mut s = DefaultHasher::new();
+        let mut ag_hash = DefaultHasher::new();
+        let mut art = Artifact {
+            id: Identity {uuid: artifact_uuid.clone(), hash: 0},
+            name: None,
+            dtype: datatype,
+        };
+        art.hash(&mut s);
+        art.id.hash = s.finish();
+        art.id.hash.hash(&mut ag_hash);
+        art_graph.artifacts.add_node(art);
+        art_graph.id.hash = ag_hash.finish();
+        art_graph
+    }
+
     fn from_description(
         desc: &ArtifactGraphDescription,
         dtypes_registry: &'a DatatypesRegistry
@@ -159,7 +198,7 @@ impl<'a> ArtifactGraph<'a> {
         let mut to_visit = desc_graph.externals(petgraph::Direction::Incoming)
                 .collect::<VecDeque<_>>();
 
-        let mut artifacts: daggy::Dag<ArtifactNode, ArtifactRelation> = daggy::Dag::new();
+        let mut artifacts = ArtifactGraphType::new();
         let mut idx_map = BTreeMap::new();
         let mut ag_hash = DefaultHasher::new();
 
@@ -176,32 +215,20 @@ impl<'a> ArtifactGraph<'a> {
                     for (_, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
                         let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
                         let new_p = artifacts.node_weight(*new_p_idx).expect("Graph is malformed.");
-                        match new_p {
-                            &ArtifactNode::Producer(ref inner) => inner.id.hash.hash(&mut s),
-                            &ArtifactNode::Artifact(ref inner) => inner.id.hash.hash(&mut s),
-                        }
+                        new_p.id.hash.hash(&mut s);
                     }
 
-                    let node = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
-                    let artifact = match node {
-                        &ArtifactNodeDescription::Producer(ref p_desc) => {
-                            let mut producer = Producer { id: id, name: p_desc.name.clone() };
-                            producer.hash(&mut s);
-                            producer.id.hash = s.finish();
-                            producer.id.hash.hash(&mut ag_hash);
-                            ArtifactNode::Producer(producer)
-                        },
-                        &ArtifactNodeDescription::Artifact(ref a_desc) => {
-                            let mut art = Artifact {
-                                id: id,
-                                name: a_desc.name.clone(),
-                                dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
-                            };
-                            art.hash(&mut s);
-                            art.id.hash = s.finish();
-                            art.id.hash.hash(&mut ag_hash);
-                            ArtifactNode::Artifact(art)
-                        },
+                    let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
+                    let artifact = {
+                        let mut art = Artifact {
+                            id: id,
+                            name: a_desc.name.clone(),
+                            dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
+                        };
+                        art.hash(&mut s);
+                        art.id.hash = s.finish();
+                        art.id.hash.hash(&mut ag_hash);
+                        art
                     };
 
                     let new_idx = artifacts.add_node(artifact);
@@ -238,6 +265,7 @@ impl<'a> ArtifactGraph<'a> {
         let mut ag_hash = DefaultHasher::new();
 
         // Walk the description graph in descending dependency order.
+        // TODO: should use a topological sort instead
         loop {
             match to_visit.pop_front() {
                 Some(node_idx) => {
@@ -246,25 +274,14 @@ impl<'a> ArtifactGraph<'a> {
                     // TODO: replace with petgraph neighbors
                     // TODO: this ordering needs to be deterministic
                     for (_, p_idx) in self.artifacts.parents(node_idx).iter(&self.artifacts) {
-                        match self.artifacts.node_weight(p_idx).expect("Graph is malformed.") {
-                            &ArtifactNode::Producer(ref inner) => inner.id.hash.hash(&mut s),
-                            &ArtifactNode::Artifact(ref inner) => inner.id.hash.hash(&mut s),
-                        }
+                        let artifact = self.artifacts.node_weight(p_idx).expect("Graph is malformed.");
+                        artifact.id.hash.hash(&mut s);
                     }
 
-                    let node = self.artifacts.node_weight(node_idx).expect("Graph is malformed.");
-                    match node {
-                        &ArtifactNode::Producer(ref p) => {
-                            p.hash(&mut s);
-                            if s.finish() != p.id.hash { return false; }
-                            p.id.hash.hash(&mut ag_hash);
-                        },
-                        &ArtifactNode::Artifact(ref a) => {
-                            a.hash(&mut s);
-                            if s.finish() != a.id.hash { return false; }
-                            a.id.hash.hash(&mut ag_hash);
-                        },
-                    };
+                    let artifact = self.artifacts.node_weight(node_idx).expect("Graph is malformed.");
+                    artifact.hash(&mut s);
+                    if s.finish() != artifact.id.hash { return false; }
+                    artifact.id.hash.hash(&mut ag_hash);
 
                     for (_, c_idx) in self.artifacts.children(node_idx).iter(&self.artifacts) {
                         to_visit.push_back(c_idx);
@@ -280,11 +297,11 @@ impl<'a> ArtifactGraph<'a> {
     fn find_artifact_by_id(
         &self,
         id: &Identity
-    ) -> Option<(ArtifactGraphIndex, &ArtifactNode)> {
+    ) -> Option<(ArtifactGraphIndex, &Artifact)> {
         let graph = self.artifacts.graph();
         for node_idx in graph.node_indices() {
             let node = graph.node_weight(node_idx).expect("Graph is malformed");
-            if node.id() == id {
+            if node.id == *id {
                 return Some((node_idx, node))
             }
         }
@@ -295,11 +312,11 @@ impl<'a> ArtifactGraph<'a> {
     fn find_artifact_by_uuid(
         &self,
         uuid: &Uuid
-    ) -> Option<(ArtifactGraphIndex, &ArtifactNode)> {
+    ) -> Option<(ArtifactGraphIndex, &'a Artifact)> {
         let graph = self.artifacts.graph();
         for node_idx in graph.node_indices() {
             let node = graph.node_weight(node_idx).expect("Graph is malformed");
-            if node.id().uuid == *uuid {
+            if node.id.uuid == *uuid {
                 return Some((node_idx, node))
             }
         }
@@ -321,42 +338,6 @@ impl<'a> Hash for Artifact<'a> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.dtype.id.hash.hash(state);
         self.name.hash(state);
-    }
-}
-
-// TODO: Beginning to lean towards producers just being normal artifacts.
-#[derive(Debug)]
-pub struct Producer {
-    id: Identity,
-    name: String,
-    // TODO:
-    // - Does this producer handle changes incrementally or cumulatively/in batches?
-    // - Types:
-    //   - Handle only
-    //   - RPC/push notify
-    //   - Directly invoked
-    //     - Rust/FFI call (how is this serialized?)
-    //     - Script?
-}
-
-impl Hash for Producer {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-    }
-}
-
-#[derive(Debug)]
-pub enum ArtifactNode<'a> {
-    Producer(Producer),
-    Artifact(Artifact<'a>),
-}
-
-impl<'a> ArtifactNode<'a> {
-    fn id(&self) -> &Identity {
-        match self {
-            &ArtifactNode::Producer(ref p) => &p.id,
-            &ArtifactNode::Artifact(ref a) => &a.id,
-        }
     }
 }
 
@@ -399,18 +380,16 @@ impl<'a> VersionGraph<'a> {
     fn get_partitioning(
         &self,
         v_idx: VersionGraphIndex
-    ) -> &Version {
+    ) -> Option<&Version> {
         let partitioning_art_relation = ArtifactRelation::DtypeDepends(DatatypeRelation {
-                name: "Partitioning".into(),
+                name: datatype::interface::PARTITIONING_RELATION_NAME.clone(),
             });
         let partitioning_relation = VersionRelation::Dependence(&partitioning_art_relation);
         self.get_related_version(
                 v_idx,
                 &partitioning_relation,
                 petgraph::Direction::Incoming)
-            .map_or(
-                &datatype::partitioning::UNARY_PARTITIONING_VERSION,
-                |p_idx| self.versions.node_weight(p_idx).expect("Impossible non-existent index"))
+            .map(|p_idx| self.versions.node_weight(p_idx).expect("Impossible non-existent index"))
     }
 }
 
@@ -435,9 +414,26 @@ pub enum VersionNode<'a> {
 #[derive(Debug)]
 pub struct Version<'a> {
     id: Identity,
-    artifact: &'a ArtifactNode<'a>,
+    artifact: &'a Artifact<'a>,
     status: VersionStatus,
     representation: DatatypeRepresentationKind,
+}
+
+impl<'a> Version<'a> {
+    fn new_singleton(
+        artifact: &'a Artifact<'a>,
+        uuid: Uuid,
+    ) -> Version<'a> {
+        Version {
+            id: Identity {
+                uuid: uuid,
+                hash: 0,
+            },
+            artifact: artifact,
+            status: ::VersionStatus::Committed,
+            representation: ::DatatypeRepresentationKind::State,
+        }
+    }
 }
 
 pub type PartitionIndex = u64;

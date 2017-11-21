@@ -6,26 +6,12 @@ CREATE TABLE artifact_graph (
   OIDS=FALSE
 );
 
-CREATE TABLE artifact_node (
+CREATE TABLE artifact (
   id bigserial PRIMARY KEY,
   LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
-  artifact_graph_id bigint NOT NULL REFERENCES artifact_graph (id) DEFERRABLE INITIALLY IMMEDIATE
-) WITH (
-  OIDS=FALSE
-);
-
--- Cannot use inheritance for artifact/producer because FKs will reference them.
-CREATE TABLE artifact (
-  artifact_node_id bigint PRIMARY KEY REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE,
+  artifact_graph_id bigint NOT NULL REFERENCES artifact_graph (id) DEFERRABLE INITIALLY IMMEDIATE,
   datatype_id bigint NOT NULL REFERENCES datatype (id),
   name text
-) WITH (
-  OIDS=FALSE
-);
-
-CREATE TABLE producer (
-  artifact_node_id bigint PRIMARY KEY REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE,
-  name text NOT NULL
 ) WITH (
   OIDS=FALSE
 );
@@ -36,8 +22,8 @@ CREATE TYPE artifact_edge_type AS ENUM (
 );
 
 CREATE TABLE artifact_edge (
-  source_id bigint NOT NULL REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE,
-  dependent_id bigint NOT NULL REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE,
+  source_id bigint NOT NULL REFERENCES artifact (id) DEFERRABLE INITIALLY IMMEDIATE,
+  dependent_id bigint NOT NULL REFERENCES artifact (id) DEFERRABLE INITIALLY IMMEDIATE,
   edge_type artifact_edge_type NOT NULL,
   name text NOT NULL,
   PRIMARY KEY (source_id, dependent_id)
@@ -63,7 +49,7 @@ CREATE TABLE artifact_edge (
 CREATE TABLE version (
   id bigserial PRIMARY KEY,
   LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
-  artifact_node_id bigint NOT NULL REFERENCES artifact_node (id) DEFERRABLE INITIALLY IMMEDIATE
+  artifact_id bigint NOT NULL REFERENCES artifact (id) DEFERRABLE INITIALLY IMMEDIATE
   -- TODO ignoring version status
   -- TODO ignoring datatype representation kind
 ) WITH (

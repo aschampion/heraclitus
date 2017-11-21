@@ -18,9 +18,9 @@ use uuid::Uuid;
 use url::Url;
 
 use ::{
-    Artifact, ArtifactGraph, ArtifactNode, ArtifactRelation, Context,
+    Artifact, ArtifactGraph, ArtifactRelation, Context,
     Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Hunk, Identity,
-    PartCompletion, Partition, Producer,
+    PartCompletion, Partition,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
 use super::{DatatypesRegistry, DependencyDescription, DependencyStoreRestriction, Description, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
@@ -31,13 +31,12 @@ pub struct ArtifactGraphDtype;
 impl super::Model for ArtifactGraphDtype {
     fn info(&self) -> Description {
         Description {
-            datatype: Datatype::new(
-                "ArtifactGraph".into(),
-                1,
-                vec![DatatypeRepresentationKind::State]
+            name: "ArtifactGraph".into(),
+            version: 1,
+            representations: vec![DatatypeRepresentationKind::State]
                     .into_iter()
                     .collect(),
-            ),
+            implements: vec![], // TODO: should artifact graph be an interface?
             dependencies: vec![],
         }
     }
@@ -52,7 +51,7 @@ impl super::Model for ArtifactGraphDtype {
     fn partitioning_controller(
         &self,
         store: Store
-    ) -> Option<Box<super::partitioning::PartitioningController>> {
+    ) -> Option<Box<super::interface::PartitioningController>> {
         None
     }
 }
@@ -107,19 +106,9 @@ pub trait ModelController {
 }
 
 
+type ArtifactGraphDescriptionType =  daggy::Dag<ArtifactDescription, ArtifactRelation>;
 pub struct ArtifactGraphDescription {
-    pub artifacts: daggy::Dag<ArtifactNodeDescription, ArtifactRelation>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub enum ArtifactNodeDescription {
-    Producer(ProducerDescription),
-    Artifact(ArtifactDescription),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ProducerDescription {
-    pub name: String,
+    pub artifacts: ArtifactGraphDescriptionType,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -184,38 +173,20 @@ impl ModelController for PostgresStore {
         let ag_id: i64 = ag_id_row.get(0).get(0);
 
         let mut id_map = HashMap::new();
-        let insert_producer = trans.prepare(r#"
-                WITH insert_artifact_node AS (
-                    INSERT INTO artifact_node (uuid_, hash, artifact_graph_id)
-                    VALUES ($1, $2, $3)
-                    RETURNING id)
-                INSERT INTO producer (artifact_node_id, name)
-                SELECT id, $4 FROM insert_artifact_node
-                RETURNING artifact_node_id;
-            "#)?;
         let insert_artifact = trans.prepare(r#"
-                WITH insert_artifact_node AS (
-                    INSERT INTO artifact_node (uuid_, hash, artifact_graph_id)
-                    VALUES ($1, $2, $3)
-                    RETURNING id)
-                INSERT INTO artifact (artifact_node_id, name, datatype_id)
-                SELECT ian.id, $4, d.id
-                FROM insert_artifact_node ian
+                INSERT INTO artifact (uuid_, hash, artifact_graph_id, name, datatype_id)
+                SELECT r.uuid_, r.hash, r.ag_id, r.name, d.id
+                FROM (VALUES ($1::uuid, $2::bigint, $3::bigint, $4::text))
+                  AS r (uuid_, hash, ag_id, name)
                 JOIN datatype d ON d.name = $5
-                RETURNING artifact_node_id;
+                RETURNING id;
             "#)?;
 
         for idx in art_graph.artifacts.graph().node_indices() {
-            let node = art_graph.artifacts.node_weight(idx).unwrap();
-            let node_id_row = match node {
-                &ArtifactNode::Producer(ref prod) =>
-                    insert_producer.query(&[
-                        &prod.id.uuid, &(prod.id.hash as i64), &ag_id, &prod.name])?,
-                &ArtifactNode::Artifact(ref art) =>
-                    insert_artifact.query(&[
+            let art = art_graph.artifacts.node_weight(idx).unwrap();
+            let node_id_row = insert_artifact.query(&[
                         &art.id.uuid, &(art.id.hash as i64), &ag_id,
-                         &art.name, &art.dtype.name])?,
-            };
+                        &art.name, &art.dtype.name])?;
             let node_id: i64 = node_id_row.get(0).get(0);
 
             id_map.insert(idx, node_id);
@@ -273,30 +244,17 @@ impl ModelController for PostgresStore {
 
         let nodes = trans.query(r#"
                 SELECT
-                    an.id,
-                    an.uuid_,
-                    an.hash,
+                    a.id,
+                    a.uuid_,
+                    a.hash,
                     a.name,
                     d.name
                 FROM artifact a
-                JOIN artifact_node an ON an.id = a.artifact_node_id
                 JOIN datatype d ON a.datatype_id = d.id
-                WHERE artifact_graph_id = $1
-
-                UNION
-
-                SELECT
-                    an.id,
-                    an.uuid_,
-                    an.hash,
-                    p.name,
-                    NULL
-                FROM producer p
-                JOIN artifact_node an ON an.id = p.artifact_node_id
                 WHERE artifact_graph_id = $1;
             "#, &[&ag_row.get::<_, i64>(0)])?;
 
-        let mut artifacts: daggy::Dag<ArtifactNode, ArtifactRelation> = daggy::Dag::new();
+        let mut artifacts = ::ArtifactGraphType::new();
         let mut idx_map = HashMap::new();
 
         for row in &nodes {
@@ -305,16 +263,10 @@ impl ModelController for PostgresStore {
                 uuid: row.get(1),
                 hash: row.get::<_, i64>(2) as u64,
             };
-            let node = match row.get::<_, Option<String>>(4) {
-                Some(name) => ArtifactNode::Artifact(Artifact {
-                    id: id,
-                    name: row.get(3),
-                    dtype: dtypes_registry.get_datatype(&*name).expect("Unknown datatype."),
-                }),
-                None => ArtifactNode::Producer(Producer {
-                    id: id,
-                    name: row.get(3),
-                })
+            let node = Artifact {
+                id: id,
+                name: row.get(3),
+                dtype: dtypes_registry.get_datatype(&row.get::<_, String>(4)).expect("Unknown datatype."),
             };
 
             let node_idx = artifacts.add_node(node);
@@ -371,13 +323,13 @@ impl ModelController for PostgresStore {
         // TODO: should check that if a root version, must be State and not Delta.
 
         let ver_id_row = trans.query(r#"
-                INSERT INTO version (uuid_, hash, artifact_node_id)
-                SELECT r.uuid_, r.hash, an.id
+                INSERT INTO version (uuid_, hash, artifact_id)
+                SELECT r.uuid_, r.hash, a.id
                 FROM (VALUES ($1::uuid, $2::bigint, $3::uuid))
-                AS r (uuid_, hash, an_uuid)
-                JOIN artifact_node an ON an.uuid_ = r.an_uuid
+                AS r (uuid_, hash, a_uuid)
+                JOIN artifact a ON a.uuid_ = r.a_uuid
                 RETURNING id;
-            "#, &[&ver.id.uuid, &(ver.id.hash as i64), &ver.artifact.id().uuid])?;
+            "#, &[&ver.id.uuid, &(ver.id.hash as i64), &ver.artifact.id.uuid])?;
         let ver_id: i64 = ver_id_row.get(0).get(0);
 
         let insert_parent = trans.prepare(r#"
@@ -390,7 +342,7 @@ impl ModelController for PostgresStore {
         let insert_relation = trans.prepare(r#"
                 INSERT INTO version_relation
                   (source_version_id, dependent_version_id, source_id, dependent_id)
-                SELECT vp.id, r.child_id, vp.artifact_node_id, vc.artifact_node_id
+                SELECT vp.id, r.child_id, vp.artifact_id, vc.artifact_id
                 FROM (VALUES ($1::uuid, $2::bigint))
                 AS r (parent_uuid, child_id)
                 JOIN version vp ON vp.uuid_ = r.parent_uuid
@@ -438,9 +390,9 @@ impl ModelController for PostgresStore {
 
         // TODO: not using hash. See other comments.
         let ver_node_rows = trans.query(r#"
-                SELECT v.id, v.uuid_, v.hash, an.uuid_, an.hash
+                SELECT v.id, v.uuid_, v.hash, a.uuid_, a.hash
                 FROM version v
-                JOIN artifact_node an ON an.id = v.artifact_node_id
+                JOIN artifact a ON a.id = v.artifact_id
                 WHERE v.uuid_ = $1::uuid
             "#, &[&id.uuid])?;
         let ver_node_row = ver_node_rows.get(0);
@@ -463,12 +415,12 @@ impl ModelController for PostgresStore {
         idx_map.insert(ver_node_id, ver_node_idx);
 
         let ancestry_node_rows = trans.query(r#"
-                SELECT v.id, v.uuid_, v.hash, an.uuid_, an.hash, vp.parent_id, vp.child_id
+                SELECT v.id, v.uuid_, v.hash, a.uuid_, a.hash, vp.parent_id, vp.child_id
                 FROM version_parent vp
                 JOIN version v
                   ON ((vp.parent_id = $1 AND v.id = vp.child_id)
                     OR (vp.child_id = $1 AND v.id = vp.parent_id))
-                JOIN artifact_node an ON an.id = v.artifact_node_id;
+                JOIN artifact a ON a.id = v.artifact_id;
             "#, &[&ver_node_id])?;
         for row in &ancestry_node_rows {
             let db_id = row.get::<_, i64>(0);
@@ -498,13 +450,13 @@ impl ModelController for PostgresStore {
         let dependence_node_rows = trans.query(r#"
                 SELECT
                   v.id, v.uuid_, v.hash,
-                  an.uuid_, an.hash,
+                  a.uuid_, a.hash,
                   vr.dependent_version_id = $1
                 FROM version_relation vr
                 JOIN version v
                   ON ((vr.dependent_version_id = $1 AND v.id = vr.source_version_id)
                     OR (vr.source_version_id = $1 AND v.id = vr.dependent_version_id))
-                JOIN artifact_node an ON an.id = v.artifact_node_id;
+                JOIN artifact a ON a.id = v.artifact_id;
             "#, &[&ver_node_id])?;
         for row in &dependence_node_rows {
             let db_id = row.get::<_, i64>(0);
@@ -582,23 +534,41 @@ mod tests {
         use ::datatype::blob::ModelController as BlobModelController;
 
         let store = Store::Postgres;
-        let mut artifacts: daggy::Dag<ArtifactNodeDescription, ArtifactRelation> = daggy::Dag::new();
-        let prod_node = ArtifactNodeDescription::Producer(ProducerDescription {
-            name: "Test Producer".into()});
+        let mut artifacts = ArtifactGraphDescriptionType::new();
+        let blob1_node = ArtifactDescription {
+            name: Some("Test Blob 1".into()),
+            dtype: "Blob".into()
+        };
+        let blob1_node_idx = artifacts.add_node(blob1_node);
+        let prod_node = ArtifactDescription {
+            name: Some("Test Producer".into()),
+            dtype: "NoopProducer".into(),
+        };
         let prod_node_idx = artifacts.add_node(prod_node);
-        let blob_node = ArtifactNodeDescription::Artifact(ArtifactDescription {
-            name: Some("Test Blob".into()),
-            dtype: "Blob".into() });
-        let blob_node_idx = artifacts.add_node(blob_node);
+        artifacts.add_edge(
+            blob1_node_idx,
+            prod_node_idx,
+            ArtifactRelation::ProducedFrom("Test Dep 1".into())).unwrap();
+        let blob2_node = ArtifactDescription {
+            name: Some("Test Blob 2".into()),
+            dtype: "Blob".into()
+        };
+        let blob2_node_idx = artifacts.add_node(blob2_node);
         artifacts.add_edge(
             prod_node_idx,
-            blob_node_idx,
-            ArtifactRelation::ProducedFrom("Test Dep".into())).unwrap();
+            blob2_node_idx,
+            ArtifactRelation::ProducedFrom("Test Dep 2".into())).unwrap();
         let ag_desc = ArtifactGraphDescription {
             artifacts: artifacts,
         };
 
-        let mut context = ::repo::tests::init_repo(store);
+        let dtypes_registry = ::datatype::tests::init_default_dtypes_registry();
+        let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
+
+        let mut context = Context {
+            dtypes_registry: dtypes_registry,
+            repo_control: repo_control,
+        };
 
         let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, &context.dtypes_registry);
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
@@ -629,7 +599,7 @@ mod tests {
         //     &mut context.repo_control,
         //     &ver_prod.id);
 
-        let ver_node_idx_real = idx_map.get(&blob_node_idx).expect("Couldn't find blob");
+        let ver_node_idx_real = idx_map.get(&blob2_node_idx).expect("Couldn't find blob");
         let ver_blob = Version {
             id: Identity {uuid: Uuid::new_v4(), hash: 0},
             artifact: ag.artifacts.node_weight(*ver_node_idx_real).expect("Couldn't find blob"),
@@ -652,13 +622,27 @@ mod tests {
             &ver_graph,
             ver_blob_idx.clone()).unwrap();
 
-        let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx);
-        let ver_part_dtype = match *ver_partitioning.artifact {
-            ArtifactNode::Artifact(ref art) => &art.dtype,
-            _ => panic!("Partitioning artifact node is not an artifact"),
+        // TODO: A mess from de-static-ing UP Singleton.
+        let unary_partitioning_art = Artifact {
+            id: Identity {uuid: ::datatype::partitioning::UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
+            name: None,
+            dtype: context.dtypes_registry.get_datatype("UnaryPartitioning")
+                                  .expect("Unary partitioning missing from registry"),
         };
+        let unary_partitioning_ver = Version {
+            id: Identity {
+                uuid: ::datatype::partitioning::UNARY_PARTITIONING_VERSION_UUID.clone(),
+                hash: 0,
+            },
+            artifact: &unary_partitioning_art,
+            status: ::VersionStatus::Committed,
+            representation: ::DatatypeRepresentationKind::State,
+        };
+        // let (unary_partitioning_ag, unary_partitioning_ver) =
+        //     partitioning::UnaryPartitioning::build_singleton_version(&context.dtypes_registry);
+        let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx).unwrap_or(&unary_partitioning_ver);
         let ver_part_control = context.dtypes_registry.models
-                                      .get(&ver_part_dtype.name)
+                                      .get(&ver_partitioning.artifact.dtype.name)
                                       .expect("Datatype must be known")
                                       .partitioning_controller(store)
                                       .expect("Partitioning must have controller for store");
