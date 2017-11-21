@@ -2,15 +2,18 @@ use schemamama::Migrator;
 use schemamama_postgres::{PostgresAdapter, PostgresMigration};
 
 use ::{DatatypeRepresentationKind};
-use ::datatype::{Description, Model};
-use ::datatype::interface::PartitioningController;
+use ::datatype::{
+    Description, InterfaceController, MetaController, Model,
+    PostgresMetaController, StoreMetaController};
+use ::datatype::interface::ProducerController;
 use ::repo::{PostgresMigratable};
 use ::store::Store;
 
 
+#[derive(Default)]
 pub struct NoopProducer;
 
-impl Model for NoopProducer {
+impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
     fn info(&self) -> Description {
         Description {
             name: "NoopProducer".into(),
@@ -23,25 +26,93 @@ impl Model for NoopProducer {
         }
     }
 
-    fn meta_controller(&self, store: Store) -> Option<super::StoreMetaController> {
+    fn meta_controller(&self, store: Store) -> Option<StoreMetaController> {
         match store {
-            Store::Postgres => Some(super::StoreMetaController::Postgres(
+            Store::Postgres => Some(StoreMetaController::Postgres(
                 Box::new(NoopProducerController {}))),
             _ => None,
         }
     }
 
-    fn partitioning_controller(&self, store: Store) -> Option<Box<PartitioningController>> {
-        None
+    fn interface_controller(
+        &self,
+        store: Store,
+        name: &str,
+    ) -> Option<T> {
+        match name {
+            "Producer" => {
+                let control: Box<ProducerController> = Box::new(NoopProducerController {});
+                Some(T::from(control))
+            },
+            _ => None,
+        }
     }
 }
 
 pub struct NoopProducerController;
 
-impl super::MetaController for NoopProducerController {}
+impl MetaController for NoopProducerController {}
 
 impl PostgresMigratable for NoopProducerController {
     fn register_migrations(&self, migrator: &mut Migrator<PostgresAdapter>) {}
 }
 
-impl super::PostgresMetaController for NoopProducerController {}
+impl PostgresMetaController for NoopProducerController {}
+
+impl ProducerController for NoopProducerController {}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    pub struct AddOneToBlobProducer;
+
+    impl<T: InterfaceController<ProducerController>> Model<T> for AddOneToBlobProducer {
+        fn info(&self) -> Description {
+            Description {
+                name: "AddOneToBlobProducer".into(),
+                version: 1,
+                representations: vec![DatatypeRepresentationKind::State]
+                        .into_iter()
+                        .collect(),
+                implements: vec!["Producer"],
+                dependencies: vec![],
+            }
+        }
+
+        fn meta_controller(&self, store: Store) -> Option<StoreMetaController> {
+            match store {
+                Store::Postgres => Some(StoreMetaController::Postgres(
+                    Box::new(AddOneToBlobProducerController {}))),
+                _ => None,
+            }
+        }
+
+        fn interface_controller(
+            &self,
+            store: Store,
+            name: &str,
+        ) -> Option<T> {
+            match name {
+                "Producer" => {
+                    let control: Box<ProducerController> = Box::new(AddOneToBlobProducerController {});
+                    Some(T::from(control))
+                },
+                _ => None,
+            }
+        }
+    }
+
+    pub struct AddOneToBlobProducerController;
+
+    impl MetaController for AddOneToBlobProducerController {}
+
+    impl PostgresMigratable for AddOneToBlobProducerController {
+        fn register_migrations(&self, migrator: &mut Migrator<PostgresAdapter>) {}
+    }
+
+    impl PostgresMetaController for AddOneToBlobProducerController {}
+
+    impl ProducerController for AddOneToBlobProducerController {}
+}

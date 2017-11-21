@@ -1,16 +1,19 @@
 extern crate daggy;
 
+use std;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::mem;
 
 use enum_set;
 use enum_set::EnumSet;
 
 use super::Datatype;
 use super::store::Store;
+use self::interface::{PartitioningController, ProducerController};
 
 
+#[macro_use]
+pub mod macros;
 pub mod artifact_graph;
 pub mod blob;
 pub mod interface;
@@ -97,7 +100,7 @@ pub trait MetaController {
     // ) -> Result<VersionGraph<'a>, Error>;
 }
 
-pub trait Model {
+pub trait Model<T> {
     // Necessary to be able to create this as a trait object. See:
     // https://www.reddit.com/r/rust/comments/620m1v/never_hearing_the_trait_x_cannot_be_made_into_an/dfirs5s/
     //fn clone(&self) -> Self where Self: Sized;
@@ -107,7 +110,7 @@ pub trait Model {
     fn meta_controller(&self, Store) -> Option<StoreMetaController>;
 
     /// If this datatype acts as a partitioning controller, construct one.
-    fn partitioning_controller(&self, store: Store) -> Option<Box<interface::PartitioningController>>;
+    fn interface_controller(&self, store: Store, name: &str) -> Option<T>;
 }
 
 pub trait ModelController {}
@@ -134,21 +137,51 @@ impl Into<Box<PostgresMetaController>> for StoreMetaController {
     }
 }
 
-pub fn module_interfaces() -> Vec<&'static InterfaceDescription> {
-    vec![
-        &*interface::INTERFACE_PARTITIONING_DESC,
-        &*interface::INTERFACE_PRODUCER_DESC,
-    ]
+// pub fn module_datatype_models() -> Vec<Box<Model>> {
+//     vec![
+//         Box::new(artifact_graph::ArtifactGraphDtype {}),
+//         Box::new(partitioning::UnaryPartitioning {}),
+//         Box::new(blob::Blob {}),
+//         Box::new(producer::NoopProducer {}),
+//     ]
+// }
+
+pub trait InterfaceController<T: ?Sized> : From<Box<T>>
+        //where Box<T>: From<Self>
+        {}
+
+pub trait InterfaceControllerEnum {
+    fn all_descriptions() -> Vec<&'static InterfaceDescription>;
 }
 
-pub fn module_datatype_models() -> Vec<Box<Model>> {
-    vec![
-        Box::new(artifact_graph::ArtifactGraphDtype {}),
-        Box::new(partitioning::UnaryPartitioning {}),
-        Box::new(blob::Blob {}),
-        Box::new(producer::NoopProducer {}),
-    ]
+pub trait DatatypeEnum: Sized {
+    type InterfaceControllerType: InterfaceControllerEnum;
+
+    fn variant_names() -> Vec<&'static str>;
+
+    fn from_name(name: &str) -> Option<Self>;
+
+    fn as_model(&self) -> &Model<Self::InterfaceControllerType>;
+
+    fn all_variants() -> Vec<Self> {
+        Self::variant_names()
+            .iter()
+            .map(|name| Self::from_name(name).expect("Impossible"))
+            .collect()
+    }
 }
+
+interface_controller_enum!(DefaultInterfaceController, (
+        (Partitioning, PartitioningController, &*interface::INTERFACE_PARTITIONING_DESC),
+        (Producer, ProducerController, &*interface::INTERFACE_PRODUCER_DESC),
+    ));
+
+datatype_enum!(DefaultDatatypes, DefaultInterfaceController, (
+        (ArtifactGraph, artifact_graph::ArtifactGraphDtype),
+        (UnaryPartitioning, partitioning::UnaryPartitioning),
+        (Blob, blob::Blob),
+        (NoopProducer, producer::NoopProducer),
+    ));
 
 
 pub struct InterfaceRegistry {
@@ -184,15 +217,15 @@ impl InterfaceRegistry {
     }
 }
 
-pub struct DatatypesRegistry {
+pub struct DatatypesRegistry<T: DatatypeEnum> {
     interfaces: InterfaceRegistry,
     graph: super::DatatypeGraph,
     dtypes_idx: HashMap<String, daggy::NodeIndex>,
-    pub models: HashMap<String, Box<Model>>,
+    pub models: HashMap<String, T>,
 }
 
-impl DatatypesRegistry {
-    pub fn new() -> DatatypesRegistry {
+impl<T: DatatypeEnum> DatatypesRegistry<T> {
+    pub fn new() -> DatatypesRegistry<T> {
         DatatypesRegistry {
             interfaces: InterfaceRegistry::new(),
             graph: super::DatatypeGraph::new(),
@@ -216,10 +249,10 @@ impl DatatypesRegistry {
         self.interfaces.register_interfaces(interfaces);
     }
 
-    pub fn register_datatype_models(&mut self, models: Vec<Box<Model>>) {
+    pub fn register_datatype_models(&mut self, models: Vec<T>) {
         for model in &models {
             // Add datatype nodes.
-            let description = model.info();
+            let description = model.as_model().info();
             let name = description.name.clone();
             let idx = self.graph.add_node(description.to_datatype(&self.interfaces));
             self.dtypes_idx.insert(name, idx);
@@ -227,7 +260,7 @@ impl DatatypesRegistry {
 
         for model in &models {
             // Add dependency edges.
-            let description = model.info();
+            let description = model.as_model().info();
             let node_idx = self.dtypes_idx.get(&description.name).expect("Unknown datatype.");
             for dependency in description.dependencies {
                 let dep_idx = self.dtypes_idx.get(dependency.datatype_name).expect("Depends on unknown datatype.");
@@ -238,42 +271,29 @@ impl DatatypesRegistry {
 
         // Add model lookup.
         for model in models {
-            let description = model.info();
+            let description = model.as_model().info();
             self.models.insert(description.name, model);
         }
     }
 }
 
-// pub trait DatatypesLibrary {
-//     fn walk_foo<T> {
-//         (blob::Blob as &T)
-//     }
-// }
-
-// pub struct DatatypesController {
-//     datatype_models: Vec<Box<Model>>,
-// }
-
-// impl DatatypesController {
-//     fn default() -> DatatypesController {
-//         let mut dcon = DatatypesController {datatype_models: Vec::new()};
-//         dcon.register_datatype_models(&mut build_module_datatype_models());
-//         dcon
-//     }
-
-//     fn register_datatype_models(&mut self, models: &mut Vec<Box<Model>>) {
-//         self.datatype_models.append(models);
-//     }
-// }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
 
-    pub fn init_default_dtypes_registry() -> DatatypesRegistry {
+    pub fn init_default_dtypes_registry() -> DatatypesRegistry<DefaultDatatypes> {
+        init_dtypes_registry::<DefaultDatatypes>()
+    }
+
+    pub fn init_dtypes_registry<T: DatatypeEnum>() -> DatatypesRegistry<T> {
         let mut dtypes_registry = DatatypesRegistry::new();
-        dtypes_registry.register_interfaces(module_interfaces());
-        dtypes_registry.register_datatype_models(module_datatype_models());
+        dtypes_registry.register_interfaces(<T as DatatypeEnum>::InterfaceControllerType::all_descriptions());
+        let models = T::all_variants();
+            // .iter()
+            // .map(|v| v.as_model())
+            // .collect();
+        dtypes_registry.register_datatype_models(models);
         dtypes_registry
     }
 }

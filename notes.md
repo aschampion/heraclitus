@@ -157,6 +157,10 @@ Fixing the Trait Object/Dtype Madness
   - ~~interface controllers are InterfaceController<I: Interface>, so that Model::interface_controller<I>(&self, store: Store) -> InterfaceController<I>~~ interface controllers have different Traits, doesn't solve interface_controller problem
     - Could also have iface controller enum (w/ variants like Producer(Box<ProducerController>)), so Model<IfaceEnum, IfaceControllerEnum>::interface_controller(&self, store: Store, iface: IfaceEnum) -> Option<IfaceControllerEnum>
       - Can simplify IfaceControllerEnum with macros
+  - [x] To get rid of unsafe transmute in interface controllers:
+    - Make interface_controller<T>'s generic specific to the controllers it can produce
+      - For (a nonsensical) example, <T: PartitioniningInterfaceController + ProducerInterfaceController>
+        - Need to check if this works when a trait is a subtrait, e.g., SpatialPartitioningControler : PartitioningController
 
 
 Solution Sketches
@@ -241,6 +245,7 @@ Easier goal: artifact graph with producer: producer that performs a trivial oper
     - [ ] Does producer have to construct version for dependent artifact or can this be encapsulated somehow?
       - Pre-constructing the dependent artifact versions (e.g., in AG) could have advantages for cross-artifact controllers, like neuron merging, because can already inject changes into downstream artifact versions (like annotation assignment)
     - [ ] What is producer partitioning? E.g., in CATSOP I kick off a resolve for a core, which also requires a remapping of assemblies. In this particular case this would probably be two producers, but in the single case requiring both partition-local and neighborhood/global ops, how is this communicated between hera and the producer?
+      - Presumably producer can decide this, based either on the partitioning of its own artifact or of the parent artifact that changed
 
 
 Squashing Head Versions

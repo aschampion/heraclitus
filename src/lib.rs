@@ -30,7 +30,7 @@ use url::Url;
 use uuid::Uuid;
 // use schemamama;
 
-use datatype::{DatatypesRegistry};
+use datatype::{DatatypeEnum, DatatypesRegistry};
 use datatype::artifact_graph::{ArtifactGraphDescription, ArtifactDescription};
 
 
@@ -148,8 +148,8 @@ struct Repository {
     url: Url,
 }
 
-pub struct Context {
-    dtypes_registry: datatype::DatatypesRegistry,
+pub struct Context<T: DatatypeEnum> {
+    dtypes_registry: datatype::DatatypesRegistry<T>,
     repo_control: repo::StoreRepoController,
 }
 
@@ -190,9 +190,9 @@ impl<'a> ArtifactGraph<'a> {
         art_graph
     }
 
-    fn from_description(
+    fn from_description<T: DatatypeEnum>(
         desc: &ArtifactGraphDescription,
-        dtypes_registry: &'a DatatypesRegistry
+        dtypes_registry: &'a DatatypesRegistry<T>
     ) -> (ArtifactGraph<'a>, BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex>) {
         let desc_graph = desc.artifacts.graph();
         let mut to_visit = desc_graph.externals(petgraph::Direction::Incoming)

@@ -27,14 +27,15 @@ use ::{
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
 use super::{
     DatatypesRegistry, DependencyDescription, DependencyStoreRestriction,
-    Description, Model, Store};
+    Description, InterfaceController, Model, Store};
 use ::datatype::interface::PartitioningController;
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
+#[derive(Default)]
 pub struct UnaryPartitioning;
 
-impl Model for UnaryPartitioning {
+impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartitioning {
     fn info(&self) -> Description {
         Description {
             name: "UnaryPartitioning".into(),
@@ -55,8 +56,22 @@ impl Model for UnaryPartitioning {
         }
     }
 
-    fn partitioning_controller(&self, store: Store) -> Option<Box<PartitioningController>> {
-        Some(Box::new(UnaryPartitioningController {}))
+    fn interface_controller(
+        &self,
+        store: Store,
+        name: &str
+    ) -> Option<T> {
+        match name {
+            // "Partitioning" => T::from_box::<PartitioningController>(
+            //     name,
+            //     Box::new(UnaryPartitioningController {})
+            // ),
+            "Partitioning" => {
+                let control: Box<PartitioningController> = Box::new(UnaryPartitioningController {});
+                Some(T::from(control))
+            },
+            _ => None,
+        }
     }
 }
 

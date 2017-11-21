@@ -22,13 +22,16 @@ use ::{
     Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Hunk, Identity,
     PartCompletion, Partition,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
-use super::{DatatypesRegistry, DependencyDescription, DependencyStoreRestriction, Description, Store};
+use super::{
+    DatatypeEnum, DatatypesRegistry, DependencyDescription,
+    DependencyStoreRestriction, Description, InterfaceController, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
+#[derive(Default)]
 pub struct ArtifactGraphDtype;
 
-impl super::Model for ArtifactGraphDtype {
+impl<T> super::Model<T> for ArtifactGraphDtype {
     fn info(&self) -> Description {
         Description {
             name: "ArtifactGraph".into(),
@@ -48,10 +51,11 @@ impl super::Model for ArtifactGraphDtype {
         }
     }
 
-    fn partitioning_controller(
+    fn interface_controller(
         &self,
-        store: Store
-    ) -> Option<Box<super::interface::PartitioningController>> {
+        store: Store,
+        name: &str,
+    ) -> Option<T> {
         None
     }
 }
@@ -68,15 +72,17 @@ pub trait ModelController {
     fn list_graphs(&self) -> Vec<Identity>;
 
     fn create_graph(
-            &mut self,
-            repo_control: &mut ::repo::StoreRepoController,
-            art_graph: &ArtifactGraph) -> Result<(), Error>;
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &ArtifactGraph,
+    ) -> Result<(), Error>;
 
-    fn get_graph<'a>(
-            &self,
-            repo_control: &mut ::repo::StoreRepoController,
-            dtypes_registry: &'a DatatypesRegistry,
-            id: &Identity) -> Result<ArtifactGraph<'a>, Error>;
+    fn get_graph<'a, T: DatatypeEnum>(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        dtypes_registry: &'a DatatypesRegistry<T>,
+        id: &Identity,
+    ) -> Result<ArtifactGraph<'a>, Error>;
 
     fn create_staging_version(
         &mut self,
@@ -216,10 +222,10 @@ impl ModelController for PostgresStore {
         Ok(())
     }
 
-    fn get_graph<'a>(
+    fn get_graph<'a, T: DatatypeEnum>(
             &self,
             repo_control: &mut ::repo::StoreRepoController,
-            dtypes_registry: &'a DatatypesRegistry,
+            dtypes_registry: &'a DatatypesRegistry<T>,
             id: &Identity) -> Result<ArtifactGraph<'a>, Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
@@ -528,10 +534,20 @@ impl ModelController for PostgresStore {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use ::datatype::blob::ModelController as BlobModelController;
+    use ::datatype::producer::tests::AddOneToBlobProducer;
+
+    datatype_enum!(TestDatatypes, ::datatype::DefaultInterfaceController, (
+        (ArtifactGraph, ::datatype::artifact_graph::ArtifactGraphDtype),
+        (UnaryPartitioning, ::datatype::partitioning::UnaryPartitioning),
+        (Blob, ::datatype::blob::Blob),
+        (NoopProducer, ::datatype::producer::NoopProducer),
+        (AddOneToBlobProducer, AddOneToBlobProducer),
+    ));
+
     #[test]
     fn test_postgres_create_graph() {
-        use super::*;
-        use ::datatype::blob::ModelController as BlobModelController;
 
         let store = Store::Postgres;
         let mut artifacts = ArtifactGraphDescriptionType::new();
@@ -542,7 +558,7 @@ mod tests {
         let blob1_node_idx = artifacts.add_node(blob1_node);
         let prod_node = ArtifactDescription {
             name: Some("Test Producer".into()),
-            dtype: "NoopProducer".into(),
+            dtype: "AddOneToBlobProducer".into(),
         };
         let prod_node_idx = artifacts.add_node(prod_node);
         artifacts.add_edge(
@@ -562,7 +578,7 @@ mod tests {
             artifacts: artifacts,
         };
 
-        let dtypes_registry = ::datatype::tests::init_default_dtypes_registry();
+        let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
         let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
 
         let mut context = Context {
@@ -641,11 +657,14 @@ mod tests {
         // let (unary_partitioning_ag, unary_partitioning_ver) =
         //     partitioning::UnaryPartitioning::build_singleton_version(&context.dtypes_registry);
         let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx).unwrap_or(&unary_partitioning_ver);
-        let ver_part_control = context.dtypes_registry.models
+        let ver_part_control: Box<::datatype::interface::PartitioningController> =
+                context.dtypes_registry.models
                                       .get(&ver_partitioning.artifact.dtype.name)
                                       .expect("Datatype must be known")
-                                      .partitioning_controller(store)
-                                      .expect("Partitioning must have controller for store");
+                                      .as_model()
+                                      .interface_controller(store, "Partitioning")
+                                      .expect("Partitioning must have controller for store")
+                                      .into();
 
         let mut blob_control = ::datatype::blob::model_controller(store);
         let ver_blob_real = ver_graph.versions.node_weight(ver_blob_idx).unwrap();
