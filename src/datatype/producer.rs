@@ -10,7 +10,7 @@ use ::store::Store;
 
 pub struct NoopProducer;
 
-impl Model for NoopProducer {
+impl<T> Model<T> for NoopProducer {
     fn info(&self) -> Description {
         Description {
             name: "NoopProducer".into(),
@@ -31,7 +31,11 @@ impl Model for NoopProducer {
         }
     }
 
-    fn partitioning_controller(&self, store: Store) -> Option<Box<PartitioningController>> {
+    fn interface_controller(
+        &self,
+        store: Store,
+        name: &str
+    ) -> Option<T> {
         None
     }
 }

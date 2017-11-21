@@ -97,7 +97,7 @@ pub trait MetaController {
     // ) -> Result<VersionGraph<'a>, Error>;
 }
 
-pub trait Model {
+pub trait Model<T> {
     // Necessary to be able to create this as a trait object. See:
     // https://www.reddit.com/r/rust/comments/620m1v/never_hearing_the_trait_x_cannot_be_made_into_an/dfirs5s/
     //fn clone(&self) -> Self where Self: Sized;
@@ -107,7 +107,7 @@ pub trait Model {
     fn meta_controller(&self, Store) -> Option<StoreMetaController>;
 
     /// If this datatype acts as a partitioning controller, construct one.
-    fn partitioning_controller(&self, store: Store) -> Option<Box<interface::PartitioningController>>;
+    fn interface_controller(&self, store: Store, name: &str) -> Option<T>;
 }
 
 pub trait ModelController {}
@@ -141,7 +141,12 @@ pub fn module_interfaces() -> Vec<&'static InterfaceDescription> {
     ]
 }
 
-pub fn module_datatype_models() -> Vec<Box<Model>> {
+pub enum DefaultInterfaceControllers {
+    Partitioning(Box<interface::PartitioningController>),
+    Producer(Box<interface::ProducerController>),
+}
+
+pub fn module_datatype_models() -> Vec<Box<Model<DefaultInterfaceControllers>>> {
     vec![
         Box::new(artifact_graph::ArtifactGraphDtype {}),
         Box::new(partitioning::UnaryPartitioning {}),
@@ -188,7 +193,7 @@ pub struct DatatypesRegistry {
     interfaces: InterfaceRegistry,
     graph: super::DatatypeGraph,
     dtypes_idx: HashMap<String, daggy::NodeIndex>,
-    pub models: HashMap<String, Box<Model>>,
+    pub models: HashMap<String, Box<Model<DefaultInterfaceControllers>>>,
 }
 
 impl DatatypesRegistry {
@@ -216,7 +221,7 @@ impl DatatypesRegistry {
         self.interfaces.register_interfaces(interfaces);
     }
 
-    pub fn register_datatype_models(&mut self, models: Vec<Box<Model>>) {
+    pub fn register_datatype_models<T>(&mut self, models: Vec<Box<Model<T>>>) {
         for model in &models {
             // Add datatype nodes.
             let description = model.info();

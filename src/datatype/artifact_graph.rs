@@ -28,7 +28,7 @@ use ::repo::{PostgresRepoController, PostgresMigratable};
 
 pub struct ArtifactGraphDtype;
 
-impl super::Model for ArtifactGraphDtype {
+impl<T> super::Model<T> for ArtifactGraphDtype {
     fn info(&self) -> Description {
         Description {
             name: "ArtifactGraph".into(),
@@ -48,10 +48,11 @@ impl super::Model for ArtifactGraphDtype {
         }
     }
 
-    fn partitioning_controller(
+    fn interface_controller(
         &self,
-        store: Store
-    ) -> Option<Box<super::interface::PartitioningController>> {
+        store: Store,
+        name: &str
+    ) -> Option<T> {
         None
     }
 }

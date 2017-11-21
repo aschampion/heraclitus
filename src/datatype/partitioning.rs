@@ -34,7 +34,7 @@ use ::repo::{PostgresRepoController, PostgresMigratable};
 
 pub struct UnaryPartitioning;
 
-impl Model for UnaryPartitioning {
+impl<T> Model<T> for UnaryPartitioning {
     fn info(&self) -> Description {
         Description {
             name: "UnaryPartitioning".into(),
@@ -55,8 +55,15 @@ impl Model for UnaryPartitioning {
         }
     }
 
-    fn partitioning_controller(&self, store: Store) -> Option<Box<PartitioningController>> {
-        Some(Box::new(UnaryPartitioningController {}))
+    fn interface_controller(
+        &self,
+        store: Store,
+        name: &str
+    ) -> Option<T> {
+        match name {
+            "Partitioning" => Some(T::Partitioning(Box::new(UnaryPartitioningController {}))),
+            _ => None,
+        }
     }
 }
 
