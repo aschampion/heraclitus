@@ -1,8 +1,8 @@
 extern crate daggy;
 
+use std;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::mem;
 
 use enum_set;
 use enum_set::EnumSet;
@@ -97,7 +97,7 @@ pub trait MetaController {
     // ) -> Result<VersionGraph<'a>, Error>;
 }
 
-pub trait Model {
+pub trait Model<T: InterfaceController> {
     // Necessary to be able to create this as a trait object. See:
     // https://www.reddit.com/r/rust/comments/620m1v/never_hearing_the_trait_x_cannot_be_made_into_an/dfirs5s/
     //fn clone(&self) -> Self where Self: Sized;
@@ -107,7 +107,7 @@ pub trait Model {
     fn meta_controller(&self, Store) -> Option<StoreMetaController>;
 
     /// If this datatype acts as a partitioning controller, construct one.
-    fn partitioning_controller(&self, store: Store) -> Option<Box<interface::PartitioningController>>;
+    fn interface_controller(&self, store: Store, name: &str) -> Option<T>;
 }
 
 pub trait ModelController {}
@@ -150,6 +150,50 @@ pub fn module_interfaces() -> Vec<&'static InterfaceDescription> {
 //     ]
 // }
 
+pub enum DefaultInterfaceController {
+    Partitioning(Box<interface::PartitioningController>),
+    Producer(Box<interface::ProducerController>),
+}
+
+pub trait InterfaceController: Sized {
+    fn from_box<T: ?Sized>(name: &str, val: Box<T>) -> Option<Self>;
+}
+
+impl InterfaceController for DefaultInterfaceController {
+    fn from_box<T: ?Sized>(name: &str, val: Box<T>) -> Option<Self> {
+        match name {
+            "Partitioning" => {
+                let raw = &val as *const _ as *mut std::raw::TraitObject;
+                std::mem::forget(val);
+                Some(DefaultInterfaceController::Partitioning(
+                    unsafe {Box::from_raw(std::mem::transmute(*raw))}))
+            },
+            "Producer" => {
+                let raw = &val as *const _ as *mut std::raw::TraitObject;
+                std::mem::forget(val);
+                Some(DefaultInterfaceController::Producer(
+                    unsafe {Box::from_raw(std::mem::transmute(*raw))}))
+            }
+            _ => None,
+        }
+    }
+}
+
+// impl From<Box<interface::PartitioningController>> for DefaultInterfaceController {
+//     fn from(inner: Box<interface::PartitioningController>) -> DefaultInterfaceController {
+//         DefaultInterfaceController::Partitioning(inner)
+//     }
+// }
+
+impl From<DefaultInterfaceController> for Box<interface::PartitioningController> {
+    fn from(iface_control: DefaultInterfaceController) -> Box<interface::PartitioningController> {
+        match iface_control {
+            DefaultInterfaceController::Partitioning(inner) => inner,
+            _ => panic!("Attempt to unwrap interface controller into wrong type!"),
+        }
+    }
+}
+
 pub enum DefaultDatatypes {
     ArtifactGraph(artifact_graph::ArtifactGraphDtype),
     UnaryPartitioning(partitioning::UnaryPartitioning),
@@ -162,7 +206,7 @@ pub trait DatatypesCollection: Sized {
 
     fn from_name(name: &str) -> Option<Self>;
 
-    fn as_model(&self) -> &Model;
+    fn as_model<T: InterfaceController>(&self) -> &Model<T>;
 
     fn all_variants() -> Vec<Self> {
         Self::variant_names()
@@ -187,7 +231,7 @@ impl DatatypesCollection for DefaultDatatypes {
         }
     }
 
-    fn as_model(&self) -> &Model {
+    fn as_model<T: InterfaceController>(&self) -> &Model<T> {
         match *self {
             DefaultDatatypes::ArtifactGraph(ref d) => d,
             DefaultDatatypes::UnaryPartitioning(ref d) => d,
@@ -266,7 +310,7 @@ impl<T: DatatypesCollection> DatatypesRegistry<T> {
     pub fn register_datatype_models(&mut self, models: Vec<T>) {
         for model in &models {
             // Add datatype nodes.
-            let description = model.as_model().info();
+            let description = model.as_model::<DefaultInterfaceController>().info();
             let name = description.name.clone();
             let idx = self.graph.add_node(description.to_datatype(&self.interfaces));
             self.dtypes_idx.insert(name, idx);
@@ -274,7 +318,7 @@ impl<T: DatatypesCollection> DatatypesRegistry<T> {
 
         for model in &models {
             // Add dependency edges.
-            let description = model.as_model().info();
+            let description = model.as_model::<DefaultInterfaceController>().info();
             let node_idx = self.dtypes_idx.get(&description.name).expect("Unknown datatype.");
             for dependency in description.dependencies {
                 let dep_idx = self.dtypes_idx.get(dependency.datatype_name).expect("Depends on unknown datatype.");
@@ -285,7 +329,7 @@ impl<T: DatatypesCollection> DatatypesRegistry<T> {
 
         // Add model lookup.
         for model in models {
-            let description = model.as_model().info();
+            let description = model.as_model::<DefaultInterfaceController>().info();
             self.models.insert(description.name, model);
         }
     }

@@ -9,13 +9,13 @@ use uuid::Uuid;
 use url::Url;
 
 use super::super::{Datatype, DatatypeRepresentationKind, Error, Hunk};
-use super::{DependencyDescription, DependencyStoreRestriction, Description, Store};
+use super::{DependencyDescription, DependencyStoreRestriction, Description, InterfaceController, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
 pub struct Blob;
 
-impl super::Model for Blob {
+impl<T: InterfaceController> super::Model<T> for Blob {
     fn info(&self) -> Description {
         Description {
             name: "Blob".into(),
@@ -35,10 +35,11 @@ impl super::Model for Blob {
         }
     }
 
-    fn partitioning_controller(
+    fn interface_controller(
         &self,
-        store: Store
-    ) -> Option<Box<super::interface::PartitioningController>> {
+        store: Store,
+        name: &str,
+    ) -> Option<T> {
         None
     }
 }
