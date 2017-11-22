@@ -9,6 +9,7 @@ use enum_set::EnumSet;
 
 use super::Datatype;
 use super::store::Store;
+use self::interface::{PartitioningController, ProducerController};
 
 
 pub mod artifact_graph;
@@ -97,7 +98,7 @@ pub trait MetaController {
     // ) -> Result<VersionGraph<'a>, Error>;
 }
 
-pub trait Model<T: InterfaceController> {
+pub trait Model<T> {
     // Necessary to be able to create this as a trait object. See:
     // https://www.reddit.com/r/rust/comments/620m1v/never_hearing_the_trait_x_cannot_be_made_into_an/dfirs5s/
     //fn clone(&self) -> Self where Self: Sized;
@@ -155,29 +156,59 @@ pub enum DefaultInterfaceController {
     Producer(Box<interface::ProducerController>),
 }
 
-pub trait InterfaceController: Sized {
-    fn from_box<T: ?Sized>(name: &str, val: Box<T>) -> Option<Self>;
+// pub trait InterfaceController: Sized {
+//     fn from_box<T: ?Sized>(name: &str, val: Box<T>) -> Option<Self>;
+// }
+pub trait InterfaceController<T: ?Sized> {
+    fn from_controller(controller: Box<T>) -> Self;
+    fn to_controller(self) -> Box<T>;
 }
 
-impl InterfaceController for DefaultInterfaceController {
-    fn from_box<T: ?Sized>(name: &str, val: Box<T>) -> Option<Self> {
-        match name {
-            "Partitioning" => {
-                let raw = &val as *const _ as *mut std::raw::TraitObject;
-                std::mem::forget(val);
-                Some(DefaultInterfaceController::Partitioning(
-                    unsafe {Box::from_raw(std::mem::transmute(*raw))}))
-            },
-            "Producer" => {
-                let raw = &val as *const _ as *mut std::raw::TraitObject;
-                std::mem::forget(val);
-                Some(DefaultInterfaceController::Producer(
-                    unsafe {Box::from_raw(std::mem::transmute(*raw))}))
-            }
-            _ => None,
+impl InterfaceController<PartitioningController> for DefaultInterfaceController {
+    fn from_controller(c: Box<PartitioningController>) -> Self {
+        DefaultInterfaceController::Partitioning(c)
+    }
+
+    fn to_controller(self) -> Box<PartitioningController> {
+        match self {
+            DefaultInterfaceController::Partitioning(c) => c,
+            _ => panic!(),
         }
     }
 }
+
+impl InterfaceController<ProducerController> for DefaultInterfaceController {
+    fn from_controller(c: Box<ProducerController>) -> Self {
+        DefaultInterfaceController::Producer(c)
+    }
+
+    fn to_controller(self) -> Box<ProducerController> {
+        match self {
+            DefaultInterfaceController::Producer(c) => c,
+            _ => panic!(),
+        }
+    }
+}
+
+// impl InterfaceController for DefaultInterfaceController {
+//     fn from_box<T: ?Sized>(name: &str, val: Box<T>) -> Option<Self> {
+//         match name {
+//             "Partitioning" => {
+//                 let raw = &val as *const _ as *mut std::raw::TraitObject;
+//                 std::mem::forget(val);
+//                 Some(DefaultInterfaceController::Partitioning(
+//                     unsafe {Box::from_raw(std::mem::transmute(*raw))}))
+//             },
+//             "Producer" => {
+//                 let raw = &val as *const _ as *mut std::raw::TraitObject;
+//                 std::mem::forget(val);
+//                 Some(DefaultInterfaceController::Producer(
+//                     unsafe {Box::from_raw(std::mem::transmute(*raw))}))
+//             }
+//             _ => None,
+//         }
+//     }
+// }
 
 // impl From<Box<interface::PartitioningController>> for DefaultInterfaceController {
 //     fn from(inner: Box<interface::PartitioningController>) -> DefaultInterfaceController {
@@ -202,11 +233,13 @@ pub enum DefaultDatatypes {
 }
 
 pub trait DatatypesCollection: Sized {
+    type InterfaceControllerType;
+
     fn variant_names() -> Vec<&'static str>;
 
     fn from_name(name: &str) -> Option<Self>;
 
-    fn as_model<T: InterfaceController>(&self) -> &Model<T>;
+    fn as_model(&self) -> &Model<Self::InterfaceControllerType>;
 
     fn all_variants() -> Vec<Self> {
         Self::variant_names()
@@ -217,6 +250,8 @@ pub trait DatatypesCollection: Sized {
 }
 
 impl DatatypesCollection for DefaultDatatypes {
+    type InterfaceControllerType = DefaultInterfaceController;
+
     fn variant_names() -> Vec<&'static str> {
         vec!["ArtifactGraph", "UnaryPartitioning", "Blob", "NoopProducer"]
     }
@@ -231,7 +266,7 @@ impl DatatypesCollection for DefaultDatatypes {
         }
     }
 
-    fn as_model<T: InterfaceController>(&self) -> &Model<T> {
+    fn as_model(&self) -> &Model<Self::InterfaceControllerType> {
         match *self {
             DefaultDatatypes::ArtifactGraph(ref d) => d,
             DefaultDatatypes::UnaryPartitioning(ref d) => d,
@@ -310,7 +345,7 @@ impl<T: DatatypesCollection> DatatypesRegistry<T> {
     pub fn register_datatype_models(&mut self, models: Vec<T>) {
         for model in &models {
             // Add datatype nodes.
-            let description = model.as_model::<DefaultInterfaceController>().info();
+            let description = model.as_model().info();
             let name = description.name.clone();
             let idx = self.graph.add_node(description.to_datatype(&self.interfaces));
             self.dtypes_idx.insert(name, idx);
@@ -318,7 +353,7 @@ impl<T: DatatypesCollection> DatatypesRegistry<T> {
 
         for model in &models {
             // Add dependency edges.
-            let description = model.as_model::<DefaultInterfaceController>().info();
+            let description = model.as_model().info();
             let node_idx = self.dtypes_idx.get(&description.name).expect("Unknown datatype.");
             for dependency in description.dependencies {
                 let dep_idx = self.dtypes_idx.get(dependency.datatype_name).expect("Depends on unknown datatype.");
@@ -329,7 +364,7 @@ impl<T: DatatypesCollection> DatatypesRegistry<T> {
 
         // Add model lookup.
         for model in models {
-            let description = model.as_model::<DefaultInterfaceController>().info();
+            let description = model.as_model().info();
             self.models.insert(description.name, model);
         }
     }
