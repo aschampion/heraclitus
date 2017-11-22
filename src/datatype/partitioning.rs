@@ -26,7 +26,7 @@ use ::{
     PartCompletion, PartitionIndex,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
 use super::{
-    DatatypesRegistry, DependencyDescription, DependencyStoreRestriction,
+    Control, DatatypesRegistry, DependencyDescription, DependencyStoreRestriction,
     Description, InterfaceController, Model, Store};
 use ::datatype::interface::PartitioningController;
 use ::repo::{PostgresRepoController, PostgresMigratable};
@@ -72,6 +72,14 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
             },
             _ => None,
         }
+    }
+}
+
+impl<T> Control<T, PartitioningController> for UnaryPartitioning
+        where T: InterfaceController<PartitioningController>{
+    fn interface_controller(&self, store: Store) -> Option<T> {
+        let control: Box<PartitioningController> = Box::new(UnaryPartitioningController {});
+        Some(T::from(control))
     }
 }
 

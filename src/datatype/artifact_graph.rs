@@ -23,7 +23,7 @@ use ::{
     PartCompletion, Partition,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
 use super::{
-    DatatypeEnum, DatatypesRegistry, DependencyDescription,
+    Control, DatatypeEnum, DatatypesRegistry, DependencyDescription,
     DependencyStoreRestriction, Description, InterfaceController, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
@@ -59,6 +59,8 @@ impl<T> super::Model<T> for ArtifactGraphDtype {
         None
     }
 }
+
+impl<T, U: ?Sized> Control<T, U> for ArtifactGraphDtype where T: InterfaceController<U> {}
 
 pub fn model_controller(store: Store) -> impl ModelController {
     match store {
@@ -649,8 +651,8 @@ mod tests {
                 context.dtypes_registry.models
                                       .get(&ver_partitioning.artifact.dtype.name)
                                       .expect("Datatype must be known")
-                                      .as_model()
-                                      .interface_controller(store, "Partitioning")
+                                      // .as_model()
+                                      .interface_controller::<::datatype::interface::PartitioningController>(store) //, "Partitioning")
                                       .expect("Partitioning must have controller for store")
                                       .into();
 

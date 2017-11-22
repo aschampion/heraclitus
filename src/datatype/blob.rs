@@ -9,7 +9,7 @@ use uuid::Uuid;
 use url::Url;
 
 use super::super::{Datatype, DatatypeRepresentationKind, Error, Hunk};
-use super::{DependencyDescription, DependencyStoreRestriction, Description, InterfaceController, Store};
+use super::{Control, DependencyDescription, DependencyStoreRestriction, Description, InterfaceController, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
@@ -44,6 +44,8 @@ impl<T> super::Model<T> for Blob {
         None
     }
 }
+
+impl<T, U: ?Sized> Control<T, U> for Blob where T: InterfaceController<U> {}
 
 pub fn model_controller(store: Store) -> impl ModelController {
     match store {

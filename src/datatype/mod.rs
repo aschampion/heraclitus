@@ -111,6 +111,12 @@ pub trait Model<T> {
     fn interface_controller(&self, store: Store, name: &str) -> Option<T>;
 }
 
+pub trait Control<T, U: ?Sized> where T: InterfaceController<U> {
+    fn interface_controller(&self, store: Store) -> Option<T> {
+        None
+    }
+}
+
 pub trait ModelController {}
 
 // TODO:
@@ -199,6 +205,9 @@ pub trait DatatypeEnum: Sized {
 
     fn as_model(&self) -> &Model<Self::InterfaceControllerType>;
 
+    fn interface_controller<T>(&self, store: Store) -> Option<Self::InterfaceControllerType>
+        where Self::InterfaceControllerType: InterfaceController<T>;
+
     fn all_variants() -> Vec<Self> {
         Self::variant_names()
             .iter()
@@ -238,6 +247,16 @@ macro_rules! datatype_enum {
                 match *self {
                     $(
                         $enum_name::$d_name(ref d) => d,
+                    )*
+                }
+            }
+
+            fn interface_controller<T>(&self, store: Store) -> Option<Self::InterfaceControllerType>
+                where Self::InterfaceControllerType: InterfaceController<T> {
+                match *self {
+                    $(
+                        $enum_name::$d_name(ref d) =>
+                            Control::<Self::InterfaceControllerType, T>::interface_controller(d, store),
                     )*
                 }
             }
