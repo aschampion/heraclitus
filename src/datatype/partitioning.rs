@@ -32,6 +32,7 @@ use ::datatype::interface::PartitioningController;
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
+#[derive(Default)]
 pub struct UnaryPartitioning;
 
 impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartitioning {
@@ -67,7 +68,7 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
             // ),
             "Partitioning" => {
                 let control: Box<PartitioningController> = Box::new(UnaryPartitioningController {});
-                Some(T::from_controller(control))
+                Some(T::from(control))
             },
             _ => None,
         }
