@@ -23,11 +23,12 @@ use ::{
     PartCompletion, Partition,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
 use super::{
-    DatatypesCollection, DatatypesRegistry, DefaultInterfaceController, DependencyDescription,
+    DatatypeEnum, DatatypesRegistry, DependencyDescription,
     DependencyStoreRestriction, Description, InterfaceController, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
+#[derive(Default)]
 pub struct ArtifactGraphDtype;
 
 impl<T> super::Model<T> for ArtifactGraphDtype {
@@ -75,7 +76,7 @@ pub trait ModelController {
             repo_control: &mut ::repo::StoreRepoController,
             art_graph: &ArtifactGraph) -> Result<(), Error>;
 
-    fn get_graph<'a, T: DatatypesCollection>(
+    fn get_graph<'a, T: DatatypeEnum>(
             &self,
             repo_control: &mut ::repo::StoreRepoController,
             dtypes_registry: &'a DatatypesRegistry<T>,
@@ -219,7 +220,7 @@ impl ModelController for PostgresStore {
         Ok(())
     }
 
-    fn get_graph<'a, T: DatatypesCollection>(
+    fn get_graph<'a, T: DatatypeEnum>(
             &self,
             repo_control: &mut ::repo::StoreRepoController,
             dtypes_registry: &'a DatatypesRegistry<T>,
