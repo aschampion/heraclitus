@@ -22,13 +22,15 @@ use ::{
     Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Hunk, Identity,
     PartCompletion, Partition,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
-use super::{DatatypesCollection, DatatypesRegistry, DependencyDescription, DependencyStoreRestriction, Description, Store};
+use super::{
+    DatatypesCollection, DatatypesRegistry, DefaultInterfaceController, DependencyDescription,
+    DependencyStoreRestriction, Description, InterfaceController, Store};
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
 pub struct ArtifactGraphDtype;
 
-impl super::Model for ArtifactGraphDtype {
+impl<T: InterfaceController> super::Model<T> for ArtifactGraphDtype {
     fn info(&self) -> Description {
         Description {
             name: "ArtifactGraph".into(),
@@ -48,10 +50,11 @@ impl super::Model for ArtifactGraphDtype {
         }
     }
 
-    fn partitioning_controller(
+    fn interface_controller(
         &self,
-        store: Store
-    ) -> Option<Box<super::interface::PartitioningController>> {
+        store: Store,
+        name: &str,
+    ) -> Option<T> {
         None
     }
 }
@@ -641,12 +644,14 @@ mod tests {
         // let (unary_partitioning_ag, unary_partitioning_ver) =
         //     partitioning::UnaryPartitioning::build_singleton_version(&context.dtypes_registry);
         let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx).unwrap_or(&unary_partitioning_ver);
-        let ver_part_control = context.dtypes_registry.models
+        let ver_part_control: Box<::datatype::interface::PartitioningController> =
+                context.dtypes_registry.models
                                       .get(&ver_partitioning.artifact.dtype.name)
                                       .expect("Datatype must be known")
-                                      .as_model()
-                                      .partitioning_controller(store)
-                                      .expect("Partitioning must have controller for store");
+                                      .as_model::<DefaultInterfaceController>()
+                                      .interface_controller(store, "Partitioning")
+                                      .expect("Partitioning must have controller for store")
+                                      .into();
 
         let mut blob_control = ::datatype::blob::model_controller(store);
         let ver_blob_real = ver_graph.versions.node_weight(ver_blob_idx).unwrap();

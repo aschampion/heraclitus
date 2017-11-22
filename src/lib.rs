@@ -1,4 +1,5 @@
 #![feature(conservative_impl_trait)]
+#![feature(raw)]
 
 extern crate daggy;
 extern crate enum_set;
