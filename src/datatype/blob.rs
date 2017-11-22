@@ -15,7 +15,7 @@ use ::repo::{PostgresRepoController, PostgresMigratable};
 
 pub struct Blob;
 
-impl<T: InterfaceController> super::Model<T> for Blob {
+impl<T> super::Model<T> for Blob {
     fn info(&self) -> Description {
         Description {
             name: "Blob".into(),

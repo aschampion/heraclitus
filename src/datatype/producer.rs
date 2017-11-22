@@ -3,14 +3,14 @@ use schemamama_postgres::{PostgresAdapter, PostgresMigration};
 
 use ::{DatatypeRepresentationKind};
 use ::datatype::{Description, InterfaceController, Model};
-use ::datatype::interface::PartitioningController;
+use ::datatype::interface::ProducerController;
 use ::repo::{PostgresMigratable};
 use ::store::Store;
 
 
 pub struct NoopProducer;
 
-impl<T: InterfaceController> Model<T> for NoopProducer {
+impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
     fn info(&self) -> Description {
         Description {
             name: "NoopProducer".into(),
@@ -36,7 +36,13 @@ impl<T: InterfaceController> Model<T> for NoopProducer {
         store: Store,
         name: &str,
     ) -> Option<T> {
-        None
+        match name {
+            "Producer" => {
+                let control: Box<ProducerController> = Box::new(NoopProducerController {});
+                Some(T::from_controller(control))
+            },
+            _ => None,
+        }
     }
 }
 
@@ -49,3 +55,5 @@ impl PostgresMigratable for NoopProducerController {
 }
 
 impl super::PostgresMetaController for NoopProducerController {}
+
+impl ProducerController for NoopProducerController {}

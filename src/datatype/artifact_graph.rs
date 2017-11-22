@@ -30,7 +30,7 @@ use ::repo::{PostgresRepoController, PostgresMigratable};
 
 pub struct ArtifactGraphDtype;
 
-impl<T: InterfaceController> super::Model<T> for ArtifactGraphDtype {
+impl<T> super::Model<T> for ArtifactGraphDtype {
     fn info(&self) -> Description {
         Description {
             name: "ArtifactGraph".into(),
@@ -648,7 +648,7 @@ mod tests {
                 context.dtypes_registry.models
                                       .get(&ver_partitioning.artifact.dtype.name)
                                       .expect("Datatype must be known")
-                                      .as_model::<DefaultInterfaceController>()
+                                      .as_model()
                                       .interface_controller(store, "Partitioning")
                                       .expect("Partitioning must have controller for store")
                                       .into();
