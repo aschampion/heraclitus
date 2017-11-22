@@ -135,13 +135,6 @@ impl Into<Box<PostgresMetaController>> for StoreMetaController {
     }
 }
 
-pub fn module_interfaces() -> Vec<&'static InterfaceDescription> {
-    vec![
-        &*interface::INTERFACE_PARTITIONING_DESC,
-        &*interface::INTERFACE_PRODUCER_DESC,
-    ]
-}
-
 // pub fn module_datatype_models() -> Vec<Box<Model>> {
 //     vec![
 //         Box::new(artifact_graph::ArtifactGraphDtype {}),
@@ -151,89 +144,54 @@ pub fn module_interfaces() -> Vec<&'static InterfaceDescription> {
 //     ]
 // }
 
-pub enum DefaultInterfaceController {
-    Partitioning(Box<interface::PartitioningController>),
-    Producer(Box<interface::ProducerController>),
+pub trait InterfaceController<T: ?Sized> : From<Box<T>>
+        //where Box<T>: From<Self>
+        {}
+
+pub trait InterfaceControllerEnum {
+    fn all_descriptions() -> Vec<&'static InterfaceDescription>;
 }
 
-// pub trait InterfaceController: Sized {
-//     fn from_box<T: ?Sized>(name: &str, val: Box<T>) -> Option<Self>;
-// }
-pub trait InterfaceController<T: ?Sized> {
-    fn from_controller(controller: Box<T>) -> Self;
-    fn to_controller(self) -> Box<T>;
-}
-
-impl InterfaceController<PartitioningController> for DefaultInterfaceController {
-    fn from_controller(c: Box<PartitioningController>) -> Self {
-        DefaultInterfaceController::Partitioning(c)
-    }
-
-    fn to_controller(self) -> Box<PartitioningController> {
-        match self {
-            DefaultInterfaceController::Partitioning(c) => c,
-            _ => panic!(),
+#[macro_export]
+macro_rules! interface_controller_enum {
+    ( $enum_name:ident, ( $( ( $i_name:ident, $i_control:ident, $i_desc:expr ) ),*  $(,)* ) ) => {
+        pub enum $enum_name {
+            $(
+                $i_name(Box<$i_control>),
+            )*
         }
-    }
-}
 
-impl InterfaceController<ProducerController> for DefaultInterfaceController {
-    fn from_controller(c: Box<ProducerController>) -> Self {
-        DefaultInterfaceController::Producer(c)
-    }
-
-    fn to_controller(self) -> Box<ProducerController> {
-        match self {
-            DefaultInterfaceController::Producer(c) => c,
-            _ => panic!(),
+        impl InterfaceControllerEnum for $enum_name {
+            fn all_descriptions() -> Vec<&'static $crate::datatype::InterfaceDescription> {
+                vec![
+                    $($i_desc,)*
+                ]
+            }
         }
-    }
+
+        $(
+            impl $crate::datatype::InterfaceController<$i_control> for $enum_name {}
+
+            impl std::convert::From<Box<$i_control>> for $enum_name {
+                fn from(inner: Box<$i_control>) -> $enum_name {
+                    $enum_name::$i_name(inner)
+                }
+            }
+
+            impl std::convert::From<$enum_name> for Box<$i_control> {
+                fn from(iface_control: $enum_name) -> Box<$i_control> {
+                    match iface_control {
+                        $enum_name::$i_name(inner) => inner,
+                        _ => panic!("Attempt to unwrap interface controller into wrong type!"),
+                    }
+                }
+            }
+        )*
+    };
 }
 
-// impl InterfaceController for DefaultInterfaceController {
-//     fn from_box<T: ?Sized>(name: &str, val: Box<T>) -> Option<Self> {
-//         match name {
-//             "Partitioning" => {
-//                 let raw = &val as *const _ as *mut std::raw::TraitObject;
-//                 std::mem::forget(val);
-//                 Some(DefaultInterfaceController::Partitioning(
-//                     unsafe {Box::from_raw(std::mem::transmute(*raw))}))
-//             },
-//             "Producer" => {
-//                 let raw = &val as *const _ as *mut std::raw::TraitObject;
-//                 std::mem::forget(val);
-//                 Some(DefaultInterfaceController::Producer(
-//                     unsafe {Box::from_raw(std::mem::transmute(*raw))}))
-//             }
-//             _ => None,
-//         }
-//     }
-// }
-
-// impl From<Box<interface::PartitioningController>> for DefaultInterfaceController {
-//     fn from(inner: Box<interface::PartitioningController>) -> DefaultInterfaceController {
-//         DefaultInterfaceController::Partitioning(inner)
-//     }
-// }
-
-impl From<DefaultInterfaceController> for Box<interface::PartitioningController> {
-    fn from(iface_control: DefaultInterfaceController) -> Box<interface::PartitioningController> {
-        match iface_control {
-            DefaultInterfaceController::Partitioning(inner) => inner,
-            _ => panic!("Attempt to unwrap interface controller into wrong type!"),
-        }
-    }
-}
-
-pub enum DefaultDatatypes {
-    ArtifactGraph(artifact_graph::ArtifactGraphDtype),
-    UnaryPartitioning(partitioning::UnaryPartitioning),
-    Blob(blob::Blob),
-    NoopProducer(producer::NoopProducer),
-}
-
-pub trait DatatypesCollection: Sized {
-    type InterfaceControllerType;
+pub trait DatatypeEnum: Sized {
+    type InterfaceControllerType: InterfaceControllerEnum;
 
     fn variant_names() -> Vec<&'static str>;
 
@@ -249,32 +207,55 @@ pub trait DatatypesCollection: Sized {
     }
 }
 
-impl DatatypesCollection for DefaultDatatypes {
-    type InterfaceControllerType = DefaultInterfaceController;
-
-    fn variant_names() -> Vec<&'static str> {
-        vec!["ArtifactGraph", "UnaryPartitioning", "Blob", "NoopProducer"]
-    }
-
-    fn from_name(name: &str) -> Option<DefaultDatatypes> {
-        match name {
-            "ArtifactGraph" => Some(DefaultDatatypes::ArtifactGraph(artifact_graph::ArtifactGraphDtype {})),
-            "UnaryPartitioning" => Some(DefaultDatatypes::UnaryPartitioning(partitioning::UnaryPartitioning {})),
-            "Blob" => Some(DefaultDatatypes::Blob(blob::Blob {})),
-            "NoopProducer" => Some(DefaultDatatypes::NoopProducer(producer::NoopProducer {})),
-            _ => None,
+#[macro_export]
+macro_rules! datatype_enum {
+    ( $enum_name:ident, $iface_enum:ty, ( $( ( $d_name:ident, $d_type:ty ) ),* $(,)* ) ) => {
+        pub enum $enum_name {
+            $(
+                $d_name($d_type),
+            )*
         }
-    }
 
-    fn as_model(&self) -> &Model<Self::InterfaceControllerType> {
-        match *self {
-            DefaultDatatypes::ArtifactGraph(ref d) => d,
-            DefaultDatatypes::UnaryPartitioning(ref d) => d,
-            DefaultDatatypes::Blob(ref d) => d,
-            DefaultDatatypes::NoopProducer(ref d) => d,
+        impl DatatypeEnum for $enum_name {
+            type InterfaceControllerType = $iface_enum;
+
+            fn variant_names() -> Vec<&'static str> {
+                vec![
+                    $(stringify!($d_name),)*
+                ]
+            }
+
+            fn from_name(name: &str) -> Option<$enum_name> {
+                match name {
+                    $(
+                        stringify!($d_name) => Some($enum_name::$d_name(<$d_type as Default>::default())),
+                    )*
+                    _ => None,
+                }
+            }
+
+            fn as_model(&self) -> &Model<Self::InterfaceControllerType> {
+                match *self {
+                    $(
+                        $enum_name::$d_name(ref d) => d,
+                    )*
+                }
+            }
         }
-    }
+    };
 }
+
+interface_controller_enum!(DefaultInterfaceController, (
+        (Partitioning, PartitioningController, &*interface::INTERFACE_PARTITIONING_DESC),
+        (Producer, ProducerController, &*interface::INTERFACE_PRODUCER_DESC),
+    ));
+
+datatype_enum!(DefaultDatatypes, DefaultInterfaceController, (
+        (ArtifactGraph, artifact_graph::ArtifactGraphDtype),
+        (UnaryPartitioning, partitioning::UnaryPartitioning),
+        (Blob, blob::Blob),
+        (NoopProducer, producer::NoopProducer),
+    ));
 
 
 pub struct InterfaceRegistry {
@@ -310,14 +291,14 @@ impl InterfaceRegistry {
     }
 }
 
-pub struct DatatypesRegistry<T: DatatypesCollection> {
+pub struct DatatypesRegistry<T: DatatypeEnum> {
     interfaces: InterfaceRegistry,
     graph: super::DatatypeGraph,
     dtypes_idx: HashMap<String, daggy::NodeIndex>,
     pub models: HashMap<String, T>,
 }
 
-impl<T: DatatypesCollection> DatatypesRegistry<T> {
+impl<T: DatatypeEnum> DatatypesRegistry<T> {
     pub fn new() -> DatatypesRegistry<T> {
         DatatypesRegistry {
             interfaces: InterfaceRegistry::new(),
@@ -370,27 +351,6 @@ impl<T: DatatypesCollection> DatatypesRegistry<T> {
     }
 }
 
-// pub trait DatatypesLibrary {
-//     fn walk_foo<T> {
-//         (blob::Blob as &T)
-//     }
-// }
-
-// pub struct DatatypesController {
-//     datatype_models: Vec<Box<Model>>,
-// }
-
-// impl DatatypesController {
-//     fn default() -> DatatypesController {
-//         let mut dcon = DatatypesController {datatype_models: Vec::new()};
-//         dcon.register_datatype_models(&mut build_module_datatype_models());
-//         dcon
-//     }
-
-//     fn register_datatype_models(&mut self, models: &mut Vec<Box<Model>>) {
-//         self.datatype_models.append(models);
-//     }
-// }
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -398,7 +358,7 @@ pub(crate) mod tests {
 
     pub fn init_default_dtypes_registry() -> DatatypesRegistry<DefaultDatatypes> {
         let mut dtypes_registry = DatatypesRegistry::new();
-        dtypes_registry.register_interfaces(module_interfaces());
+        dtypes_registry.register_interfaces(<DefaultDatatypes as DatatypeEnum>::InterfaceControllerType::all_descriptions());
         let models = DefaultDatatypes::all_variants();
             // .iter()
             // .map(|v| v.as_model())

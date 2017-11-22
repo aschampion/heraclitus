@@ -16,7 +16,7 @@ use url::Url;
 use uuid::Uuid;
 
 use ::{Context, Error};
-use ::datatype::{DatatypesCollection, DatatypesRegistry, DefaultInterfaceController, PostgresMetaController};
+use ::datatype::{DatatypeEnum, DatatypesRegistry, PostgresMetaController};
 use ::store::{Store, Stored};
 
 // pub type StoreRepoController = Stored<Box<RepoController>>;
@@ -47,7 +47,7 @@ pub enum StoreRepoController {
 // }
 
 impl RepoController for StoreRepoController {
-    fn init<T: DatatypesCollection>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
+    fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         use self::StoreRepoController::*;
 
         match *self {
@@ -78,7 +78,7 @@ impl<T> From<SchemamamaError<T>> for Error where SchemamamaError<T>: ToString {
 }
 
 pub trait RepoController {
-    fn init<T: DatatypesCollection>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error>;
+    fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error>;
 }
 
 fn get_repo_controller(repo: &super::Repository) -> StoreRepoController {
@@ -92,7 +92,7 @@ fn get_repo_controller(repo: &super::Repository) -> StoreRepoController {
 pub struct FakeRepoController {}
 
 impl RepoController for FakeRepoController {
-    fn init<T: DatatypesCollection>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
+    fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -143,7 +143,7 @@ impl PostgresMigration for PGMigrationDatatypes {
 }
 
 impl RepoController for PostgresRepoController {
-    fn init<T: DatatypesCollection>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
+    fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         let connection = self.conn()?;
         let adapter = PostgresAdapter::new(connection);
         adapter.setup_schema()?;
@@ -180,7 +180,7 @@ impl RepoController for PostgresRepoController {
 pub(crate) mod tests {
     use super::*;
 
-    pub fn init_repo<T: DatatypesCollection>(
+    pub fn init_repo<T: DatatypeEnum>(
             store: Store,
             dtypes_registry: &DatatypesRegistry<T>,
         ) -> StoreRepoController {

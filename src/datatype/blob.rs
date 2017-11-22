@@ -13,6 +13,7 @@ use super::{DependencyDescription, DependencyStoreRestriction, Description, Inte
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
+#[derive(Default)]
 pub struct Blob;
 
 impl<T> super::Model<T> for Blob {

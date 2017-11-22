@@ -8,6 +8,7 @@ use ::repo::{PostgresMigratable};
 use ::store::Store;
 
 
+#[derive(Default)]
 pub struct NoopProducer;
 
 impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
@@ -39,7 +40,7 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
         match name {
             "Producer" => {
                 let control: Box<ProducerController> = Box::new(NoopProducerController {});
-                Some(T::from_controller(control))
+                Some(T::from(control))
             },
             _ => None,
         }
