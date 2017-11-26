@@ -12,6 +12,8 @@ use super::store::Store;
 use self::interface::{PartitioningController, ProducerController};
 
 
+#[macro_use]
+pub mod macros;
 pub mod artifact_graph;
 pub mod blob;
 pub mod interface;
@@ -152,44 +154,6 @@ pub trait InterfaceControllerEnum {
     fn all_descriptions() -> Vec<&'static InterfaceDescription>;
 }
 
-#[macro_export]
-macro_rules! interface_controller_enum {
-    ( $enum_name:ident, ( $( ( $i_name:ident, $i_control:ident, $i_desc:expr ) ),*  $(,)* ) ) => {
-        pub enum $enum_name {
-            $(
-                $i_name(Box<$i_control>),
-            )*
-        }
-
-        impl InterfaceControllerEnum for $enum_name {
-            fn all_descriptions() -> Vec<&'static $crate::datatype::InterfaceDescription> {
-                vec![
-                    $($i_desc,)*
-                ]
-            }
-        }
-
-        $(
-            impl $crate::datatype::InterfaceController<$i_control> for $enum_name {}
-
-            impl std::convert::From<Box<$i_control>> for $enum_name {
-                fn from(inner: Box<$i_control>) -> $enum_name {
-                    $enum_name::$i_name(inner)
-                }
-            }
-
-            impl std::convert::From<$enum_name> for Box<$i_control> {
-                fn from(iface_control: $enum_name) -> Box<$i_control> {
-                    match iface_control {
-                        $enum_name::$i_name(inner) => inner,
-                        _ => panic!("Attempt to unwrap interface controller into wrong type!"),
-                    }
-                }
-            }
-        )*
-    };
-}
-
 pub trait DatatypeEnum: Sized {
     type InterfaceControllerType: InterfaceControllerEnum;
 
@@ -205,44 +169,6 @@ pub trait DatatypeEnum: Sized {
             .map(|name| Self::from_name(name).expect("Impossible"))
             .collect()
     }
-}
-
-#[macro_export]
-macro_rules! datatype_enum {
-    ( $enum_name:ident, $iface_enum:ty, ( $( ( $d_name:ident, $d_type:ty ) ),* $(,)* ) ) => {
-        pub enum $enum_name {
-            $(
-                $d_name($d_type),
-            )*
-        }
-
-        impl DatatypeEnum for $enum_name {
-            type InterfaceControllerType = $iface_enum;
-
-            fn variant_names() -> Vec<&'static str> {
-                vec![
-                    $(stringify!($d_name),)*
-                ]
-            }
-
-            fn from_name(name: &str) -> Option<$enum_name> {
-                match name {
-                    $(
-                        stringify!($d_name) => Some($enum_name::$d_name(<$d_type as Default>::default())),
-                    )*
-                    _ => None,
-                }
-            }
-
-            fn as_model(&self) -> &Model<Self::InterfaceControllerType> {
-                match *self {
-                    $(
-                        $enum_name::$d_name(ref d) => d,
-                    )*
-                }
-            }
-        }
-    };
 }
 
 interface_controller_enum!(DefaultInterfaceController, (
@@ -357,9 +283,13 @@ pub(crate) mod tests {
     use super::*;
 
     pub fn init_default_dtypes_registry() -> DatatypesRegistry<DefaultDatatypes> {
+        init_dtypes_registry::<DefaultDatatypes>()
+    }
+
+    pub fn init_dtypes_registry<T: DatatypeEnum>() -> DatatypesRegistry<T> {
         let mut dtypes_registry = DatatypesRegistry::new();
-        dtypes_registry.register_interfaces(<DefaultDatatypes as DatatypeEnum>::InterfaceControllerType::all_descriptions());
-        let models = DefaultDatatypes::all_variants();
+        dtypes_registry.register_interfaces(<T as DatatypeEnum>::InterfaceControllerType::all_descriptions());
+        let models = T::all_variants();
             // .iter()
             // .map(|v| v.as_model())
             // .collect();
