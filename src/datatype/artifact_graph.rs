@@ -72,15 +72,17 @@ pub trait ModelController {
     fn list_graphs(&self) -> Vec<Identity>;
 
     fn create_graph(
-            &mut self,
-            repo_control: &mut ::repo::StoreRepoController,
-            art_graph: &ArtifactGraph) -> Result<(), Error>;
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &ArtifactGraph,
+    ) -> Result<(), Error>;
 
     fn get_graph<'a, T: DatatypeEnum>(
-            &self,
-            repo_control: &mut ::repo::StoreRepoController,
-            dtypes_registry: &'a DatatypesRegistry<T>,
-            id: &Identity) -> Result<ArtifactGraph<'a>, Error>;
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        dtypes_registry: &'a DatatypesRegistry<T>,
+        id: &Identity,
+    ) -> Result<ArtifactGraph<'a>, Error>;
 
     fn create_staging_version(
         &mut self,
@@ -532,10 +534,20 @@ impl ModelController for PostgresStore {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use ::datatype::blob::ModelController as BlobModelController;
+    use ::datatype::producer::tests::AddOneToBlobProducer;
+
+    datatype_enum!(TestDatatypes, ::datatype::DefaultInterfaceController, (
+        (ArtifactGraph, ::datatype::artifact_graph::ArtifactGraphDtype),
+        (UnaryPartitioning, ::datatype::partitioning::UnaryPartitioning),
+        (Blob, ::datatype::blob::Blob),
+        (NoopProducer, ::datatype::producer::NoopProducer),
+        (AddOneToBlobProducer, AddOneToBlobProducer),
+    ));
+
     #[test]
     fn test_postgres_create_graph() {
-        use super::*;
-        use ::datatype::blob::ModelController as BlobModelController;
 
         let store = Store::Postgres;
         let mut artifacts = ArtifactGraphDescriptionType::new();
@@ -546,7 +558,7 @@ mod tests {
         let blob1_node_idx = artifacts.add_node(blob1_node);
         let prod_node = ArtifactDescription {
             name: Some("Test Producer".into()),
-            dtype: "NoopProducer".into(),
+            dtype: "AddOneToBlobProducer".into(),
         };
         let prod_node_idx = artifacts.add_node(prod_node);
         artifacts.add_edge(
@@ -566,7 +578,7 @@ mod tests {
             artifacts: artifacts,
         };
 
-        let dtypes_registry = ::datatype::tests::init_default_dtypes_registry();
+        let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
         let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
 
         let mut context = Context {
