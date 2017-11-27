@@ -394,8 +394,21 @@ impl ModelController for PostgresStore {
         repo_control: &mut ::repo::StoreRepoController,
         id: &Identity,
     ) -> Result<(), Error> {
-        // TODO: implement once PG version has status
-        Ok(())
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        trans.query(r#"
+                UPDATE version
+                SET status = $3
+                WHERE uuid_ = $1
+                  AND hash = $2;
+            "#, &[&id.uuid, &(id.hash as i64), &VersionStatus::Committed])?;
+        Ok(trans.commit()?)
     }
 
     fn get_version<'a>(
@@ -661,9 +674,9 @@ mod tests {
             &mut context.repo_control,
             &ver_graph,
             ver_prod_idx.clone()).unwrap();
-        // model_ctrl.commit_version(
-        //     &mut context.repo_control,
-        //     &ver_prod.id);
+        model_ctrl.commit_version(
+            &mut context.repo_control,
+            &ver_graph.versions.node_weight(ver_prod_idx).unwrap().id);
 
         let ver_node_idx_real = idx_map.get(&blob2_node_idx).expect("Couldn't find blob");
         let ver_blob = Version {
