@@ -2,13 +2,14 @@
 
 extern crate daggy;
 extern crate enum_set;
+extern crate failure;
 #[macro_use]
 extern crate lazy_static;
 extern crate petgraph;
 extern crate postgres;
 #[macro_use]
-extern crate schemamama;
-extern crate schemamama_postgres;
+extern crate schemer;
+extern crate schemer_postgres;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -28,7 +29,7 @@ use enum_set::EnumSet;
 use petgraph::visit::EdgeRef;
 use url::Url;
 use uuid::Uuid;
-// use schemamama;
+// use schemer;
 
 use datatype::{DatatypeEnum, DatatypesRegistry};
 use datatype::artifact_graph::{ArtifactGraphDescription, ArtifactDescription};

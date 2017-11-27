@@ -241,8 +241,19 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
         }
     }
 
+    /// Iterate over datatypes.
     pub fn iter_dtypes<'a>(&'a self) -> impl Iterator<Item = &'a Datatype> {
         self.graph.raw_nodes().iter().map(|node| &node.weight)
+    }
+
+    /// Iterate over datatypes sorted topologically according to dependency.
+    pub fn iter_dtypes_topo<'a>(&'a self) -> impl Iterator<Item = &'a Datatype> {
+        daggy::petgraph::algo::toposort(self.graph.graph(), None)
+            .expect("Impossible: datatypes are a DAG")
+            .into_iter()
+            // `move` here is necessary to satisfy conservative impl trait
+            // lifetime even though it's pointless.
+            .map(move |idx| self.graph.node_weight(idx).expect("Impossible: indices from this graph"))
     }
 
     pub fn register_interfaces(&mut self, interfaces: Vec<&InterfaceDescription>) {

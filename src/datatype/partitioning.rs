@@ -1,5 +1,6 @@
 extern crate daggy;
 extern crate petgraph;
+extern crate schemer;
 extern crate serde;
 extern crate serde_json;
 extern crate uuid;
@@ -15,8 +16,8 @@ use daggy::Walker;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use postgres::types::ToSql;
-use schemamama::Migrator;
-use schemamama_postgres::{PostgresAdapter, PostgresMigration};
+use schemer::Migrator;
+use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
 use url::Url;
 
@@ -212,8 +213,6 @@ impl super::MetaController for UnaryPartitioningController {
 }
 
 
-impl PostgresMigratable for UnaryPartitioningController {
-    fn register_migrations(&self, migrator: &mut Migrator<PostgresAdapter>) {}
-}
+impl PostgresMigratable for UnaryPartitioningController {}
 
 impl super::PostgresMetaController for UnaryPartitioningController {}

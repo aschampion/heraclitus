@@ -1,17 +1,18 @@
+extern crate daggy;
 extern crate postgres;
-extern crate uuid;
+extern crate schemer;
 
 // use std::borrow::{Borrow, BorrowMut};
 use std::convert::From;
+use std::fmt::Debug;
 use std::io;
 use std::option::Option;
 
-use postgres::error::ConnectError;
+use failure::Fail;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
-use schemamama::Error as SchemamamaError;
-use schemamama::Migrator;
-use schemamama_postgres::{PostgresAdapter, PostgresMigration};
+use schemer::{Migrator, MigratorError};
+use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use url::Url;
 use uuid::Uuid;
 
@@ -57,22 +58,16 @@ impl RepoController for StoreRepoController {
 }
 
 
-
 impl From<PostgresError> for Error {
     fn from(e: PostgresError) -> Self {
         Error::Store(e.to_string())
     }
 }
 
-impl From<ConnectError> for Error {
-    fn from(e: ConnectError) -> Self {
-        Error::Store(e.to_string())
-    }
-}
-
 use std::string::ToString;
-impl<T> From<SchemamamaError<T>> for Error where SchemamamaError<T>: ToString {
-    fn from(e: SchemamamaError<T>) -> Self {
+impl<T: Debug + Fail> From<MigratorError<T>> for Error
+        where MigratorError<T>: ToString {
+    fn from(e: MigratorError<T>) -> Self {
         Error::Store(e.to_string())
     }
 }
@@ -98,7 +93,9 @@ impl RepoController for FakeRepoController {
 }
 
 pub trait PostgresMigratable {
-    fn register_migrations(&self, migrator: &mut Migrator<PostgresAdapter>);
+    fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
+        vec![]
+    }
 }
 
 pub struct PostgresRepoController {
@@ -130,7 +127,11 @@ impl PostgresRepoController {
 }
 
 struct PGMigrationDatatypes;
-migration!(PGMigrationDatatypes, 1, "create datatypes table");
+migration!(
+    PGMigrationDatatypes,
+    "acda147a-552f-42a5-bb2b-1ba05d41ec03",
+    [],
+    "create datatypes table");
 
 impl PostgresMigration for PGMigrationDatatypes {
     fn up(&self, transaction: &Transaction) -> Result<(), PostgresError> {
@@ -145,25 +146,30 @@ impl PostgresMigration for PGMigrationDatatypes {
 impl RepoController for PostgresRepoController {
     fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         let connection = self.conn()?;
-        let adapter = PostgresAdapter::new(connection);
-        adapter.setup_schema()?;
+        let adapter = PostgresAdapter::new(connection, None);
+        adapter.init()?;
 
         let mut migrator = Migrator::new(adapter);
 
         migrator.register(Box::new(PGMigrationDatatypes));
 
-        for model in dtypes_registry.models.values() {
-            let smc: Box<PostgresMetaController> = model.as_model().meta_controller(::store::Store::Postgres)
-                .expect("Model does not have a Postgres controller.")
-                .into();
-            smc.register_migrations(&mut migrator);
-        }
+        let migrations = dtypes_registry.iter_dtypes()
+            .flat_map(|dtype| {
+                let model = dtypes_registry.models.get(&dtype.name)
+                    .expect("Impossible: datatype name from registry");
+                let smc: Box<PostgresMetaController> = model.as_model()
+                    .meta_controller(::store::Store::Postgres)
+                    .expect("Model does not have a Postgres controller.")
+                    .into();
+                smc.migrations()
+            })
+            .collect();
 
+        migrator.register_multiple(migrations);
         migrator.up(None)?;
 
         let trans = connection.transaction()?;
         let stmt = trans.prepare("INSERT INTO datatype (version, name) VALUES ($1, $2)")?;
-        // TODO: Why is this using models instead of the datatypes graph?
         for dtype in dtypes_registry.iter_dtypes() {
             stmt.execute(&[&(dtype.version as i64), &dtype.name])?;
         }
@@ -171,9 +177,6 @@ impl RepoController for PostgresRepoController {
         Ok(trans.commit()?)
     }
 }
-
-// pub fn register_postgres_migrations<T: ::Datatype::Model>(migration: &mut Migrator);
-
 
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
-use schemamama::Migrator;
-use schemamama_postgres::{PostgresAdapter, PostgresMigration};
+extern crate schemer;
+
+use schemer::Migrator;
+use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
 use ::{DatatypeRepresentationKind};
 use ::datatype::{
@@ -53,9 +55,7 @@ pub struct NoopProducerController;
 
 impl MetaController for NoopProducerController {}
 
-impl PostgresMigratable for NoopProducerController {
-    fn register_migrations(&self, migrator: &mut Migrator<PostgresAdapter>) {}
-}
+impl PostgresMigratable for NoopProducerController {}
 
 impl PostgresMetaController for NoopProducerController {}
 
@@ -108,9 +108,7 @@ pub(crate) mod tests {
 
     impl MetaController for AddOneToBlobProducerController {}
 
-    impl PostgresMigratable for AddOneToBlobProducerController {
-        fn register_migrations(&self, migrator: &mut Migrator<PostgresAdapter>) {}
-    }
+    impl PostgresMigratable for AddOneToBlobProducerController {}
 
     impl PostgresMetaController for AddOneToBlobProducerController {}
 

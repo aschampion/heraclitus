@@ -1,5 +1,6 @@
 extern crate daggy;
 extern crate petgraph;
+extern crate schemer;
 extern crate serde;
 extern crate serde_json;
 extern crate uuid;
@@ -12,8 +13,8 @@ use daggy::Walker;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use postgres::types::ToSql;
-use schemamama::Migrator;
-use schemamama_postgres::{PostgresAdapter, PostgresMigration};
+use schemer::Migrator;
+use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
 use url::Url;
 
@@ -127,7 +128,11 @@ pub struct ArtifactDescription {
 struct PostgresStore {}
 
 struct PGMigrationArtifactGraphs;
-migration!(PGMigrationArtifactGraphs, 2, "create artifact graph table");
+migration!(
+    PGMigrationArtifactGraphs,
+    "7d1fb6d1-a1b0-4bd4-aa6d-e3ee71c4353b",
+    ["acda147a-552f-42a5-bb2b-1ba05d41ec03",],
+    "create artifact graph table");
 
 impl PostgresMigration for PGMigrationArtifactGraphs {
     fn up(&self, transaction: &Transaction) -> Result<(), PostgresError> {
@@ -147,8 +152,10 @@ impl super::MetaController for PostgresStore {
 }
 
 impl PostgresMigratable for PostgresStore {
-    fn register_migrations(&self, migrator: &mut Migrator<PostgresAdapter>) {
-        migrator.register(Box::new(PGMigrationArtifactGraphs));
+    fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
+        vec![
+            Box::new(PGMigrationArtifactGraphs),
+        ]
     }
 }
 

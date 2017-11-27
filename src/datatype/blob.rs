@@ -1,10 +1,11 @@
+extern crate schemer;
 extern crate uuid;
 
 
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
-use schemamama::Migrator;
-use schemamama_postgres::{PostgresAdapter, PostgresMigration};
+use schemer::Migrator;
+use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
 use url::Url;
 
@@ -148,7 +149,11 @@ pub trait ModelController: super::ModelController {
 pub struct PostgresStore {}
 
 struct PGMigrationBlobs;
-migration!(PGMigrationBlobs, 3, "create blob table");
+migration!(
+    PGMigrationBlobs,
+    "3d314b44-0305-4602-8493-9e42f6864103",
+    ["7d1fb6d1-a1b0-4bd4-aa6d-e3ee71c4353b",],
+    "create blob table");
 
 impl PostgresMigration for PGMigrationBlobs {
     fn up(&self, transaction: &Transaction) -> Result<(), PostgresError> {
@@ -168,8 +173,10 @@ impl super::MetaController for PostgresStore {
 }
 
 impl PostgresMigratable for PostgresStore {
-    fn register_migrations(&self, migrator: &mut Migrator<PostgresAdapter>) {
-        migrator.register(Box::new(PGMigrationBlobs));
+    fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
+        vec![
+            Box::new(PGMigrationBlobs),
+        ]
     }
 }
 
