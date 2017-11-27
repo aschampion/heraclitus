@@ -46,11 +46,16 @@ CREATE TABLE artifact_edge (
 --   OIDS=FALSE
 -- );
 
+CREATE TYPE version_status AS ENUM (
+  'staging',
+  'committed'
+);
+
 CREATE TABLE version (
   id bigserial PRIMARY KEY,
   LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
-  artifact_id bigint NOT NULL REFERENCES artifact (id) DEFERRABLE INITIALLY IMMEDIATE
-  -- TODO ignoring version status
+  artifact_id bigint NOT NULL REFERENCES artifact (id) DEFERRABLE INITIALLY IMMEDIATE,
+  status version_status NOT NULL
   -- TODO ignoring datatype representation kind
 ) WITH (
   OIDS=FALSE

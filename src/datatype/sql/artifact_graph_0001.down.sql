@@ -1,8 +1,10 @@
 DROP TABLE artifact_graph;
 DROP TABLE artifact;
+DROP TYPE artifact_edge_type;
 DROP TABLE artifact_edge;
 DROP TABLE artifact_producer_edge;
 DROP TABLE artifact_dtype_edge;
+DROP TYPE version_status;
 DROP TABLE version;
 DROP TABLE version_parent;
 DROP TABLE version_relation;

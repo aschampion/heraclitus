@@ -255,6 +255,13 @@ impl ModelController for PostgresStore {
             hash: ag_row.get::<_, i64>(2) as u64,
         };
 
+        enum NodeRow {
+            ID = 0,
+            UUID,
+            Hash,
+            ArtifactName,
+            DatatypeName,
+        };
         let nodes = trans.query(r#"
                 SELECT
                     a.id,
@@ -271,21 +278,28 @@ impl ModelController for PostgresStore {
         let mut idx_map = HashMap::new();
 
         for row in &nodes {
-            let db_id = row.get::<_, i64>(0);
+            let db_id = row.get::<_, i64>(NodeRow::ID as usize);
             let id = Identity {
-                uuid: row.get(1),
-                hash: row.get::<_, i64>(2) as u64,
+                uuid: row.get(NodeRow::UUID as usize),
+                hash: row.get::<_, i64>(NodeRow::Hash as usize) as u64,
             };
             let node = Artifact {
                 id: id,
-                name: row.get(3),
-                dtype: dtypes_registry.get_datatype(&row.get::<_, String>(4)).expect("Unknown datatype."),
+                name: row.get(NodeRow::ArtifactName as usize),
+                dtype: dtypes_registry.get_datatype(&row.get::<_, String>(NodeRow::DatatypeName as usize))
+                                      .expect("Unknown datatype."),
             };
 
             let node_idx = artifacts.add_node(node);
             idx_map.insert(db_id, node_idx);
         }
 
+        enum EdgeRow {
+            SourceID = 0,
+            DependentID,
+            Name,
+            EdgeType,
+        };
         let edges = trans.query(r#"
                 SELECT
                     ae.source_id,
@@ -297,16 +311,16 @@ impl ModelController for PostgresStore {
             "#, &[&idx_map.keys().collect::<Vec<_>>()])?;
 
         for e in &edges {
-            let relation = match e.get::<_, String>(3).as_ref() {
-                "producer" => ArtifactRelation::ProducedFrom(e.get(2)),
+            let relation = match e.get::<_, String>(EdgeRow::EdgeType as usize).as_ref() {
+                "producer" => ArtifactRelation::ProducedFrom(e.get(EdgeRow::Name as usize)),
                 "dtype" => ArtifactRelation::DtypeDepends(DatatypeRelation {
-                    name: e.get(2),
+                    name: e.get(EdgeRow::Name as usize),
                 }),
                 _ => return Err(Error::Store("Unknown artifact graph edge reltype.".into())),
             };
 
-            let source_idx = idx_map.get(&e.get(0)).expect("Graph is malformed.");
-            let dependent_idx = idx_map.get(&e.get(1)).expect("Graph is malformed.");
+            let source_idx = idx_map.get(&e.get(EdgeRow::SourceID as usize)).expect("Graph is malformed.");
+            let dependent_idx = idx_map.get(&e.get(EdgeRow::DependentID as usize)).expect("Graph is malformed.");
             artifacts.add_edge(*source_idx, *dependent_idx, relation);
 
         }
@@ -336,13 +350,13 @@ impl ModelController for PostgresStore {
         // TODO: should check that if a root version, must be State and not Delta.
 
         let ver_id_row = trans.query(r#"
-                INSERT INTO version (uuid_, hash, artifact_id)
-                SELECT r.uuid_, r.hash, a.id
-                FROM (VALUES ($1::uuid, $2::bigint, $3::uuid))
-                AS r (uuid_, hash, a_uuid)
+                INSERT INTO version (uuid_, hash, artifact_id, status)
+                SELECT r.uuid_, r.hash, a.id, r.status
+                FROM (VALUES ($1::uuid, $2::bigint, $3::uuid, $4::version_status))
+                AS r (uuid_, hash, a_uuid, status)
                 JOIN artifact a ON a.uuid_ = r.a_uuid
                 RETURNING id;
-            "#, &[&ver.id.uuid, &(ver.id.hash as i64), &ver.artifact.id.uuid])?;
+            "#, &[&ver.id.uuid, &(ver.id.hash as i64), &ver.artifact.id.uuid, &ver.status])?;
         let ver_id: i64 = ver_id_row.get(0).get(0);
 
         let insert_parent = trans.prepare(r#"
@@ -402,33 +416,53 @@ impl ModelController for PostgresStore {
         let mut idx_map = BTreeMap::new();
 
         // TODO: not using hash. See other comments.
+        enum VerNodeRow {
+            ID = 0,
+            UUID,
+            Hash,
+            Status,
+            ArtifactUUID,
+            ArtifactHash,
+        };
         let ver_node_rows = trans.query(r#"
-                SELECT v.id, v.uuid_, v.hash, a.uuid_, a.hash
+                SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
                 FROM version v
                 JOIN artifact a ON a.id = v.artifact_id
                 WHERE v.uuid_ = $1::uuid
             "#, &[&id.uuid])?;
         let ver_node_row = ver_node_rows.get(0);
-        let ver_node_id: i64 = ver_node_row.get(0);
+        let ver_node_id: i64 = ver_node_row.get(VerNodeRow::ID as usize);
         let an_id = Identity {
-            uuid: ver_node_row.get(3),
-            hash: ver_node_row.get::<_, i64>(4) as u64,
+            uuid: ver_node_row.get(VerNodeRow::ArtifactUUID as usize),
+            hash: ver_node_row.get::<_, i64>(VerNodeRow::ArtifactHash as usize) as u64,
         };
         let (art_idx, art) = art_graph.find_artifact_by_id(&an_id).expect("Version references unkown artifact");
         let ver_node = Version {
             id: Identity {
-                uuid: ver_node_row.get(1),
-                hash: ver_node_row.get::<_, i64>(2) as u64,
+                uuid: ver_node_row.get(VerNodeRow::UUID as usize),
+                hash: ver_node_row.get::<_, i64>(VerNodeRow::Hash as usize) as u64,
             },
             artifact: art,
-            status: VersionStatus::Staging,  // TODO
+            status: ver_node_row.get(VerNodeRow::Status as usize),
             representation: DatatypeRepresentationKind::State,  // TODO
         };
         let ver_node_idx = ver_graph.versions.add_node(ver_node);
         idx_map.insert(ver_node_id, ver_node_idx);
 
+        enum AncNodeRow {
+            ID = 0,
+            UUID,
+            Hash,
+            Status,
+            ArtifactUUID,
+            ArtifactHash,
+            ParentID,
+            ChildID,
+        };
         let ancestry_node_rows = trans.query(r#"
-                SELECT v.id, v.uuid_, v.hash, a.uuid_, a.hash, vp.parent_id, vp.child_id
+                SELECT
+                  v.id, v.uuid_, v.hash, v.status,
+                  a.uuid_, a.hash, vp.parent_id, vp.child_id
                 FROM version_parent vp
                 JOIN version v
                   ON ((vp.parent_id = $1 AND v.id = vp.child_id)
@@ -436,18 +470,18 @@ impl ModelController for PostgresStore {
                 JOIN artifact a ON a.id = v.artifact_id;
             "#, &[&ver_node_id])?;
         for row in &ancestry_node_rows {
-            let db_id = row.get::<_, i64>(0);
+            let db_id = row.get::<_, i64>(AncNodeRow::ID as usize);
             let an_id = Identity {
-                uuid: row.get(3),
-                hash: row.get::<_, i64>(4) as u64,
+                uuid: row.get(AncNodeRow::ArtifactUUID as usize),
+                hash: row.get::<_, i64>(AncNodeRow::ArtifactHash as usize) as u64,
             };
             let v_node = Version {
                 id: Identity {
-                    uuid: row.get(1),
-                    hash: row.get::<_, i64>(2) as u64,
+                    uuid: row.get(AncNodeRow::UUID as usize),
+                    hash: row.get::<_, i64>(AncNodeRow::Hash as usize) as u64,
                 },
                 artifact: art_graph.find_artifact_by_id(&an_id).expect("Version references unkown artifact").1,
-                status: VersionStatus::Staging,  // TODO
+                status: row.get(AncNodeRow::Status as usize),
                 representation: DatatypeRepresentationKind::State,  // TODO
             };
 
@@ -455,14 +489,23 @@ impl ModelController for PostgresStore {
             idx_map.insert(db_id, v_idx);
 
             let edge = VersionRelation::Parent;
-            let parent_idx = idx_map.get(&row.get(5)).expect("Graph is malformed.");
-            let child_idx = idx_map.get(&row.get(6)).expect("Graph is malformed.");
+            let parent_idx = idx_map.get(&row.get(AncNodeRow::ParentID as usize)).expect("Graph is malformed.");
+            let child_idx = idx_map.get(&row.get(AncNodeRow::ChildID as usize)).expect("Graph is malformed.");
             ver_graph.versions.add_edge(*parent_idx, *child_idx, edge);
         }
 
+        enum DepNodeRow {
+            ID = 0,
+            UUID,
+            Hash,
+            Status,
+            ArtifactUUID,
+            ArtifactHash,
+            DependentID,
+        };
         let dependence_node_rows = trans.query(r#"
                 SELECT
-                  v.id, v.uuid_, v.hash,
+                  v.id, v.uuid_, v.hash, v.status,
                   a.uuid_, a.hash,
                   vr.dependent_version_id = $1
                 FROM version_relation vr
@@ -472,25 +515,25 @@ impl ModelController for PostgresStore {
                 JOIN artifact a ON a.id = v.artifact_id;
             "#, &[&ver_node_id])?;
         for row in &dependence_node_rows {
-            let db_id = row.get::<_, i64>(0);
+            let db_id = row.get::<_, i64>(DepNodeRow::ID as usize);
             let an_id = Identity {
-                uuid: row.get(3),
-                hash: row.get::<_, i64>(4) as u64,
+                uuid: row.get(DepNodeRow::ArtifactUUID as usize),
+                hash: row.get::<_, i64>(DepNodeRow::ArtifactHash as usize) as u64,
             };
             let (an_idx, an) = art_graph.find_artifact_by_id(&an_id).expect("Version references unkown artifact");
             let v_node = Version {
                 id: Identity {
-                    uuid: row.get(1),
-                    hash: row.get::<_, i64>(2) as u64,
+                    uuid: row.get(DepNodeRow::UUID as usize),
+                    hash: row.get::<_, i64>(DepNodeRow::Hash as usize) as u64,
                 },
                 artifact: an,
-                status: VersionStatus::Staging,  // TODO
+                status: row.get(DepNodeRow::Status as usize),
                 representation: DatatypeRepresentationKind::State,  // TODO
             };
 
             let v_idx = ver_graph.versions.add_node(v_node);
 
-            let inbound = row.get(5);
+            let inbound = row.get(DepNodeRow::DependentID as usize);
             let art_rel_idx = if inbound {
                 art_graph.artifacts.find_edge(an_idx, art_idx)
             } else {

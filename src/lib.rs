@@ -6,7 +6,10 @@ extern crate failure;
 #[macro_use]
 extern crate lazy_static;
 extern crate petgraph;
+#[macro_use]
 extern crate postgres;
+#[macro_use]
+extern crate postgres_derive;
 #[macro_use]
 extern crate schemer;
 extern crate schemer_postgres;
@@ -400,9 +403,12 @@ pub enum VersionRelation<'a>{
     Parent,
 }
 
-#[derive(Debug)]
+#[derive(Debug, ToSql, FromSql)]
+#[postgres(name = "version_status")]
 pub enum VersionStatus {
+    #[postgres(name = "staging")]
     Staging,
+    #[postgres(name = "committed")]
     Committed,
 }
 
