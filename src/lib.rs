@@ -168,18 +168,17 @@ pub struct Context<T: DatatypeEnum> {
     repo_control: repo::StoreRepoController,
 }
 
-pub trait IdentifiableGraph<'s, N: Identifiable + 's, E: 's, IT: petgraph::csr::IndexType> {
-    fn graph(&'s self) -> &'s daggy::Dag<N, E, IT>;
+pub trait IdentifiableGraph<'s, N: Identifiable, E: 's, IT: petgraph::csr::IndexType> {
+    fn graph(&self) -> &daggy::Dag<N, E, IT>;
 
-    fn graph_mut(&'s mut self) -> &'s mut daggy::Dag<N, E, IT>;
+    fn graph_mut(&mut self) -> &mut daggy::Dag<N, E, IT>;
 
-    fn find_by_id(
-        &'s self,
+    fn find_by_id<'b>(
+        &'b self,
         id: &Identity
-    ) -> Option<(petgraph::graph::NodeIndex<IT>, &'s N)> {
-        let graph = self.graph().graph();
-        for node_idx in graph.node_indices() {
-            let node = graph.node_weight(node_idx).expect("Graph is malformed");
+    ) -> Option<(petgraph::graph::NodeIndex<IT>, &N)> where 's: 'b {
+        for node_idx in self.graph().graph().node_indices() {
+            let node = self.graph().node_weight(node_idx).expect("Graph is malformed");
             if node.id() == id {
                 return Some((node_idx, node))
             }
@@ -188,13 +187,12 @@ pub trait IdentifiableGraph<'s, N: Identifiable + 's, E: 's, IT: petgraph::csr::
         None
     }
 
-    fn find_by_uuid(
-        &'s self,
+    fn find_by_uuid<'b>(
+        &'b self,
         uuid: &Uuid
-    ) -> Option<(petgraph::graph::NodeIndex<IT>, &'s N)> {
-        let graph = self.graph().graph();
-        for node_idx in graph.node_indices() {
-            let node = graph.node_weight(node_idx).expect("Graph is malformed");
+    ) -> Option<(petgraph::graph::NodeIndex<IT>, &N)>  where 's: 'b {
+        for node_idx in self.graph().graph().node_indices() {
+            let node = self.graph().node_weight(node_idx).expect("Graph is malformed");
             if node.id().uuid == *uuid {
                 return Some((node_idx, node))
             }
@@ -207,24 +205,15 @@ pub trait IdentifiableGraph<'s, N: Identifiable + 's, E: 's, IT: petgraph::csr::
     /// insert it into the graph. Return the index of the existing or created
     /// node.
     fn emplace<F>(
-        &'s mut self,
+        &mut self,
         id: &Identity,
         constructor: F
     ) -> petgraph::graph::NodeIndex<IT>
             where F: Fn() -> N {
-        // TODO: Until NLL this ugly workaround is necessary rather than a simple
-        // 4-line match.
-        {
-            let tmp = &self;
-            if let Some((idx, _)) = tmp.find_by_id(id) {
-                return idx
-            }
+        match self.find_by_id(id) {
+            Some((idx, _)) => idx,
+            None => self.graph_mut().add_node(constructor()),
         }
-        self.graph_mut().add_node(constructor())
-        // match self.find_by_id(id) {
-        //     Some(idx) => idx,
-        //     None => self.graph_mut().add_node(constructor()),
-        // }
     }
 }
 
@@ -370,12 +359,12 @@ impl<'a> ArtifactGraph<'a> {
     }
 }
 
-impl<'a: 's, 's> IdentifiableGraph<'s, Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> for ArtifactGraph<'a> {
-    fn graph(&'s self) -> &'s daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
+impl<'a, 's> IdentifiableGraph<'s, Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> for ArtifactGraph<'a> {
+    fn graph(&self) -> &daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
         &self.artifacts
     }
 
-    fn graph_mut(&'s mut self) -> &'s mut daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
+    fn graph_mut(&mut self) -> &mut daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
         &mut self.artifacts
     }
 }
@@ -470,11 +459,11 @@ impl<'a> VersionGraph<'a> {
 }
 
 impl<'a: 's, 's> IdentifiableGraph<'s, Version<'a>, VersionRelation<'a>, VersionGraphIndexType> for VersionGraph<'a> {
-    fn graph(&'s self) -> &'s daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType> {
+    fn graph(&self) -> &daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType> {
         &self.versions
     }
 
-    fn graph_mut(&'s mut self) -> &'s mut daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType> {
+    fn graph_mut(&mut self) -> &mut daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType> {
         &mut self.versions
     }
 }
