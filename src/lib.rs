@@ -8,6 +8,7 @@ extern crate lazy_static;
 extern crate petgraph;
 #[macro_use]
 extern crate postgres;
+extern crate postgres_array;
 #[macro_use]
 extern crate postgres_derive;
 #[macro_use]
@@ -63,6 +64,10 @@ pub struct Identity {
     // hash whole state, delta versions hash deltas (but this is garbage, same
     // delta versions would be ident even if state is different).
     //internal: InternalId,
+}
+
+pub trait Identifiable {
+    fn id(&self) -> &Identity;
 }
 
 #[derive(Clone, Debug, Hash)]
@@ -130,6 +135,12 @@ impl Datatype {
     }
 }
 
+impl Identifiable for Datatype {
+    fn id(&self) -> &Identity {
+        &self.id
+    }
+}
+
 impl Hash for Datatype {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state);
@@ -155,6 +166,66 @@ struct Repository {
 pub struct Context<T: DatatypeEnum> {
     dtypes_registry: datatype::DatatypesRegistry<T>,
     repo_control: repo::StoreRepoController,
+}
+
+pub trait IdentifiableGraph<'s, N: Identifiable + 's, E: 's, IT: petgraph::csr::IndexType> {
+    fn graph(&'s self) -> &'s daggy::Dag<N, E, IT>;
+
+    fn graph_mut(&'s mut self) -> &'s mut daggy::Dag<N, E, IT>;
+
+    fn find_by_id(
+        &'s self,
+        id: &Identity
+    ) -> Option<(petgraph::graph::NodeIndex<IT>, &'s N)> {
+        let graph = self.graph().graph();
+        for node_idx in graph.node_indices() {
+            let node = graph.node_weight(node_idx).expect("Graph is malformed");
+            if node.id() == id {
+                return Some((node_idx, node))
+            }
+        }
+
+        None
+    }
+
+    fn find_by_uuid(
+        &'s self,
+        uuid: &Uuid
+    ) -> Option<(petgraph::graph::NodeIndex<IT>, &'s N)> {
+        let graph = self.graph().graph();
+        for node_idx in graph.node_indices() {
+            let node = graph.node_weight(node_idx).expect("Graph is malformed");
+            if node.id().uuid == *uuid {
+                return Some((node_idx, node))
+            }
+        }
+
+        None
+    }
+
+    /// If a node with a given identity does not exist, construct and
+    /// insert it into the graph. Return the index of the existing or created
+    /// node.
+    fn emplace<F>(
+        &'s mut self,
+        id: &Identity,
+        constructor: F
+    ) -> petgraph::graph::NodeIndex<IT>
+            where F: Fn() -> N {
+        // TODO: Until NLL this ugly workaround is necessary rather than a simple
+        // 4-line match.
+        {
+            let tmp = &self;
+            if let Some((idx, _)) = tmp.find_by_id(id) {
+                return idx
+            }
+        }
+        self.graph_mut().add_node(constructor())
+        // match self.find_by_id(id) {
+        //     Some(idx) => idx,
+        //     None => self.graph_mut().add_node(constructor()),
+        // }
+    }
 }
 
 type ArtifactGraphIndexType = petgraph::graph::DefaultIx;
@@ -297,37 +368,18 @@ impl<'a> ArtifactGraph<'a> {
 
         self.id.hash == ag_hash.finish()
     }
+}
 
-    fn find_artifact_by_id(
-        &self,
-        id: &Identity
-    ) -> Option<(ArtifactGraphIndex, &Artifact)> {
-        let graph = self.artifacts.graph();
-        for node_idx in graph.node_indices() {
-            let node = graph.node_weight(node_idx).expect("Graph is malformed");
-            if node.id == *id {
-                return Some((node_idx, node))
-            }
-        }
-
-        None
+impl<'a: 's, 's> IdentifiableGraph<'s, Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> for ArtifactGraph<'a> {
+    fn graph(&'s self) -> &'s daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
+        &self.artifacts
     }
 
-    fn find_artifact_by_uuid(
-        &self,
-        uuid: &Uuid
-    ) -> Option<(ArtifactGraphIndex, &'a Artifact)> {
-        let graph = self.artifacts.graph();
-        for node_idx in graph.node_indices() {
-            let node = graph.node_weight(node_idx).expect("Graph is malformed");
-            if node.id.uuid == *uuid {
-                return Some((node_idx, node))
-            }
-        }
-
-        None
+    fn graph_mut(&'s mut self) -> &'s mut daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
+        &mut self.artifacts
     }
 }
+
 
 /// An `Artifact` represents a collection of instances of a `Datatype` that can
 /// exist in dependent relationships with other artifacts and producers.
@@ -336,6 +388,12 @@ pub struct Artifact<'a> {
     id: Identity,
     name: Option<String>,
     dtype: &'a Datatype,
+}
+
+impl<'a> Identifiable for Artifact<'a> {
+    fn id(&self) -> &Identity {
+        &self.id
+    }
 }
 
 impl<'a> Hash for Artifact<'a> {
@@ -367,6 +425,20 @@ impl<'a> VersionGraph<'a> {
         }
     }
 
+    /// Find all versions of an artifact in this graph.
+    fn artifact_versions(
+        &self,
+        artifact: &Artifact
+    ) -> Vec<VersionGraphIndex> {
+        self.versions.graph().node_indices()
+            .filter(|&node_idx| {
+                self.versions.node_weight(node_idx)
+                    .expect("Impossible: indices from this graph")
+                    .artifact.id == artifact.id
+            })
+            .collect()
+    }
+
     fn get_related_version(
         &self,
         v_idx: VersionGraphIndex,
@@ -394,6 +466,16 @@ impl<'a> VersionGraph<'a> {
                 &partitioning_relation,
                 petgraph::Direction::Incoming)
             .map(|p_idx| self.versions.node_weight(p_idx).expect("Impossible non-existent index"))
+    }
+}
+
+impl<'a: 's, 's> IdentifiableGraph<'s, Version<'a>, VersionRelation<'a>, VersionGraphIndexType> for VersionGraph<'a> {
+    fn graph(&'s self) -> &'s daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType> {
+        &self.versions
+    }
+
+    fn graph_mut(&'s mut self) -> &'s mut daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType> {
+        &mut self.versions
     }
 }
 
@@ -440,6 +522,12 @@ impl<'a> Version<'a> {
             status: ::VersionStatus::Committed,
             representation: ::DatatypeRepresentationKind::State,
         }
+    }
+}
+
+impl<'a> Identifiable for Version<'a> {
+    fn id(&self) -> &Identity {
+        &self.id
     }
 }
 

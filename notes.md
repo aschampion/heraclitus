@@ -2,7 +2,7 @@ Ignoring
 ========
 - ~~Partitions, hunks~~
 - Datatype versioning
-- Datatype migration DAG
+- ~~Datatype migration DAG~~
 - Dependent dtype versioning resolution/sequencing
 - Cross-store dependencies
 - Sub-store dependencies (e.g., PG image stack backed by DVID/etc.)
@@ -10,6 +10,7 @@ Ignoring
 - Different dtype graphs for different AGs
 - AG versioning
 - AG/VG caching
+- Grouped update of multiple artifacts/versions
 
 
 Guidelines
@@ -116,6 +117,13 @@ Milestone Goals
 Design Questions
 ================
 
+General
+-------
+- Can versions depend on staging versions?
+- Can dependencies change after a version is created (i.e., if it is still staging)? (~~Related to above question~~ ~~not related to above because this only constrains dependencies, not dependents~~)
+  - Would greatly simplify if the case. Only hunks/content/hash of a staging version could change.
+
+
 Producers
 ---------
 - Are producers just datatypes?
@@ -149,8 +157,8 @@ Dtype controllers and Web View
 - There is some common abstracted structure between descriptions, identified entities, instantiated entities, etc. For example, AG is both the DAG and the DAG + ID. Should structure this.
   - Originally had store model methods take descriptions and return identities, but store should take identified, non-description objects
 
-Fixing the Trait Object/Dtype Madness
--------------------------------------
+Fixing the Trait Object/Dtype Madness [DONE]
+--------------------------------------------
 - Datatypes registry is generic over an end-lib defined enum of Datatypes (also one of interfaces), which implements some traits for iterating over them
   - Means no longer need to Box up Model as a trait obj, which would allow for generic methods (e.g., for getting interface controllers)
   - Instead enum has methods for getting its contained variant as &Model, etc.
@@ -166,8 +174,8 @@ Fixing the Trait Object/Dtype Madness
 Solution Sketches
 =================
 
-Datatype Registration
----------------------
+Datatype Registration [DONE]
+----------------------------
 This is how it works:
 
 - There *is* some type of datatype registry/controller.
@@ -246,6 +254,42 @@ Easier goal: artifact graph with producer: producer that performs a trivial oper
       - Pre-constructing the dependent artifact versions (e.g., in AG) could have advantages for cross-artifact controllers, like neuron merging, because can already inject changes into downstream artifact versions (like annotation assignment)
     - [ ] What is producer partitioning? E.g., in CATSOP I kick off a resolve for a core, which also requires a remapping of assemblies. In this particular case this would probably be two producers, but in the single case requiring both partition-local and neighborhood/global ops, how is this communicated between hera and the producer?
       - Presumably producer can decide this, based either on the partitioning of its own artifact or of the parent artifact that changed
+
+Production ~~strategies~~ policies:
+- Extant (copied from above):
+  - When a new version A1 -> A2 is generated is to create new versions based on all extant (A1, Bx) -> Py. For most cases this would be only a single set so would not branch the version graph.
+    - Q: How is this bootstrapped?
+      - What about the case where A is the only dependency of the producer? Can detect and auto bootstrap in this case, but what if there are other dependencies?
+      - Do bootstrap in another strategy (LeafBootstrap), allow and merge multiple strategies
+    - Q: What about a new version with multiple old parent versions?
+- Leaf bootstrap (LeafBoostrap):
+  - If there exist only and exactly a single leaf version for all dependencies, create a producer for these.
+So a production strategy takes a version graph and returns a Set of version ID tuples w/ the new version of the triggering artifact.
+  - Does not handle multiple artifact versions being updated together.
+  - Problem: diff. production policies will require diff. version subgraphs to be filled out
+    - Ex: extant needs the neighborhood of all production versions dependent on the parents of the new dependency version, while leaf bootstrap needs all versions of the artifacts on which the production artifact depends.
+      - Can this be specified w/ walker types or closures?
+      - Would this require the sparse graph ver graph representation?
+      - Way to efficiently check vs retrieve?
+      - Sounding like a query lang, which is bad. Step back, constrain, de-abstract.
+        - Should be able to require things of
+          1. Existing producer versions ~~related to the parents of the new dependency node~~
+            - Don't care, related to the parents of the new dependency node, all.
+          2. All artifacts on which this producer depends
+            - Don't care, related to any ver of this producer, all (w/o their neighbors?).
+          Because producer can only care about its neighbors, there are no other reasonable requirements of the VG content
+
+Change notification/propagation:
+  - When a version is committed:
+    - [ ] Check for producers
+      - [ ] If any, apply production strategy based on parent version to generate producer versions
+      - [ ] Notify/invoke producer for generated producer versions
+  - First problem: how to specify version to commit
+    - ID only requires re-fetching local graph
+    - Can have either ID *OR* VG + VGIndex
+      - But need to verify VG is current
+        - Checking numrows when updating status w/ ID + hash sufficient for changes to node itself, but will not capture changes to version relations. Can't exploit AG versioning because choosing to ignore that for now (for good reason), and it's not clear it would be sufficient because only local changes are relevant.
+    - For now, ID only
 
 
 Squashing Head Versions

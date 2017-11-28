@@ -47,6 +47,14 @@ pub enum StoreRepoController {
 //     }
 // }
 
+impl StoreRepoController {
+    pub fn store(&self) -> Store {
+        match *self {
+            StoreRepoController::Postgres(_) => Store::Postgres,
+        }
+    }
+}
+
 impl RepoController for StoreRepoController {
     fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         use self::StoreRepoController::*;
