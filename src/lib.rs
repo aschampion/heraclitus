@@ -209,7 +209,7 @@ pub trait IdentifiableGraph<'s, N: Identifiable, E: 's, IT: petgraph::csr::Index
         id: &Identity,
         constructor: F
     ) -> petgraph::graph::NodeIndex<IT>
-            where F: Fn() -> N {
+            where F: FnOnce() -> N {
         match self.find_by_id(id) {
             Some((idx, _)) => idx,
             None => self.graph_mut().add_node(constructor()),

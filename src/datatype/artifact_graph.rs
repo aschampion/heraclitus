@@ -398,19 +398,6 @@ impl PostgresStore {
                     hash: row.get::<_, i64>(AncNodeRow::Hash as usize) as u64,
                 };
 
-                // let v_idx = match ver_graph.find_by_id(&v_id) {
-                //     Some((v_idx, _)) => v_idx,
-                //     None => {
-                //         let v_node = Version {
-                //             id: v_id,
-                //             artifact: art_graph.find_by_id(&an_id).expect("Version references unkown artifact").1,
-                //             status: row.get(AncNodeRow::Status as usize),
-                //             representation: DatatypeRepresentationKind::State,  // TODO
-                //         };
-
-                //         ver_graph.versions.add_node(v_node)
-                //     }
-                // };
                 let v_idx = ver_graph.emplace(
                     &v_id,
                     || Version {
@@ -429,76 +416,86 @@ impl PostgresStore {
             ver_graph.versions.add_edge(*parent_idx, *child_idx, edge);
         }
 
-        // enum DepNodeRow {
-        //     ID = 0,
-        //     UUID,
-        //     Hash,
-        //     Status,
-        //     ArtifactUUID,
-        //     ArtifactHash,
-        //     SourceID,
-        //     DependentID,
-        // };
-        // let dependence_join = match dependence_direction {
-        //     Some(petgraph::Direction::Incoming) =>
-        //         "vr.dependent_version_id = ANY($1::bigint[]) AND v.id = vr.source_version_id",
-        //     Some(petgraph::Direction::Outgoing) =>
-        //         "vr.source_version_id = ANY($1::bigint[]) AND v.id = vr.dependent_version_id",
-        //     None =>
-        //         "(vr.dependent_version_id = ANY($1::bigint[]) AND v.id = vr.source_version_id) \
-        //         OR (vr.source_version_id = ANY($1::bigint[]) AND v.id = vr.dependent_version_id)"
-        // };
-        // let dependence_node_rows = trans.query(
-        //     &format!(r#"
-        //         SELECT
-        //           v.id, v.uuid_, v.hash, v.status,
-        //           a.uuid_, a.hash,
-        //           vr.source_version_id, vr.dependent_version_id
-        //         FROM version_relation vr
-        //         JOIN version v
-        //           ON ({})
-        //         JOIN artifact a ON a.id = v.artifact_id;
-        //     "#, dependence_join),
-        //     &[&v_db_ids])?;
-        // for row in &dependence_node_rows {
-        //     let db_id = row.get::<_, i64>(DepNodeRow::ID as usize);
-        //     let an_id = Identity {
-        //         uuid: row.get(DepNodeRow::ArtifactUUID as usize),
-        //         hash: row.get::<_, i64>(DepNodeRow::ArtifactHash as usize) as u64,
-        //     };
-        //     let (an_idx, an) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
+        enum DepNodeRow {
+            ID = 0,
+            UUID,
+            Hash,
+            Status,
+            ArtifactUUID,
+            ArtifactHash,
+            SourceID,
+            DependentID,
+        };
+        let dependence_join = match dependence_direction {
+            Some(petgraph::Direction::Incoming) =>
+                "vr.dependent_version_id = ANY($1::bigint[]) AND v.id = vr.source_version_id",
+            Some(petgraph::Direction::Outgoing) =>
+                "vr.source_version_id = ANY($1::bigint[]) AND v.id = vr.dependent_version_id",
+            None =>
+                "(vr.dependent_version_id = ANY($1::bigint[]) AND v.id = vr.source_version_id) \
+                OR (vr.source_version_id = ANY($1::bigint[]) AND v.id = vr.dependent_version_id)"
+        };
+        let dependence_node_rows = trans.query(
+            &format!(r#"
+                SELECT
+                  v.id, v.uuid_, v.hash, v.status,
+                  a.uuid_, a.hash,
+                  vr.source_version_id, vr.dependent_version_id
+                FROM version_relation vr
+                JOIN version v
+                  ON ({})
+                JOIN artifact a ON a.id = v.artifact_id;
+            "#, dependence_join),
+            &[&v_db_ids])?;
+        for row in &dependence_node_rows {
+            let db_id = row.get::<_, i64>(DepNodeRow::ID as usize);
+            let an_id = Identity {
+                uuid: row.get(DepNodeRow::ArtifactUUID as usize),
+                hash: row.get::<_, i64>(DepNodeRow::ArtifactHash as usize) as u64,
+            };
+            let (an_idx, an) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
 
-        //     if !idx_map.contains(db_id) {
-        //         let v_id = Identity {
-        //             uuid: row.get(DepNodeRow::UUID as usize),
-        //             hash: row.get::<_, i64>(DepNodeRow::Hash as usize) as u64,
-        //         };
+            let v_idx = *idx_map.entry(db_id)
+                .or_insert_with(|| {
+                    let v_id = Identity {
+                        uuid: row.get(DepNodeRow::UUID as usize),
+                        hash: row.get::<_, i64>(DepNodeRow::Hash as usize) as u64,
+                    };
 
-        //         let v_node = Version {
-        //             id: v_id,
-        //             artifact: an,
-        //             status: row.get(DepNodeRow::Status as usize),
-        //             representation: DatatypeRepresentationKind::State,  // TODO
-        //         };
+                    ver_graph.emplace(
+                        &v_id,
+                        || Version {
+                            id: v_id,
+                            artifact: an,
+                            status: row.get(DepNodeRow::Status as usize),
+                            representation: DatatypeRepresentationKind::State,  // TODO
+                        })
+                });
 
-        //         let v_idx = ver_graph.versions.add_node(v_node);
-        //     }
+            let inbound_existing = row.get::<_, i64>(DepNodeRow::SourceID as usize) == db_id;
+            let other_v_db_id = if inbound_existing
+                {row.get(DepNodeRow::DependentID as usize)}
+                else {row.get(DepNodeRow::SourceID as usize)};
+            let other_v_idx = *idx_map.get(&other_v_db_id).expect("Relation with version not in graph");
+            let other_art = ver_graph.versions.node_weight(other_v_idx).expect("Impossible").artifact;
+            let other_art_idx = art_graph.find_by_id(&other_art.id)
+                .expect("Unknown artifact").0;
 
-        //     let inbound = row.get(DepNodeRow::DependentID as usize);
-        //     let art_rel_idx = if inbound {
-        //         art_graph.artifacts.find_edge(an_idx, art_idx)
-        //     } else {
-        //         art_graph.artifacts.find_edge(art_idx, an_idx)
-        //     }.expect("Version graph references unknown artifact relation");
-        //     let art_rel = art_graph.artifacts.edge_weight(art_rel_idx).expect("Graph is malformed");
-        //     let edge = VersionRelation::Dependence(art_rel);
-        //     let (parent_idx, child_idx) = if inbound {
-        //         (v_idx, ver_node_idx)
-        //     } else {
-        //         (ver_node_idx, v_idx)
-        //     };
-        //     ver_graph.versions.add_edge(parent_idx, child_idx, edge);
-        // }
+            let art_rel_idx = if inbound_existing {
+                art_graph.artifacts.find_edge(an_idx, other_art_idx)
+            } else {
+                art_graph.artifacts.find_edge(other_art_idx, an_idx)
+            }.expect("Version graph references unknown artifact relation");
+
+            let art_rel = art_graph.artifacts.edge_weight(art_rel_idx).expect("Graph is malformed");
+            let edge = VersionRelation::Dependence(art_rel);
+            let (parent_idx, child_idx) = if inbound_existing {
+                (v_idx, other_v_idx)
+            } else {
+                (other_v_idx, v_idx)
+            };
+            ver_graph.versions.add_edge(parent_idx, child_idx, edge);
+        }
 
         Ok(())
     }
@@ -839,105 +836,114 @@ impl ModelController for PostgresStore {
         let ver_node_idx = ver_graph.versions.add_node(ver_node);
         idx_map.insert(ver_node_id, ver_node_idx);
 
-        enum AncNodeRow {
-            ID = 0,
-            UUID,
-            Hash,
-            Status,
-            ArtifactUUID,
-            ArtifactHash,
-            ParentID,
-            ChildID,
-        };
-        let ancestry_node_rows = trans.query(r#"
-                SELECT
-                  v.id, v.uuid_, v.hash, v.status,
-                  a.uuid_, a.hash, vp.parent_id, vp.child_id
-                FROM version_parent vp
-                JOIN version v
-                  ON ((vp.parent_id = $1 AND v.id = vp.child_id)
-                    OR (vp.child_id = $1 AND v.id = vp.parent_id))
-                JOIN artifact a ON a.id = v.artifact_id;
-            "#, &[&ver_node_id])?;
-        for row in &ancestry_node_rows {
-            let db_id = row.get::<_, i64>(AncNodeRow::ID as usize);
-            let an_id = Identity {
-                uuid: row.get(AncNodeRow::ArtifactUUID as usize),
-                hash: row.get::<_, i64>(AncNodeRow::ArtifactHash as usize) as u64,
-            };
-            let v_node = Version {
-                id: Identity {
-                    uuid: row.get(AncNodeRow::UUID as usize),
-                    hash: row.get::<_, i64>(AncNodeRow::Hash as usize) as u64,
-                },
-                artifact: art_graph.find_by_id(&an_id).expect("Version references unkown artifact").1,
-                status: row.get(AncNodeRow::Status as usize),
-                representation: DatatypeRepresentationKind::State,  // TODO
-            };
+        // enum AncNodeRow {
+        //     ID = 0,
+        //     UUID,
+        //     Hash,
+        //     Status,
+        //     ArtifactUUID,
+        //     ArtifactHash,
+        //     ParentID,
+        //     ChildID,
+        // };
+        // let ancestry_node_rows = trans.query(r#"
+        //         SELECT
+        //           v.id, v.uuid_, v.hash, v.status,
+        //           a.uuid_, a.hash, vp.parent_id, vp.child_id
+        //         FROM version_parent vp
+        //         JOIN version v
+        //           ON ((vp.parent_id = $1 AND v.id = vp.child_id)
+        //             OR (vp.child_id = $1 AND v.id = vp.parent_id))
+        //         JOIN artifact a ON a.id = v.artifact_id;
+        //     "#, &[&ver_node_id])?;
+        // for row in &ancestry_node_rows {
+        //     let db_id = row.get::<_, i64>(AncNodeRow::ID as usize);
+        //     let an_id = Identity {
+        //         uuid: row.get(AncNodeRow::ArtifactUUID as usize),
+        //         hash: row.get::<_, i64>(AncNodeRow::ArtifactHash as usize) as u64,
+        //     };
+        //     let v_node = Version {
+        //         id: Identity {
+        //             uuid: row.get(AncNodeRow::UUID as usize),
+        //             hash: row.get::<_, i64>(AncNodeRow::Hash as usize) as u64,
+        //         },
+        //         artifact: art_graph.find_by_id(&an_id).expect("Version references unkown artifact").1,
+        //         status: row.get(AncNodeRow::Status as usize),
+        //         representation: DatatypeRepresentationKind::State,  // TODO
+        //     };
 
-            let v_idx = ver_graph.versions.add_node(v_node);
-            idx_map.insert(db_id, v_idx);
+        //     let v_idx = ver_graph.versions.add_node(v_node);
+        //     idx_map.insert(db_id, v_idx);
 
-            let edge = VersionRelation::Parent;
-            let parent_idx = idx_map.get(&row.get(AncNodeRow::ParentID as usize)).expect("Graph is malformed.");
-            let child_idx = idx_map.get(&row.get(AncNodeRow::ChildID as usize)).expect("Graph is malformed.");
-            ver_graph.versions.add_edge(*parent_idx, *child_idx, edge);
-        }
+        //     let edge = VersionRelation::Parent;
+        //     let parent_idx = idx_map.get(&row.get(AncNodeRow::ParentID as usize)).expect("Graph is malformed.");
+        //     let child_idx = idx_map.get(&row.get(AncNodeRow::ChildID as usize)).expect("Graph is malformed.");
+        //     ver_graph.versions.add_edge(*parent_idx, *child_idx, edge);
+        // }
 
-        enum DepNodeRow {
-            ID = 0,
-            UUID,
-            Hash,
-            Status,
-            ArtifactUUID,
-            ArtifactHash,
-            Inbound,
-        };
-        let dependence_node_rows = trans.query(r#"
-                SELECT
-                  v.id, v.uuid_, v.hash, v.status,
-                  a.uuid_, a.hash,
-                  vr.dependent_version_id = $1
-                FROM version_relation vr
-                JOIN version v
-                  ON ((vr.dependent_version_id = $1 AND v.id = vr.source_version_id)
-                    OR (vr.source_version_id = $1 AND v.id = vr.dependent_version_id))
-                JOIN artifact a ON a.id = v.artifact_id;
-            "#, &[&ver_node_id])?;
-        for row in &dependence_node_rows {
-            let db_id = row.get::<_, i64>(DepNodeRow::ID as usize);
-            let an_id = Identity {
-                uuid: row.get(DepNodeRow::ArtifactUUID as usize),
-                hash: row.get::<_, i64>(DepNodeRow::ArtifactHash as usize) as u64,
-            };
-            let (an_idx, an) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
-            let v_node = Version {
-                id: Identity {
-                    uuid: row.get(DepNodeRow::UUID as usize),
-                    hash: row.get::<_, i64>(DepNodeRow::Hash as usize) as u64,
-                },
-                artifact: an,
-                status: row.get(DepNodeRow::Status as usize),
-                representation: DatatypeRepresentationKind::State,  // TODO
-            };
+        // enum DepNodeRow {
+        //     ID = 0,
+        //     UUID,
+        //     Hash,
+        //     Status,
+        //     ArtifactUUID,
+        //     ArtifactHash,
+        //     Inbound,
+        // };
+        // let dependence_node_rows = trans.query(r#"
+        //         SELECT
+        //           v.id, v.uuid_, v.hash, v.status,
+        //           a.uuid_, a.hash,
+        //           vr.dependent_version_id = $1
+        //         FROM version_relation vr
+        //         JOIN version v
+        //           ON ((vr.dependent_version_id = $1 AND v.id = vr.source_version_id)
+        //             OR (vr.source_version_id = $1 AND v.id = vr.dependent_version_id))
+        //         JOIN artifact a ON a.id = v.artifact_id;
+        //     "#, &[&ver_node_id])?;
+        // for row in &dependence_node_rows {
+        //     let db_id = row.get::<_, i64>(DepNodeRow::ID as usize);
+        //     let an_id = Identity {
+        //         uuid: row.get(DepNodeRow::ArtifactUUID as usize),
+        //         hash: row.get::<_, i64>(DepNodeRow::ArtifactHash as usize) as u64,
+        //     };
+        //     let (an_idx, an) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
+        //     let v_node = Version {
+        //         id: Identity {
+        //             uuid: row.get(DepNodeRow::UUID as usize),
+        //             hash: row.get::<_, i64>(DepNodeRow::Hash as usize) as u64,
+        //         },
+        //         artifact: an,
+        //         status: row.get(DepNodeRow::Status as usize),
+        //         representation: DatatypeRepresentationKind::State,  // TODO
+        //     };
 
-            let v_idx = ver_graph.versions.add_node(v_node);
+        //     let v_idx = ver_graph.versions.add_node(v_node);
 
-            let inbound = row.get(DepNodeRow::Inbound as usize);
-            let art_rel_idx = if inbound {
-                art_graph.artifacts.find_edge(an_idx, art_idx)
-            } else {
-                art_graph.artifacts.find_edge(art_idx, an_idx)
-            }.expect("Version graph references unknown artifact relation");
-            let art_rel = art_graph.artifacts.edge_weight(art_rel_idx).expect("Graph is malformed");
-            let edge = VersionRelation::Dependence(art_rel);
-            let (parent_idx, child_idx) = if inbound {
-                (v_idx, ver_node_idx)
-            } else {
-                (ver_node_idx, v_idx)
-            };
-            ver_graph.versions.add_edge(parent_idx, child_idx, edge);
-        }
+        //     let inbound = row.get(DepNodeRow::Inbound as usize);
+        //     let art_rel_idx = if inbound {
+        //         art_graph.artifacts.find_edge(an_idx, art_idx)
+        //     } else {
+        //         art_graph.artifacts.find_edge(art_idx, an_idx)
+        //     }.expect("Version graph references unknown artifact relation");
+        //     let art_rel = art_graph.artifacts.edge_weight(art_rel_idx).expect("Graph is malformed");
+        //     let edge = VersionRelation::Dependence(art_rel);
+        //     let (parent_idx, child_idx) = if inbound {
+        //         (v_idx, ver_node_idx)
+        //     } else {
+        //         (ver_node_idx, v_idx)
+        //     };
+        //     ver_graph.versions.add_edge(parent_idx, child_idx, edge);
+        // }
+
+        self.get_version_relations(
+            &trans,
+            &art_graph,
+            &mut ver_graph,
+            vec![ver_node_id],
+            &mut idx_map,
+            None,
+            None,).expect("FOOBAR");
 
         Ok((ver_node_idx, ver_graph))
     }
