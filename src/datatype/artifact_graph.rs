@@ -4,6 +4,7 @@ extern crate schemer;
 extern crate serde;
 extern crate serde_json;
 extern crate uuid;
+extern crate postgres;
 
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -97,7 +98,8 @@ enum PolicyProducerRequirements {
 enum PolicyDependencyRequirements {
     /// No requirement.
     None,
-    /// Any dependency version on which a producer version is dependent.
+    /// Any dependency version on which a producer version (included by
+    /// the `PolicyProducerRequirements`) is dependent.
     DependencyOfProducerVersion,
     /// All versions of the producer's dependency artifacts.
     All,
@@ -353,11 +355,39 @@ pub trait ModelController {
                         ProductionVersionSpecs::new(),
                         |mut specs, x| {specs.merge(x); specs});
 
-                for spec in &prod_specs.specs {
+                for (specs, parent_prod_vers) in &prod_specs.specs {
+                    let new_prod_ver = Version {
+                        id: Identity {uuid: Uuid::new_v4(), hash: 0},
+                        artifact: dependent,
+                        status: VersionStatus::Staging,
+                        representation: DatatypeRepresentationKind::State,
+                    };
+                    let new_prod_ver_idx = ver_graph.versions.add_node(new_prod_ver);
 
-                    // TODO iff should be produced, create version node
-                    // TODO add version node index to return
+                    for spec in specs {
+                        let art_rel = art_graph.artifacts.edge_weight(spec.relation)
+                            .expect("Impossible unknown artifact relation: indices from this graph");
+                        ver_graph.versions.add_edge(
+                            spec.version,
+                            new_prod_ver_idx,
+                            VersionRelation::Dependence(art_rel));
+                    }
 
+                    for parent_ver in parent_prod_vers {
+                        if let &Some(ref idx) = parent_ver {
+                            ver_graph.versions.add_edge(
+                                *idx,
+                                new_prod_ver_idx,
+                                VersionRelation::Parent);
+                        }
+                    }
+
+                    self.create_staging_version(
+                        &mut context.repo_control,
+                        ver_graph,
+                        new_prod_ver_idx.clone());
+
+                    new_prod_vers.push(new_prod_ver_idx);
                 }
             }
         }
@@ -411,6 +441,48 @@ pub struct ArtifactDescription {
 struct PostgresStore {}
 
 impl PostgresStore {
+    /// Load version rows from a query result into a version graph.
+    fn load_version_rows<'a>(
+        &self,
+        art_graph: &'a ArtifactGraph,
+        ver_graph: &mut VersionGraph<'a>,
+        rows: &postgres::rows::Rows,
+    ) -> Result<BTreeMap<i64, VersionGraphIndex>, Error> {
+        // TODO: not using hash. See other comments.
+        let mut idx_map = BTreeMap::new();
+
+        enum VerNodeRow {
+            ID = 0,
+            UUID,
+            Hash,
+            Status,
+            ArtifactUUID,
+            ArtifactHash,
+        };
+
+        for ver_node_row in rows {
+            let ver_node_id: i64 = ver_node_row.get(VerNodeRow::ID as usize);
+            let an_id = Identity {
+                uuid: ver_node_row.get(VerNodeRow::ArtifactUUID as usize),
+                hash: ver_node_row.get::<_, i64>(VerNodeRow::ArtifactHash as usize) as u64,
+            };
+            let (art_idx, art) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
+            let ver_node = Version {
+                id: Identity {
+                    uuid: ver_node_row.get(VerNodeRow::UUID as usize),
+                    hash: ver_node_row.get::<_, i64>(VerNodeRow::Hash as usize) as u64,
+                },
+                artifact: art,
+                status: ver_node_row.get(VerNodeRow::Status as usize),
+                representation: DatatypeRepresentationKind::State,  // TODO
+            };
+            let ver_node_idx = ver_graph.versions.add_node(ver_node);
+            idx_map.insert(ver_node_id, ver_node_idx);
+        }
+
+        Ok(idx_map)
+    }
+
     /// Postgres-specific method for adding version relations for a set of
     /// database IDs to a version graph.
     fn get_version_relations<'a>(
@@ -418,7 +490,7 @@ impl PostgresStore {
         trans: &Transaction,
         art_graph: &'a ArtifactGraph,
         ver_graph: &mut VersionGraph<'a>,
-        v_db_ids: Vec<i64>,
+        v_db_ids: &Vec<i64>,
         idx_map: &mut BTreeMap<i64, VersionGraphIndex>,
         ancestry_direction: Option<petgraph::Direction>,
         dependence_direction: Option<petgraph::Direction>,
@@ -453,7 +525,7 @@ impl PostgresStore {
                   ON ({})
                 JOIN artifact a ON a.id = v.artifact_id;
             "#, ancestry_join),
-            &[&v_db_ids])?;
+            &[v_db_ids])?;
         for row in &ancestry_node_rows {
             let db_id = row.get::<_, i64>(AncNodeRow::ID as usize);
             let an_id = Identity {
@@ -515,7 +587,7 @@ impl PostgresStore {
                   ON ({})
                 JOIN artifact a ON a.id = v.artifact_id;
             "#, dependence_join),
-            &[&v_db_ids])?;
+            &[v_db_ids])?;
         for row in &dependence_node_rows {
             let db_id = row.get::<_, i64>(DepNodeRow::ID as usize);
             let an_id = Identity {
@@ -863,7 +935,143 @@ impl ModelController for PostgresStore {
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
     ) -> Result<(), Error> {
-        unimplemented!();
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        let mut idx_map = BTreeMap::new();
+        let mut prod_ver_db_ids = Vec::new();
+        let p_art = art_graph.artifacts.node_weight(p_art_idx).expect("TODO");
+
+        // Parent versions of the triggering new dependency version.
+        let ver_parent_uuids: Vec<Uuid> = ver_graph.versions.parents(v_idx).iter(&ver_graph.versions)
+            .filter_map(|(e_idx, parent_idx)| {
+                let relation = ver_graph.versions.edge_weight(e_idx)
+                    .expect("Impossible: indices from this graph");
+                match relation {
+                    &VersionRelation::Dependence(_) => None,
+                    &VersionRelation::Parent => {
+                        let parent = ver_graph.versions.node_weight(parent_idx)
+                            .expect("Impossible: indices from this graph");
+                        Some(parent.id.uuid.clone())
+                    },
+                }
+            })
+            .collect();
+
+        // Load versions of the producer artifact.
+        match requirements.producer {
+            PolicyProducerRequirements::None => {},
+            PolicyProducerRequirements::DependentOnParentVersions |
+            PolicyProducerRequirements::All => {
+                let ver_rows = match requirements.producer {
+                    PolicyProducerRequirements::None => unreachable!(),
+                    // Any producer version dependent on parent versions of the
+                    // new dependency version.
+                    PolicyProducerRequirements::DependentOnParentVersions => trans.query(r#"
+                            SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
+                            FROM version v
+                            JOIN artifact a ON a.id = v.artifact_id
+                            JOIN version_parent vp ON v.id = vp.child_id
+                            JOIN version vpn ON vp.parent_id = vpn.id
+                            WHERE vpn.uuid_ = ANY($1::uuid[]);
+                        "#, &[&ver_parent_uuids])?,
+                    // All versions of this producer.
+                    PolicyProducerRequirements::All => trans.query(r#"
+                            SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
+                            FROM version v
+                            JOIN artifact a ON a.id = v.artifact_id
+                            WHERE a.uuid_ = $1
+                        "#, &[&p_art.id.uuid])?,
+                };
+
+                let prod_ver_idx_map = self.load_version_rows(
+                    art_graph,
+                    ver_graph,
+                    &ver_rows,
+                )?;
+                prod_ver_db_ids.extend(prod_ver_idx_map.keys().cloned());
+                idx_map.extend(prod_ver_idx_map.into_iter());
+
+                self.get_version_relations(
+                    &trans,
+                    &art_graph,
+                    ver_graph,
+                    &prod_ver_db_ids,
+                    &mut idx_map,
+                    // TODO: Possible to be more parsimonious about what
+                    // version ancestry to load, but need to think through.
+                    None,
+                    // Only care about dependencies, not dependents that cannot
+                    // affect the policy.
+                    Some(petgraph::Direction::Incoming),
+                )?;
+            }
+        }
+
+        match requirements.dependency {
+            PolicyDependencyRequirements::None => {},
+            PolicyDependencyRequirements::DependencyOfProducerVersion |
+            PolicyDependencyRequirements::All => {
+                let ver_rows = match requirements.dependency {
+                    PolicyDependencyRequirements::None => unreachable!(),
+                    PolicyDependencyRequirements::DependencyOfProducerVersion => trans.query(r#"
+                            SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
+                            FROM version v
+                            JOIN artifact a ON a.id = v.artifact_id
+                            JOIN version_relation vr ON vr.source_version_id = v.id
+                            WHERE vr.dependent_version_id = ANY($1::bigint[]);
+                        "#, &[&prod_ver_db_ids])?,
+                    PolicyDependencyRequirements::All => {
+                        let dep_art_uuids: Vec<Uuid> =
+                            art_graph.artifacts.parents(v_idx)
+                            .iter(&art_graph.artifacts)
+                            .filter_map(|(e_idx, dependency_idx)| {
+                                // TODO: Not using relation because not clear variants are
+                                // distinct after changing producers to datatypes.
+                                let dependency = art_graph.artifacts.node_weight(dependency_idx)
+                                    .expect("Impossible: indices from this graph");
+                                Some(dependency.id.uuid.clone())
+                            })
+                            .collect();
+
+                        trans.query(r#"
+                            SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
+                            FROM version v
+                            JOIN artifact a ON a.id = v.artifact_id
+                            WHERE a.uuid_ = ANY($1::uuid[]);
+                        "#, &[&dep_art_uuids])?
+                    }
+                };
+
+                let dep_ver_idx_map = self.load_version_rows(
+                    art_graph,
+                    ver_graph,
+                    &ver_rows,
+                )?;
+                let dep_ver_db_ids = dep_ver_idx_map.keys().cloned().collect();
+                idx_map.extend(dep_ver_idx_map.into_iter());
+
+                self.get_version_relations(
+                    &trans,
+                    &art_graph,
+                    ver_graph,
+                    &dep_ver_db_ids,
+                    &mut idx_map,
+                    // Parent ancestry of dependents cannot affect the policy.
+                    Some(petgraph::Direction::Outgoing),
+                    // Only care about dependents, not dependencies that cannot
+                    // affect the policy.
+                    Some(petgraph::Direction::Outgoing),
+                )?;
+            }
+        }
+
+        Ok(())
     }
 
     fn get_version<'a>(
@@ -883,39 +1091,22 @@ impl ModelController for PostgresStore {
         let mut ver_graph = VersionGraph::new();
         let mut idx_map = BTreeMap::new();
 
-        // TODO: not using hash. See other comments.
-        enum VerNodeRow {
-            ID = 0,
-            UUID,
-            Hash,
-            Status,
-            ArtifactUUID,
-            ArtifactHash,
-        };
         let ver_node_rows = trans.query(r#"
                 SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
                 FROM version v
                 JOIN artifact a ON a.id = v.artifact_id
                 WHERE v.uuid_ = $1::uuid
             "#, &[&id.uuid])?;
-        let ver_node_row = ver_node_rows.get(0);
-        let ver_node_id: i64 = ver_node_row.get(VerNodeRow::ID as usize);
-        let an_id = Identity {
-            uuid: ver_node_row.get(VerNodeRow::ArtifactUUID as usize),
-            hash: ver_node_row.get::<_, i64>(VerNodeRow::ArtifactHash as usize) as u64,
-        };
-        let (art_idx, art) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
-        let ver_node = Version {
-            id: Identity {
-                uuid: ver_node_row.get(VerNodeRow::UUID as usize),
-                hash: ver_node_row.get::<_, i64>(VerNodeRow::Hash as usize) as u64,
-            },
-            artifact: art,
-            status: ver_node_row.get(VerNodeRow::Status as usize),
-            representation: DatatypeRepresentationKind::State,  // TODO
-        };
-        let ver_node_idx = ver_graph.versions.add_node(ver_node);
-        idx_map.insert(ver_node_id, ver_node_idx);
+
+        let ver_idx_map = self.load_version_rows(
+            art_graph,
+            &mut ver_graph,
+            &ver_node_rows,
+        )?;
+        idx_map.extend(ver_idx_map.into_iter());
+
+        let (ver_node_id, ver_node_idx) = idx_map.iter().next()
+            .map(|(db_id, idx)| (*db_id, *idx)).expect("TODO");
 
         // enum AncNodeRow {
         //     ID = 0,
@@ -1021,10 +1212,10 @@ impl ModelController for PostgresStore {
             &trans,
             &art_graph,
             &mut ver_graph,
-            vec![ver_node_id],
+            &vec![ver_node_id],
             &mut idx_map,
             None,
-            None,).expect("FOOBAR");
+            None)?;
 
         Ok((ver_node_idx, ver_graph))
     }
