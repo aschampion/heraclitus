@@ -1,4 +1,5 @@
 #![feature(conservative_impl_trait)]
+#![feature(entry_and_modify)]
 
 extern crate daggy;
 extern crate enum_set;
@@ -39,9 +40,9 @@ use datatype::{DatatypeEnum, DatatypesRegistry};
 use datatype::artifact_graph::{ArtifactGraphDescription, ArtifactDescription};
 
 
-mod datatype;
-mod repo;
-mod store;
+pub mod datatype;
+pub mod repo;
+pub mod store;
 
 pub fn noop() {
     println!("Test");
@@ -219,6 +220,7 @@ pub trait IdentifiableGraph<'s, N: Identifiable, E: 's, IT: petgraph::csr::Index
 
 type ArtifactGraphIndexType = petgraph::graph::DefaultIx;
 pub type ArtifactGraphIndex = petgraph::graph::NodeIndex<ArtifactGraphIndexType>;
+pub type ArtifactGraphEdgeIndex = petgraph::graph::EdgeIndex<ArtifactGraphIndexType>;
 pub(crate) type ArtifactGraphType<'a> = daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType>;
 /// A graph expressing the dependence structure between sets of data artifacts.
 pub struct ArtifactGraph<'a> {
@@ -401,6 +403,7 @@ pub enum ArtifactRelation {
 
 type VersionGraphIndexType = petgraph::graph::DefaultIx;
 pub type VersionGraphIndex = petgraph::graph::NodeIndex<VersionGraphIndexType>;
+pub type VersionGraphEdgeIndex = petgraph::graph::EdgeIndex<VersionGraphIndexType>;
 pub struct VersionGraph<'a> {
     versions: daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType>,
 }

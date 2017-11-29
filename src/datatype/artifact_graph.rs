@@ -20,11 +20,13 @@ use uuid::Uuid;
 use url::Url;
 
 use ::{
-    Artifact, ArtifactGraph, ArtifactGraphIndex, ArtifactRelation, Context,
+    Artifact, ArtifactGraph, ArtifactGraphIndex, ArtifactGraphEdgeIndex,
+    ArtifactRelation, Context,
     Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Hunk, Identity,
     IdentifiableGraph,
     PartCompletion, Partition,
-    Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
+    Version, VersionGraph, VersionGraphIndex,
+    VersionRelation, VersionStatus};
 use super::{
     DatatypeEnum, DatatypesRegistry, DependencyDescription,
     DependencyStoreRestriction, Description, InterfaceController, Store};
@@ -103,7 +105,7 @@ enum PolicyDependencyRequirements {
 
 /// Defines what dependency and producer versions a production policy requires
 /// to be in the version graph.
-struct ProductionPolicyRequirements {
+pub struct ProductionPolicyRequirements {
     producer: PolicyProducerRequirements,
     dependency: PolicyDependencyRequirements,
 }
@@ -117,6 +119,43 @@ impl Default for ProductionPolicyRequirements {
     }
 }
 
+/// Specifies a set of dependency versions for a new producer version.
+#[derive(Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub struct ProductionDependencySpec {
+    version: VersionGraphIndex,
+    relation: ArtifactGraphEdgeIndex,
+}
+
+type ProductionDependenciesSpecs = BTreeSet<ProductionDependencySpec>;
+
+/// Specifies sets of dependencies for new producer version, mapped to the
+/// parent producer versions for each.
+pub struct ProductionVersionSpecs {
+    specs: HashMap<ProductionDependenciesSpecs, BTreeSet<Option<VersionGraphIndex>>>,
+}
+
+impl ProductionVersionSpecs {
+    pub fn new() -> Self {
+        ProductionVersionSpecs {
+            specs: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, spec: ProductionDependenciesSpecs, parent: Option<VersionGraphIndex>) {
+        self.specs.entry(spec)
+            .or_insert_with(|| BTreeSet::new())
+            .insert(parent);
+    }
+
+    pub fn merge(&mut self, other: ProductionVersionSpecs) {
+        for (k, mut v) in other.specs {
+            self.specs.entry(k)
+                .and_modify(|existing| existing.append(&mut v))
+                .or_insert(v);
+        }
+    }
+}
+
 /// Enacts a policy for what new versions to produce in response to updated
 /// dependency versions.
 trait ProductionPolicy {
@@ -126,15 +165,15 @@ trait ProductionPolicy {
     // TODO: Convert to associated const once that lands.
 
     /// Given a producer and a new version of one of its dependencies, yield
-    /// all sets of dependencies for which new production versions should be
-    /// created.
-    fn new_production_dependencies(
+    /// all sets of dependencies and parent versions for which new production
+    /// versions should be created.
+    fn new_production_version_specs(
         &self,
         art_graph: &ArtifactGraph,
         ver_graph: &VersionGraph,
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
-    ) -> BTreeSet<Vec<VersionGraphIndex>>;
+    ) -> ProductionVersionSpecs;
 }
 
 
@@ -150,20 +189,20 @@ impl ProductionPolicy for ExtantProductionPolicy {
         }
     }
 
-    fn new_production_dependencies(
+    fn new_production_version_specs(
         &self,
         art_graph: &ArtifactGraph,
         ver_graph: &VersionGraph,
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
-    ) -> BTreeSet<Vec<VersionGraphIndex>> {
+    ) -> ProductionVersionSpecs {
         let new_ver_node = ver_graph.versions.node_weight(v_idx)
                                              .expect("Non-existent version");
-        let mut sets = BTreeSet::new();
+        let mut specs = ProductionVersionSpecs::new();
 
         // TODO
 
-        sets
+        specs
     }
 }
 
@@ -181,36 +220,36 @@ impl ProductionPolicy for LeafBootstrapProductionPolicy {
         }
     }
 
-    fn new_production_dependencies(
+    fn new_production_version_specs(
         &self,
         art_graph: &ArtifactGraph,
         ver_graph: &VersionGraph,
         _: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
-    ) -> BTreeSet<Vec<VersionGraphIndex>> {
-        let mut sets = BTreeSet::new();
+    ) -> ProductionVersionSpecs {
+        let mut specs = ProductionVersionSpecs::new();
         let prod_art = art_graph.artifacts.node_weight(p_art_idx).expect("Non-existent producer");
 
         // Any version of this producer already exists.
         if !ver_graph.artifact_versions(prod_art).is_empty() {
-            return sets
+            return specs
         }
 
-        let mut dependencies = Vec::new();
-        for (_, d_idx) in art_graph.artifacts.children(p_art_idx).iter(&art_graph.artifacts) {
+        let mut dependencies = ProductionDependenciesSpecs::new();
+        for (e_idx, d_idx) in art_graph.artifacts.parents(p_art_idx).iter(&art_graph.artifacts) {
             let dependency = art_graph.artifacts.node_weight(d_idx)
                 .expect("Impossible: indices from this graph");
             let dep_vers = ver_graph.artifact_versions(dependency);
 
             if dep_vers.len() != 1 {
-                return sets;
+                return specs;
             } else {
-                dependencies.push(dep_vers[0]);
+                dependencies.insert(ProductionDependencySpec {version: dep_vers[0], relation: e_idx});
             }
         }
-        sets.insert(dependencies);
+        specs.insert(dependencies, None);
 
-        sets
+        specs
     }
 }
 
@@ -273,20 +312,18 @@ pub trait ModelController {
                     max
                 });
 
-        let new_ver = ver_graph.versions.node_weight(v_idx).expect("TODO");
-        let (ver_art_idx, _) = art_graph.find_by_id(&new_ver.artifact.id)
-            .expect("TODO: Unknown artifact");
+        let (ver_art_idx, _) = {
+            let new_ver = ver_graph.versions.node_weight(v_idx).expect("TODO");
+            art_graph.find_by_id(&new_ver.artifact.id)
+                .expect("TODO: Unknown artifact")
+        };
 
         let dependent_arts = art_graph.artifacts.children(ver_art_idx).iter(&art_graph.artifacts);
-        // TODO need to accumulate three sets of IDs for producer policy reqs:
-        // - producer artifact ID
-        // - ~~IDs of artifacts on which producer artifact depends (or not, because this can be retrieved?)~~
-        // - triggering version parent IDs
 
-        // let mut new_prod_vers = Vec::new();
+        let mut new_prod_vers = Vec::new();
 
-        for (e_idx, dep_idx) in dependent_arts {
-            let dependent = art_graph.artifacts.node_weight(dep_idx)
+        for (e_idx, dep_art_idx) in dependent_arts {
+            let dependent = art_graph.artifacts.node_weight(dep_art_idx)
                                                .expect("Impossible: indices from this graph");
             let dtype = dependent.dtype;
             if let Some(producer_interface) = context.dtypes_registry.models
@@ -297,20 +334,52 @@ pub trait ModelController {
                 let producer_controller: Box<::datatype::interface::ProducerController> =
                     producer_interface.into();
 
-                let producer_graph = self.get_version(
+                self.fulfill_policy_requirements(
                     &mut context.repo_control,
                     art_graph,
-                    &dependent.id);
-                // TODO merge prod version graph into this graph
-                // TODO apply production strategy
-                // TODO iff should be produced, create version node
-                // TODO add version node index to return
+                    ver_graph,
+                    v_idx,
+                    dep_art_idx,
+                    &production_policy_reqs);
+
+                let prod_specs = production_policies
+                    .iter()
+                    .map(|policy| policy.new_production_version_specs(
+                        art_graph,
+                        ver_graph,
+                        v_idx,
+                        dep_art_idx))
+                    .fold(
+                        ProductionVersionSpecs::new(),
+                        |mut specs, x| {specs.merge(x); specs});
+
+                for spec in &prod_specs.specs {
+
+                    // TODO iff should be produced, create version node
+                    // TODO add version node index to return
+
+                }
             }
         }
 
-        // Ok(new_prod_vers)
-        Ok(vec![]) // TODO
+        Ok(new_prod_vers)
     }
+
+    /// Fulfill policy requirements specified by `ProductionPolicyRequirements`
+    /// by populating a version graph.
+    ///
+    /// Constraints:
+    /// - The triggering new dependency version (`v_idx`) and all of its
+    ///   relations must already be present in the graph.
+    fn fulfill_policy_requirements<'a>(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &'a ArtifactGraph,
+        ver_graph: &mut VersionGraph<'a>,
+        v_idx: VersionGraphIndex,
+        p_art_idx: ArtifactGraphIndex,
+        requirements: &ProductionPolicyRequirements,
+    ) -> Result<(), Error>;
 
     fn get_version<'a>(
         &self,
@@ -785,6 +854,18 @@ impl ModelController for PostgresStore {
         Ok(trans.commit()?)
     }
 
+    fn fulfill_policy_requirements<'a>(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &'a ArtifactGraph,
+        ver_graph: &mut VersionGraph<'a>,
+        v_idx: VersionGraphIndex,
+        p_art_idx: ArtifactGraphIndex,
+        requirements: &ProductionPolicyRequirements,
+    ) -> Result<(), Error> {
+        unimplemented!();
+    }
+
     fn get_version<'a>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
@@ -1162,5 +1243,44 @@ mod tests {
             &ver_graph2.versions.graph(),
             |a, b| a.id == b.id,
             |_, _| true));
+    }
+
+    #[test]
+    fn test_production_version_specs() {
+      let a = ProductionDependencySpec {
+          version: VersionGraphIndex::new(0),
+          relation: ArtifactGraphEdgeIndex::new(0)
+      };
+      let b = ProductionDependencySpec {
+          version: VersionGraphIndex::new(1),
+          relation: ArtifactGraphEdgeIndex::new(1)
+      };
+      let c = ProductionDependencySpec {
+          version: VersionGraphIndex::new(2),
+          relation: ArtifactGraphEdgeIndex::new(0)
+      };
+
+      let mut specs_a = ProductionVersionSpecs::new();
+      specs_a.insert(vec![a.clone(), b.clone()].into_iter().collect(),
+                     Some(VersionGraphIndex::new(0)));
+      specs_a.insert(vec![a.clone(), b.clone()].into_iter().collect(), None);
+      specs_a.insert(vec![c.clone(), b.clone()].into_iter().collect(),
+                     Some(VersionGraphIndex::new(1)));
+
+      assert!(specs_a.specs.get(&vec![a.clone(), b.clone()].into_iter().collect())
+         .unwrap().contains(&None));
+      assert!(specs_a.specs.get(&vec![a.clone(), b.clone()].into_iter().collect())
+         .unwrap().contains(&Some(VersionGraphIndex::new(0))));
+
+      let mut specs_b = ProductionVersionSpecs::new();
+      specs_b.insert(vec![c.clone(), b.clone()].into_iter().collect(),
+         Some(VersionGraphIndex::new(2)));
+
+      specs_a.merge(specs_b);
+
+      assert!(specs_a.specs.get(&vec![c.clone(), b.clone()].into_iter().collect())
+         .unwrap().contains(&Some(VersionGraphIndex::new(1))));
+      assert!(specs_a.specs.get(&vec![c.clone(), b.clone()].into_iter().collect())
+         .unwrap().contains(&Some(VersionGraphIndex::new(2))));
     }
 }
