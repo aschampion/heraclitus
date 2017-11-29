@@ -3,7 +3,7 @@ extern crate schemer;
 use schemer::Migrator;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
-use ::{DatatypeRepresentationKind};
+use ::{DatatypeRepresentationKind, Identity};
 use ::datatype::{
     Description, InterfaceController, MetaController, Model,
     PostgresMetaController, StoreMetaController};
@@ -59,7 +59,12 @@ impl PostgresMigratable for NoopProducerController {}
 
 impl PostgresMetaController for NoopProducerController {}
 
-impl ProducerController for NoopProducerController {}
+impl ProducerController for NoopProducerController {
+    fn notify_new_version(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        id: &Identity) {}
+}
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -112,5 +117,13 @@ pub(crate) mod tests {
 
     impl PostgresMetaController for AddOneToBlobProducerController {}
 
-    impl ProducerController for AddOneToBlobProducerController {}
+    impl ProducerController for AddOneToBlobProducerController {
+        fn notify_new_version(
+            &self,
+            repo_control: &mut ::repo::StoreRepoController,
+            id: &Identity
+        ) {
+            unimplemented!();
+        }
+    }
 }

@@ -279,10 +279,15 @@ So a production strategy takes a version graph and returns a Set of version ID t
             - Don't care, related to any ver of this producer, all (w/o their neighbors?).
           Because producer can only care about its neighbors, there are no other reasonable requirements of the VG content
 
+Eventually, production policies should be associated with each dependency->producer relation. For example, changes in constraint dependencies for a multicut solver producer might have Extant policy, but changes in a configuration dependency for the same producer might have a more conservative policy.
+
+Eventually, production policies *may* need to take the representation-production capabilities of the producer (e.g., Deltas vs. States for deps and products) into account. Unclear, as this might be handled purely by the producer.
+  - [ ] Should "representation" of a producer match representation of its products? If so, should all products have the same presentation kind?
+
 Change notification/propagation:
   - When a version is committed:
-    - [ ] Check for producers
-      - [ ] If any, apply production strategy based on parent version to generate producer versions
+    - [x] Check for producers
+      - [x] If any, apply production strategy based on parent version to generate producer versions
       - [ ] Notify/invoke producer for generated producer versions
   - First problem: how to specify version to commit
     - ID only requires re-fetching local graph

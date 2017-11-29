@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashSet};
 
-use ::{Interface, PartitionIndex, Version};
+use ::{Identity, Interface, PartitionIndex, Version};
 use ::datatype::InterfaceDescription;
 
 
@@ -33,5 +33,8 @@ pub trait PartitioningController {
 
 
 pub trait ProducerController {
-    // TODO
+    fn notify_new_version(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        id: &Identity);
 }
