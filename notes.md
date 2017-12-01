@@ -313,3 +313,11 @@ CATMAID Emulation Naming
 CHAVES - CATMAID HTTP API VISAGE-backed Emulation Service
 ESCHATOM - Emulation Service for the CATMAID HTTP API Towered (O)n MANCCR
 VATCAED - VISAGE Annotation Toolkit for CATMAID API Emulation Dataservice
+
+
+Misc. Cleanup
+-------------
+- [ ] `IdentifiableGraph::find_by_{id,uuid}` should be `get` not `find` to match Rust conventions.
+  - [ ] Could also implement index methods to provide panicing access for known items.
+
+

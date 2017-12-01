@@ -1,7 +1,9 @@
 use std::collections::{BTreeSet, HashSet};
 
-use ::{Identity, Interface, PartitionIndex, Version};
-use ::datatype::InterfaceDescription;
+use ::{
+    ArtifactGraph, Identity, Interface, PartitionIndex, Version,
+    VersionGraph, VersionGraphIndex};
+use ::datatype::{DependencyDescription, InterfaceDescription};
 
 
 lazy_static! {
@@ -33,8 +35,13 @@ pub trait PartitioningController {
 
 
 pub trait ProducerController {
-    fn notify_new_version(
+    fn output_descriptions(&self) -> Vec<DependencyDescription>;
+
+    fn notify_new_version<'a>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        id: &Identity);
+        art_graph: &'a ArtifactGraph,
+        ver_graph: &mut VersionGraph<'a>,
+        v_idx: VersionGraphIndex,
+    );
 }
