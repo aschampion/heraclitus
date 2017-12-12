@@ -72,11 +72,11 @@ impl ProducerController for NoopProducerController {
         vec![]
     }
 
-    fn notify_new_version<'a>(
+    fn notify_new_version<'a, 'b>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
-        ver_graph: &mut VersionGraph<'a>,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) {}
 }
@@ -84,6 +84,9 @@ impl ProducerController for NoopProducerController {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use uuid::Uuid;
+    use ::{Hunk, PartCompletion};
+    use datatype::blob::ModelController as BlobModelController;
 
     #[derive(Default)]
     pub struct NegateBlobProducer;
@@ -149,19 +152,19 @@ pub(crate) mod tests {
             ]
         }
 
-        fn notify_new_version<'a>(
+        fn notify_new_version<'a, 'b>(
             &self,
             repo_control: &mut ::repo::StoreRepoController,
-            art_graph: &'a ArtifactGraph,
-            ver_graph: &mut VersionGraph<'a>,
+            art_graph: &'b ArtifactGraph<'a>,
+            ver_graph: &mut VersionGraph<'a, 'b>,
             v_idx: VersionGraphIndex,
         ) {
             let input_art_relation = ArtifactRelation::ProducedFrom("input".into());
             let input_relation = VersionRelation::Dependence(&input_art_relation);
-            let input_ver = ver_graph.get_related_version(
+            let input_ver = *ver_graph.get_related_versions(
                 v_idx,
                 &input_relation,
-                Direction::Incoming).expect("TODO1");
+                Direction::Incoming).get(0).expect("TODO");
 
             let (art_idx, art) = art_graph.find_by_id(&ver_graph.versions[v_idx].artifact.id)
                 .expect("TODO2");
@@ -181,14 +184,81 @@ pub(crate) mod tests {
                 ver_blob_idx,
                 VersionRelation::Dependence(output_art_relation));
 
-            let mut model_ctrl = ::datatype::artifact_graph::model_controller(repo_control.store());
+            // This producer requires that the output use the same partitioning
+            // as the input.
+            // TODO: How should such constraints be formalized?
+            let (input_ver_part_idx, _) = ver_graph.get_partitioning(input_ver).unwrap();
+            let (input_art_part_idx, _) = art_graph.find_by_id(&ver_graph.versions[input_ver_part_idx].artifact.id).expect("TODO");
+            // TODO: should check that this is the same the producer's partitioning.
+            let output_part_art_rel_idx = art_graph.artifacts.find_edge(input_art_part_idx, output_art_idx)
+                .expect("TODO");
+            let output_part_art_rel = &art_graph.artifacts[output_part_art_rel_idx];
+            // TODO: check this is actually a partitioning rel.
+            ver_graph.versions.add_edge(input_ver_part_idx, ver_blob_idx,
+                VersionRelation::Dependence(output_part_art_rel));
 
-            model_ctrl.create_staging_version(
+            // Add output parent relations to all outputs of this
+            // producer's parents.
+            let parent_prod_vers = ver_graph.get_related_versions(
+                v_idx,
+                &VersionRelation::Parent,
+                Direction::Incoming);
+            for parent_ver_idx in parent_prod_vers {
+                let parent_output_idx = *ver_graph.get_related_versions(
+                    parent_ver_idx,
+                    &VersionRelation::Dependence(output_art_relation),
+                    Direction::Outgoing).get(0).expect("TODO: parent should have output");
+                ver_graph.versions.add_edge(parent_output_idx, ver_blob_idx,
+                    VersionRelation::Parent);
+            }
+
+            let mut ag_control = ::datatype::artifact_graph::model_controller(repo_control.store());
+
+            ag_control.create_staging_version(
                 repo_control,
                 ver_graph,
                 ver_blob_idx.clone()).unwrap();
 
-            // unimplemented!();
+            // Get input hunks.
+            // TODO: For now this assumes the hunks are associated directly
+            // with the input version. Does not account for partial partioning
+            // versions.
+            let input_hunks = ag_control.get_hunks(
+                repo_control,
+                &ver_graph.versions[input_ver],
+                &ver_graph.versions[input_ver_part_idx]).expect("TODO");
+
+            // Create output hunks computed from input hunks.
+            let mut blob_control = ::datatype::blob::model_controller(repo_control.store());
+            for input_hunk in &input_hunks {
+                let input_blob = blob_control.read(repo_control, input_hunk).expect("TODO");
+                let output_blob = input_blob.iter().cloned().map(|b| !b).collect::<Vec<u8>>();
+                let output_hunk = Hunk {
+                    id: Identity {
+                        uuid: Uuid::new_v4(),
+                        hash: 0,
+                    },
+                    version: &ver_graph.versions[ver_blob_idx],
+                    partition: input_hunk.partition.clone(),
+                    completion: PartCompletion::Complete,
+                };
+
+                ag_control.create_hunk(
+                    repo_control,
+                    &output_hunk).expect("TODO");
+                blob_control.write(
+                    repo_control,
+                    &output_hunk,
+                    &output_blob).expect("TODO");
+            }
+
+            // TODO commit version
+            // TODO can't do this because can't have generic type in fn sig
+            // (prevents boxing) necessary for have dtypes reg for committing.
+            // TODO When is producer version committed? Must be before this.
+            // ag_control.commit_version(
+            //     // need dtypes registry
+            //     )
         }
     }
 }

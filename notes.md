@@ -122,6 +122,7 @@ General
 - Can versions depend on staging versions?
 - Can dependencies change after a version is created (i.e., if it is still staging)? (~~Related to above question~~ ~~not related to above because this only constrains dependencies, not dependents~~)
   - Would greatly simplify if the case. Only hunks/content/hash of a staging version could change.
+- [ ] Datatypes Registry should not be a DAG. This is cruft from early testing of daggy. E.g., even the testing negating blob producer datatype both inputs and outputs blobs. Only AGs/VGs must be DAGs.
 
 
 Producers

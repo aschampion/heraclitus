@@ -1,5 +1,6 @@
 #![feature(conservative_impl_trait)]
 #![feature(entry_and_modify)]
+#![feature(vec_remove_item)]
 
 extern crate daggy;
 extern crate enum_set;
@@ -33,6 +34,7 @@ use std::mem;
 
 use daggy::Walker;
 use enum_set::EnumSet;
+use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 use url::Url;
 use uuid::Uuid;
@@ -228,91 +230,110 @@ pub(crate) type ArtifactGraphType<'a> = daggy::Dag<Artifact<'a>, ArtifactRelatio
 pub struct ArtifactGraph<'a> {
     id: Identity,
     artifacts: ArtifactGraphType<'a>,
-    // unary_partition_idx: ArtifactGraphIndex,
+    // unary_partitioning_idx: ArtifactGraphIndex,
+    // unary_partitioning_ver: Option<Version<'a, 'b>>,
 }
 
 impl<'a> ArtifactGraph<'a> {
-    fn new_singleton(
-        datatype: &'a Datatype,
-        graph_uuid: Uuid,
-        artifact_uuid: Uuid,
-    ) -> ArtifactGraph<'a> {
-        let mut art_graph = ArtifactGraph {
-            id: Identity {
-                uuid: graph_uuid.clone(),
-                hash: 0,
-            },
-            artifacts: ArtifactGraphType::new(),
-        };
-        let mut s = DefaultHasher::new();
-        let mut ag_hash = DefaultHasher::new();
-        let mut art = Artifact {
-            id: Identity {uuid: artifact_uuid.clone(), hash: 0},
-            name: None,
-            dtype: datatype,
-        };
-        art.hash(&mut s);
-        art.id.hash = s.finish();
-        art.id.hash.hash(&mut ag_hash);
-        art_graph.artifacts.add_node(art);
-        art_graph.id.hash = ag_hash.finish();
-        art_graph
-    }
+    // fn new_singleton(
+    //     datatype: &'a Datatype,
+    //     graph_uuid: Uuid,
+    //     artifact_uuid: Uuid,
+    // ) -> ArtifactGraph<'a> {
+    //     let mut art_graph = ArtifactGraph {
+    //         id: Identity {
+    //             uuid: graph_uuid.clone(),
+    //             hash: 0,
+    //         },
+    //         artifacts: ArtifactGraphType::new(),
+    //     };
+    //     let mut s = DefaultHasher::new();
+    //     let mut ag_hash = DefaultHasher::new();
+    //     let mut art = Artifact {
+    //         id: Identity {uuid: artifact_uuid.clone(), hash: 0},
+    //         name: None,
+    //         dtype: datatype,
+    //     };
+    //     art.hash(&mut s);
+    //     art.id.hash = s.finish();
+    //     art.id.hash.hash(&mut ag_hash);
+    //     art_graph.artifacts.add_node(art);
+    //     art_graph.id.hash = ag_hash.finish();
+    //     art_graph
+    // }
 
     fn from_description<T: DatatypeEnum>(
         desc: &ArtifactGraphDescription,
         dtypes_registry: &'a DatatypesRegistry<T>,
-        // unary_partition_idx: Option<ArtifactGraphIndex>,
+        unary_partitioning_idx: Option<ArtifactGraphIndex>,
     ) -> (ArtifactGraph<'a>, BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex>) {
 
-        // fn create_node(
-        //     desc: &ArtifactGraphDescription,
-        //     dtypes_registry: &'a DatatypesRegistry<T>,
-        //     unary_partition_idx: Option<ArtifactGraphIndex>,
-        //     artifacts: &mut ArtifactGraphType,
-        //     idx_map: &mut BTreeMap,
-        //     ag_hash: &mut DefaultHasher,
-        //     node_idx: ArtifactGraphIndex,
-        // ) -> ArtifactGraphIndex {
-        //     let mut id = Identity { uuid: Uuid::new_v4(), hash: 0 };
-        //     let mut s = DefaultHasher::new();
+        fn create_node<'a, T: DatatypeEnum>(
+            desc: &ArtifactGraphDescription,
+            dtypes_registry: &'a DatatypesRegistry<T>,
+            artifacts: &mut ArtifactGraphType<'a>,
+            idx_map: &mut BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex>,
+            ag_hash: &mut DefaultHasher,
+            node_idx: ArtifactGraphIndex,
+            inner_unary_partitioning_idx: Option<ArtifactGraphIndex>,
+        ) -> ArtifactGraphIndex {
+            let mut id = Identity { uuid: Uuid::new_v4(), hash: 0 };
+            let mut s = DefaultHasher::new();
 
-        //     // TODO: replace with petgraph neighbors
-        //     // TODO: this ordering needs to be deterministic
-        //     for (_, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
-        //         let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
-        //         let new_p = artifacts.node_weight(*new_p_idx).expect("Graph is malformed.");
-        //         new_p.id.hash.hash(&mut s);
-        //     }
+            // TODO: replace with petgraph neighbors
+            // Order hashing based on hash, not ID, so that artifact content
+            // hashes are ID-independent.
+            let mut sorted_parent_hashes = desc.artifacts.parents(node_idx)
+                .iter(&desc.artifacts)
+                .map(|(_, p_idx)| {
+                    let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
+                    artifacts.node_weight(*new_p_idx).expect("Graph is malformed.").id.hash
+                })
+                .collect::<Vec<u64>>();
+            sorted_parent_hashes.sort();
+            for hash in &sorted_parent_hashes {
+                hash.hash(&mut s);
+            }
 
-        //     let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
-        //     let artifact = {
-        //         let mut art = Artifact {
-        //             id: id,
-        //             name: a_desc.name.clone(),
-        //             dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
-        //         };
-        //         art.hash(&mut s);
-        //         art.id.hash = s.finish();
-        //         art.id.hash.hash(&mut ag_hash);
-        //         art
-        //     };
+            let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
+            let artifact = {
+                let mut art = Artifact {
+                    id: id,
+                    name: a_desc.name.clone(),
+                    dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
+                };
+                art.hash(&mut s);
+                art.id.hash = s.finish();
+                art.id.hash.hash(ag_hash);
+                art
+            };
 
-        //     let new_idx = artifacts.add_node(artifact);
-        //     idx_map.insert(node_idx, new_idx);
+            let new_idx = artifacts.add_node(artifact);
+            idx_map.insert(node_idx, new_idx);
 
-        //     for (e_idx, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
-        //         let edge = desc.artifacts.edge_weight(e_idx).expect("Graph is malformed.").clone();
-        //         artifacts.add_edge(*idx_map.get(&p_idx).expect("Graph is malformed."), new_idx, edge)
-        //                  .expect("Graph is malformed.");
-        //     }
+            let mut has_partitioning = false;
+            for (e_idx, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
+                let edge = desc.artifacts.edge_weight(e_idx).expect("Graph is malformed.").clone();
+                has_partitioning = has_partitioning || match edge {
+                    ArtifactRelation::DtypeDepends(ref rel) => rel.name == "Partitioning",
+                    _ => false,
+                };
+                artifacts.add_edge(*idx_map.get(&p_idx).expect("Graph is malformed."), new_idx, edge)
+                         .expect("Graph is malformed.");
+            }
 
-        //     new_idx
+            if !has_partitioning && inner_unary_partitioning_idx.is_some() {
+                let edge = ArtifactRelation::DtypeDepends(DatatypeRelation {name: "Partitioning".into()});
+                artifacts.add_edge(inner_unary_partitioning_idx.expect("TODO"), new_idx, edge)
+                         .expect("Graph is malformed.");
+            }
 
-        //     // for (_, c_idx) in desc.artifacts.children(node_idx).iter(&desc.artifacts) {
-        //     //     to_visit.push_back(c_idx);
-        //     // }
-        // }
+            new_idx
+
+            // for (_, c_idx) in desc.artifacts.children(node_idx).iter(&desc.artifacts) {
+            //     to_visit.push_back(c_idx);
+            // }
+        }
 
         let desc_graph = desc.artifacts.graph();
         let mut to_visit = daggy::petgraph::algo::toposort(desc.artifacts.graph(), None)
@@ -322,62 +343,90 @@ impl<'a> ArtifactGraph<'a> {
         let mut idx_map = BTreeMap::new();
         let mut ag_hash = DefaultHasher::new();
 
-        // let up_idx = match unary_partition_idx {
-        //     Some(desc_idx) => create_node(
-        //         desc,
-        //         dtypes_registry,
-        //         unary_partition_idx,
-        //         artifacts,
-        //         idx_map,
-        //         ag_hash,
-        //         desc_idx),
-        //     None =>
-        // }
+        // let up_idx = match unary_partitioning_idx {
+        //     Some(desc_idx) => {
+        //         to_visit.remove_item(&desc_idx);
+        //         create_node(
+        //             desc,
+        //             dtypes_registry,
+        //             &mut artifacts,
+        //             &mut idx_map,
+        //             &mut ag_hash,
+        //             desc_idx,
+        //             None)
+        //     },
+        //     None => {
+        //         let mut singleton_agd = ArtifactGraphDescription::new();
+        //         let desc_idx = singleton_agd.artifacts.add_node(ArtifactDescription{
+        //             name: Some("Unary Partitioning Singleton".into()),
+        //             dtype: "UnaryPartitioning".into(),
+        //         });
+        //         create_node(
+        //             &singleton_agd,
+        //             dtypes_registry,
+        //             &mut artifacts,
+        //             &mut idx_map,
+        //             &mut ag_hash,
+        //             desc_idx,
+        //             None)
+        //     },
+        // };
+
+        for node_idx in to_visit {
+            create_node(
+                desc,
+                dtypes_registry,
+                &mut artifacts,
+                &mut idx_map,
+                &mut ag_hash,
+                node_idx,
+                None);
+        }
 
         // Walk the description graph in descending dependency order to build
         // up hashes for artifacts while copying to the new graph.
-        for node_idx in to_visit {
-                // Some(node_idx) => {
-                    let mut id = Identity { uuid: Uuid::new_v4(), hash: 0 };
-                    let mut s = DefaultHasher::new();
+        // for node_idx in to_visit {
+        //         // Some(node_idx) => {
+        //             let mut id = Identity { uuid: Uuid::new_v4(), hash: 0 };
+        //             let mut s = DefaultHasher::new();
 
-                    // TODO: replace with petgraph neighbors
-                    // TODO: this ordering needs to be deterministic
-                    for (_, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
-                        let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
-                        let new_p = artifacts.node_weight(*new_p_idx).expect("Graph is malformed.");
-                        new_p.id.hash.hash(&mut s);
-                    }
+        //             // TODO: replace with petgraph neighbors
+        //             // TODO: this ordering needs to be deterministic
+        //             for (_, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
+        //                 let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
+        //                 let new_p = artifacts.node_weight(*new_p_idx).expect("Graph is malformed.");
+        //                 new_p.id.hash.hash(&mut s);
+        //             }
 
-                    let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
-                    let artifact = {
-                        let mut art = Artifact {
-                            id: id,
-                            name: a_desc.name.clone(),
-                            dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
-                        };
-                        art.hash(&mut s);
-                        art.id.hash = s.finish();
-                        art.id.hash.hash(&mut ag_hash);
-                        art
-                    };
+        //             let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
+        //             let artifact = {
+        //                 let mut art = Artifact {
+        //                     id: id,
+        //                     name: a_desc.name.clone(),
+        //                     dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
+        //                 };
+        //                 art.hash(&mut s);
+        //                 art.id.hash = s.finish();
+        //                 art.id.hash.hash(&mut ag_hash);
+        //                 art
+        //             };
 
-                    let new_idx = artifacts.add_node(artifact);
-                    idx_map.insert(node_idx, new_idx);
+        //             let new_idx = artifacts.add_node(artifact);
+        //             idx_map.insert(node_idx, new_idx);
 
-                    for (e_idx, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
-                        let edge = desc.artifacts.edge_weight(e_idx).expect("Graph is malformed.").clone();
-                        artifacts.add_edge(*idx_map.get(&p_idx).expect("Graph is malformed."), new_idx, edge)
-                                 .expect("Graph is malformed.");
-                    }
+        //             for (e_idx, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
+        //                 let edge = desc.artifacts.edge_weight(e_idx).expect("Graph is malformed.").clone();
+        //                 artifacts.add_edge(*idx_map.get(&p_idx).expect("Graph is malformed."), new_idx, edge)
+        //                          .expect("Graph is malformed.");
+        //             }
 
-                    // for (_, c_idx) in desc.artifacts.children(node_idx).iter(&desc.artifacts) {
-                    //     to_visit.push_back(c_idx);
-                    // }
-                // },
-                // None => break
-            // }
-        }
+        //             // for (_, c_idx) in desc.artifacts.children(node_idx).iter(&desc.artifacts) {
+        //             //     to_visit.push_back(c_idx);
+        //             // }
+        //         // },
+        //         // None => break
+        //     // }
+        // }
 
         (ArtifactGraph {
             id: Identity {
@@ -385,45 +434,62 @@ impl<'a> ArtifactGraph<'a> {
                 hash: ag_hash.finish(),
             },
             artifacts: artifacts,
+            // unary_partitioning_idx: up_idx,
         }, idx_map)
     }
 
     fn verify_hash(&self) -> bool {
-        let desc_graph = self.artifacts.graph();
-        let mut to_visit = desc_graph.externals(petgraph::Direction::Incoming)
-                .collect::<VecDeque<_>>();
+        let to_visit = daggy::petgraph::algo::toposort(self.artifacts.graph(), None)
+            .expect("TODO: not a DAG");
 
         let mut ag_hash = DefaultHasher::new();
 
         // Walk the description graph in descending dependency order.
-        // TODO: should use a topological sort instead
-        loop {
-            match to_visit.pop_front() {
-                Some(node_idx) => {
-                    let mut s = DefaultHasher::new();
+        for node_idx in to_visit {
+            let mut s = DefaultHasher::new();
 
-                    // TODO: replace with petgraph neighbors
-                    // TODO: this ordering needs to be deterministic
-                    for (_, p_idx) in self.artifacts.parents(node_idx).iter(&self.artifacts) {
-                        let artifact = self.artifacts.node_weight(p_idx).expect("Graph is malformed.");
-                        artifact.id.hash.hash(&mut s);
-                    }
-
-                    let artifact = self.artifacts.node_weight(node_idx).expect("Graph is malformed.");
-                    artifact.hash(&mut s);
-                    if s.finish() != artifact.id.hash { return false; }
-                    artifact.id.hash.hash(&mut ag_hash);
-
-                    for (_, c_idx) in self.artifacts.children(node_idx).iter(&self.artifacts) {
-                        to_visit.push_back(c_idx);
-                    }
-                },
-                None => break
+            // TODO: replace with petgraph neighbors
+            let mut sorted_parent_hashes = self.artifacts.parents(node_idx)
+                .iter(&self.artifacts)
+                .map(|(_, p_idx)| {
+                    self.artifacts[p_idx].id.hash
+                })
+                .collect::<Vec<u64>>();
+            sorted_parent_hashes.sort();
+            for hash in &sorted_parent_hashes {
+                hash.hash(&mut s);
             }
-        }
+
+            let artifact = self.artifacts.node_weight(node_idx).expect("Graph is malformed.");
+            artifact.hash(&mut s);
+            if s.finish() != artifact.id.hash { return false; }
+            artifact.id.hash.hash(&mut ag_hash);
+        };
 
         self.id.hash == ag_hash.finish()
     }
+
+    // fn get_unary_partitioning<'b>(
+    //     &'b mut self
+    // ) -> &Version<'a, 'b> {
+    //     if self.unary_partitioning_ver.is_none() {
+    //         let v = Version {
+    //             id: Identity {
+    //                 uuid: ::datatype::partitioning::UNARY_PARTITIONING_VERSION_UUID.clone(),
+    //                 hash: 0,
+    //             },
+    //             artifact: self.artifacts[self.unary_partitioning_idx],
+    //             status: ::VersionStatus::Committed,
+    //             representation: ::DatatypeRepresentationKind::State,
+    //         };
+    //         self.unary_partitioning_ver = Some(v);
+    //     }
+
+    //     match self.unary_partitioning_ver {
+    //         Some(ref v) => v,
+    //         None => unreachable!(),
+    //     }
+    // }
 }
 
 impl<'a, 's> IdentifiableGraph<'s, Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> for ArtifactGraph<'a> {
@@ -497,42 +563,45 @@ impl<'a> Hash for Artifact<'a> {
 // }
 
 
-rental! {
-    mod singleton {
-        use super::*;
+// rental! {
+//     mod singleton {
+//         use super::*;
 
-        /// A single artifact and version existing outsite of any graphs.
-        #[rental(deref_suffix)]
-        pub struct SingletonVersion<'a> {
-            artifact: Box<Artifact<'a>>,
-            version: Version<'artifact>,
-            v_ref: &'version Version<'artifact>,
-        }
-    }
-}
+//         /// A single artifact and version existing outsite of any graphs.
+//         // #[rental(deref_suffix)]
+//         #[rental]
+//         pub struct SingletonVersion<'a> {
+//             datatype: &'a Datatype,
+//             artifact: Box<Artifact<'datatype>>,
+//             version: Version<'datatype, 'artifact>,
+//             // v_ref: &'version Version<'artifact>,
+//         }
+//     }
+// }
 
-fn new_singleton_version<'a, T: DatatypeEnum>(
-    dtypes_registry: &'a DatatypesRegistry<T>,
-    artifact_id: Identity,
-    version_id: Identity,
-    datatype_name: &str,
-) -> singleton::SingletonVersion<'a> {
-    singleton::SingletonVersion::new(
-        Box::new(Artifact {
-            id: artifact_id,
-            name: None,
-            dtype: dtypes_registry.get_datatype(datatype_name)
-                .expect("Singleton datatypemissing from registry"),
-        }),
-        |art| Box::new(Version {
-            id: version_id,
-            artifact: art,
-            status: VersionStatus::Committed,
-            representation: DatatypeRepresentationKind::State,
-        }),
-        |version, _| version,
-    )
-}
+// fn new_singleton_version<'a, T: DatatypeEnum>(
+//     dtypes_registry: &'a DatatypesRegistry<T>,
+//     artifact_id: Identity,
+//     version_id: Identity,
+//     datatype_name: &str,
+// ) -> singleton::SingletonVersion<'a> {
+//     singleton::SingletonVersion::new(
+//         dtypes_registry.get_datatype(datatype_name)
+//                 .expect("Singleton datatypemissing from registry"),
+//         |dtype| Box::new(Artifact {
+//             id: artifact_id,
+//             name: None,
+//             dtype: dtype,
+//         }),
+//         |art, _| Version {
+//             id: version_id,
+//             artifact: art,
+//             status: VersionStatus::Committed,
+//             representation: DatatypeRepresentationKind::State,
+//         },
+//         // |version, _| version,
+//     )
+// }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ArtifactRelation {
@@ -544,16 +613,35 @@ pub enum ArtifactRelation {
 type VersionGraphIndexType = petgraph::graph::DefaultIx;
 pub type VersionGraphIndex = petgraph::graph::NodeIndex<VersionGraphIndexType>;
 pub type VersionGraphEdgeIndex = petgraph::graph::EdgeIndex<VersionGraphIndexType>;
-pub struct VersionGraph<'a> {
-    versions: daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType>,
+pub struct VersionGraph<'a: 'b, 'b> {
+    versions: daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType>,
 }
 // TODO: should either use the below in most interfaces or make the above also have pruning.
-pub type VersionSubgraph<'a> = daggy::Dag<VersionNode<'a>, VersionRelation<'a>, VersionGraphIndexType>;
+pub type VersionSubgraph<'a, 'b> = daggy::Dag<VersionNode<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType>;
 
-impl<'a> VersionGraph<'a> {
-    fn new() -> VersionGraph<'a> {
+impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
+    fn new() -> VersionGraph<'a, 'b> {
         VersionGraph {
             versions: daggy::Dag::new()
+        }
+    }
+
+    fn new_from_source_artifacts(
+        art_graph: &'b ArtifactGraph<'a>,
+    ) -> VersionGraph<'a, 'b> {
+        let mut versions = daggy::Dag::new();
+        for node_idx in art_graph.artifacts.graph().externals(Direction::Incoming) {
+            let art = &art_graph.artifacts[node_idx];
+            versions.add_node(Version {
+                id: Identity {uuid: Uuid::new_v4(), hash: 0},
+                artifact: art,
+                status: VersionStatus::Staging,
+                representation: DatatypeRepresentationKind::State,
+            });
+        }
+
+        VersionGraph {
+            versions
         }
     }
 
@@ -571,49 +659,59 @@ impl<'a> VersionGraph<'a> {
             .collect()
     }
 
-    fn get_related_version(
+    // TODO: collecting result for quick prototyping. Should return mapped iter.
+    fn get_related_versions(
         &self,
         v_idx: VersionGraphIndex,
         relation: &VersionRelation,
         dir: petgraph::Direction,
-    ) -> Option<VersionGraphIndex> {
+    ) -> Vec<VersionGraphIndex> {
         self.versions.graph().edges_directed(v_idx, dir)
-            .find(|e| e.weight() == relation)
+            .filter(|e| e.weight() == relation)
             .map(|e| match dir {
                 petgraph::Direction::Outgoing => e.target(),
                 petgraph::Direction::Incoming => e.source(),
             })
+            .collect()
     }
 
     fn get_partitioning(
         &self,
         v_idx: VersionGraphIndex
-    ) -> Option<&Version> {
+    ) -> Option<(VersionGraphIndex, &Version)> {
         let partitioning_art_relation = ArtifactRelation::DtypeDepends(DatatypeRelation {
                 name: datatype::interface::PARTITIONING_RELATION_NAME.clone(),
             });
         let partitioning_relation = VersionRelation::Dependence(&partitioning_art_relation);
-        self.get_related_version(
+        self.get_related_versions(
                 v_idx,
                 &partitioning_relation,
                 petgraph::Direction::Incoming)
-            .map(|p_idx| self.versions.node_weight(p_idx).expect("Impossible non-existent index"))
+            .iter()
+            .next()
+            .map(|p_idx| (*p_idx, &self.versions[*p_idx]))
     }
 }
 
-impl<'a: 's, 's> IdentifiableGraph<'s, Version<'a>, VersionRelation<'a>, VersionGraphIndexType> for VersionGraph<'a> {
-    fn graph(&self) -> &daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType> {
+impl<'a: 'b, 'b: 's, 's>
+IdentifiableGraph<
+        's,
+        Version<'a, 'b>,
+        VersionRelation<'b>,
+        VersionGraphIndexType>
+for VersionGraph<'a, 'b> {
+    fn graph(&self) -> &daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType> {
         &self.versions
     }
 
-    fn graph_mut(&mut self) -> &mut daggy::Dag<Version<'a>, VersionRelation<'a>, VersionGraphIndexType> {
+    fn graph_mut(&mut self) -> &mut daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType> {
         &mut self.versions
     }
 }
 
 #[derive(Debug, PartialEq)]
-pub enum VersionRelation<'a>{
-    Dependence(&'a ArtifactRelation),
+pub enum VersionRelation<'b>{
+    Dependence(&'b ArtifactRelation),
     Parent,
 }
 
@@ -627,22 +725,22 @@ pub enum VersionStatus {
 }
 
 #[derive(Debug)]
-pub enum VersionNode<'a> {
-    Complete(Version<'a>),
-    Pruned(Version<'a>),
+pub enum VersionNode<'a: 'b, 'b> {
+    Complete(Version<'a, 'b>),
+    Pruned(Version<'a, 'b>),
 }
 
 #[derive(Debug)]
-pub struct Version<'a> {
+pub struct Version<'a: 'b, 'b> {
     id: Identity,
-    artifact: &'a Artifact<'a>,
+    artifact: &'b Artifact<'a>,
     status: VersionStatus,
     representation: DatatypeRepresentationKind,
 }
 
-impl<'a> Version<'a> {
+impl<'a: 'b, 'b> Version<'a, 'b> {
     fn new(
-        artifact: &'a Artifact<'a>,
+        artifact: &'b Artifact<'a>,
         representation: DatatypeRepresentationKind,
     ) -> Self {
         Version {
@@ -653,23 +751,23 @@ impl<'a> Version<'a> {
         }
     }
 
-    fn new_singleton(
-        artifact: &'a Artifact<'a>,
-        uuid: Uuid,
-    ) -> Version<'a> {
-        Version {
-            id: Identity {
-                uuid: uuid,
-                hash: 0,
-            },
-            artifact: artifact,
-            status: ::VersionStatus::Committed,
-            representation: ::DatatypeRepresentationKind::State,
-        }
-    }
+    // fn new_singleton(
+    //     artifact: &'a Artifact<'a>,
+    //     uuid: Uuid,
+    // ) -> Version<'a> {
+    //     Version {
+    //         id: Identity {
+    //             uuid: uuid,
+    //             hash: 0,
+    //         },
+    //         artifact: artifact,
+    //         status: ::VersionStatus::Committed,
+    //         representation: ::DatatypeRepresentationKind::State,
+    //     }
+    // }
 }
 
-impl<'a> Identifiable for Version<'a> {
+impl<'a, 'b> Identifiable for Version<'a, 'b> {
     fn id(&self) -> &Identity {
         &self.id
     }
@@ -677,9 +775,9 @@ impl<'a> Identifiable for Version<'a> {
 
 pub type PartitionIndex = u64;
 
-#[derive(Debug)]
-pub struct Partition<'a> {
-    partitioning: &'a Version<'a>,
+#[derive(Clone, Debug)]
+pub struct Partition<'a: 'b, 'b: 'c, 'c> {
+    partitioning: &'c Version<'a, 'b>,
     index: PartitionIndex,
     // TODO: also need to be able to handle partition types (leaf v. neighborhood, level, arbitrary)
 }
@@ -691,11 +789,11 @@ pub enum PartCompletion {
 }
 
 #[derive(Debug)]
-pub struct Hunk<'a> {
+pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
     // Is this a Hunk or a Patch (in which case changeset items would be hunks)?
-    id: Identity,
-    version: &'a Version<'a>,
-    partition: Partition<'a>,
+    id: Identity, // TODO: Not clear hunk needs a UUID.
+    version: &'d Version<'a, 'b>,
+    partition: Partition<'a, 'b, 'c>,
     completion: PartCompletion,
     // TODO: do hunks also need a DatatypeRepresentationKind?
 }

@@ -27,7 +27,7 @@ use ::{
     PartCompletion, PartitionIndex,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
 // use ::SingletonVersion;
-use ::singleton::SingletonVersion;
+// use ::singleton::SingletonVersion;
 use super::{
     DatatypeEnum, DatatypesRegistry, DependencyDescription, DependencyStoreRestriction,
     Description, InterfaceController, Model, Store};
@@ -84,59 +84,59 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
 //     version: Version<'a>,
 // }
 
-impl UnaryPartitioning {
-    pub fn build_singleton_version<'a, T: DatatypeEnum>(
-        dtypes_registry: &'a DatatypesRegistry<T>,
-    ) -> SingletonVersion<'a> {
-        ::new_singleton_version(
-            dtypes_registry,
-            Identity {uuid: UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
-            Identity {uuid: UNARY_PARTITIONING_VERSION_UUID.clone(), hash: 0},
-            "UnaryPartitioning")
-        // let art = Artifact {
-        //     id: Identity {uuid: UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
-        //     name: None,
-        //     dtype: dtypes_registry.get_datatype("UnaryPartitioning")
-        //                           .expect("Unary partitioning missing from registry"),
-        // };
-        // let art_graph = ArtifactGraph::new_singleton(
-        //     dtypes_registry.get_datatype("UnaryPartitioning")
-        //                           .expect("Unary partitioning missing from registry"),
-        //     UNARY_PARTITIONING_ART_GRAPH_UUID.clone(),
-        //     UNARY_PARTITIONING_ARTIFACT_UUID.clone(),
-        // );
+// impl UnaryPartitioning {
+//     pub fn build_singleton_version<'a, T: DatatypeEnum>(
+//         dtypes_registry: &'a DatatypesRegistry<T>,
+//     ) -> SingletonVersion<'a> {
+//         ::new_singleton_version(
+//             dtypes_registry,
+//             Identity {uuid: UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
+//             Identity {uuid: UNARY_PARTITIONING_VERSION_UUID.clone(), hash: 0},
+//             "UnaryPartitioning")
+//         // let art = Artifact {
+//         //     id: Identity {uuid: UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
+//         //     name: None,
+//         //     dtype: dtypes_registry.get_datatype("UnaryPartitioning")
+//         //                           .expect("Unary partitioning missing from registry"),
+//         // };
+//         // let art_graph = ArtifactGraph::new_singleton(
+//         //     dtypes_registry.get_datatype("UnaryPartitioning")
+//         //                           .expect("Unary partitioning missing from registry"),
+//         //     UNARY_PARTITIONING_ART_GRAPH_UUID.clone(),
+//         //     UNARY_PARTITIONING_ARTIFACT_UUID.clone(),
+//         // );
 
-        // let up_an = art_graph
-        //     .find_artifact_by_uuid(&UNARY_PARTITIONING_ARTIFACT_UUID)
-        //     .expect("Impossible for unary partitioning to be missing from own singleton graph.").1;
+//         // let up_an = art_graph
+//         //     .find_artifact_by_uuid(&UNARY_PARTITIONING_ARTIFACT_UUID)
+//         //     .expect("Impossible for unary partitioning to be missing from own singleton graph.").1;
 
 
-        // let mut sv = SingletonVersion {artifact: art, version: Version {
-        //         id: Identity {
-        //             uuid: UNARY_PARTITIONING_VERSION_UUID.clone(),
-        //             hash: 0,
-        //         },
-        //         artifact: &art,
-        //         status: ::VersionStatus::Committed,
-        //         representation: ::DatatypeRepresentationKind::State,
-        //     }};
-        // sv.version.artifact = &sv.artifact;
-        // return sv;
+//         // let mut sv = SingletonVersion {artifact: art, version: Version {
+//         //         id: Identity {
+//         //             uuid: UNARY_PARTITIONING_VERSION_UUID.clone(),
+//         //             hash: 0,
+//         //         },
+//         //         artifact: &art,
+//         //         status: ::VersionStatus::Committed,
+//         //         representation: ::DatatypeRepresentationKind::State,
+//         //     }};
+//         // sv.version.artifact = &sv.artifact;
+//         // return sv;
 
-        // (
-        //     Version {
-        //         id: Identity {
-        //             uuid: UNARY_PARTITIONING_VERSION_UUID.clone(),
-        //             hash: 0,
-        //         },
-        //         artifact: &art,
-        //         status: ::VersionStatus::Committed,
-        //         representation: ::DatatypeRepresentationKind::State,
-        //     },
-        //     art,
-        // )
-    }
-}
+//         // (
+//         //     Version {
+//         //         id: Identity {
+//         //             uuid: UNARY_PARTITIONING_VERSION_UUID.clone(),
+//         //             hash: 0,
+//         //         },
+//         //         artifact: &art,
+//         //         status: ::VersionStatus::Committed,
+//         //         representation: ::DatatypeRepresentationKind::State,
+//         //     },
+//         //     art,
+//         // )
+//     }
+// }
 
 // impl PartitioningControllerFactor for UnaryPartitioning {
 //     fn meta_controller(&self, store: Store) -> Box<PartitioningController> {

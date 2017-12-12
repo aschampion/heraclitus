@@ -283,27 +283,27 @@ pub trait ModelController {
     ///
     /// Constraints:
     /// - The version must not already be committed.
-    fn commit_version<'a, T: DatatypeEnum>(
+    fn commit_version<'a, 'b, T: DatatypeEnum>(
         &mut self,
         // TODO: dirty hack to work around mut/immut refs to context. Either
         // look at other Rust workarounds, or better yet finally design a way
         // to get model directly from datatypes.
         dtypes_registry: &DatatypesRegistry<T>,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
-        ver_graph: &mut VersionGraph<'a>,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
         where Box<::datatype::interface::ProducerController>:
         From<<T as DatatypeEnum>::InterfaceControllerType>;
     // TODO: many args to avoid reloading state. A 2nd-level API should just take an ID.
 
-    fn notify_producers<'a, T: DatatypeEnum>(
+    fn notify_producers<'a, 'b, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
-        ver_graph: &mut VersionGraph<'a>,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<Vec<Identity>, Error>
             where Box<::datatype::interface::ProducerController>:
@@ -418,40 +418,80 @@ pub trait ModelController {
     /// Constraints:
     /// - The triggering new dependency version (`v_idx`) and all of its
     ///   relations must already be present in the graph.
-    fn fulfill_policy_requirements<'a>(
+    fn fulfill_policy_requirements<'a, 'b>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
-        ver_graph: &mut VersionGraph<'a>,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
     ) -> Result<(), Error>;
 
-    fn get_version<'a>(
+    fn get_version<'a, 'b>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
+        art_graph: &'b ArtifactGraph<'a>,
         id: &Identity,
-    ) -> Result<(VersionGraphIndex, VersionGraph<'a>), Error>;
+    ) -> Result<(VersionGraphIndex, VersionGraph<'a, 'b>), Error>;
 
-    fn get_version_graph<'a>(
+    fn get_version_graph<'a, 'b>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
-    ) -> Result<VersionGraph<'a>, Error>;
+        art_graph: &'b ArtifactGraph<'a>,
+    ) -> Result<VersionGraph<'a, 'b>, Error>;
 
     fn create_hunk(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
     ) -> Result<(), Error>;
+
+    fn get_hunks<'a, 'b, 'c, 'd>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        version: &'d Version<'a, 'b>,
+        partitioning: &'c Version<'a, 'b>
+    ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error>;
 }
 
 
 type ArtifactGraphDescriptionType =  daggy::Dag<ArtifactDescription, ArtifactRelation>;
 pub struct ArtifactGraphDescription {
     pub artifacts: ArtifactGraphDescriptionType,
+}
+
+impl ArtifactGraphDescription {
+    pub fn new() -> Self {
+        Self {
+            artifacts: ArtifactGraphDescriptionType::new(),
+        }
+    }
+
+    pub fn add_unary_partitioning(&mut self) {
+        let up_idx = self.artifacts.add_node(ArtifactDescription{
+                    name: Some("Unary Partitioning Singleton".into()),
+                    dtype: "UnaryPartitioning".into(),
+                });
+        for node_idx in daggy::petgraph::algo::toposort(self.artifacts.graph(), None)
+                .expect("TODO: not a DAG")
+                .into_iter() {
+            if node_idx == up_idx {
+                continue;
+            }
+            let has_partitioning = self.artifacts.parents(node_idx).iter(&self.artifacts)
+                .fold(false, |hp, (e_idx, p_idx)| {
+                    hp || match self.artifacts[e_idx] {
+                        ArtifactRelation::DtypeDepends(ref rel) => rel.name == "Partitioning",
+                        _ => false,
+                    }
+                });
+            if !has_partitioning {
+                let edge = ArtifactRelation::DtypeDepends(DatatypeRelation {name: "Partitioning".into()});
+                self.artifacts.add_edge(up_idx, node_idx, edge).expect("Graph is malformed.");
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -465,10 +505,10 @@ struct PostgresStore {}
 
 impl PostgresStore {
     /// Load version rows from a query result into a version graph.
-    fn load_version_rows<'a>(
+    fn load_version_rows<'a, 'b>(
         &self,
-        art_graph: &'a ArtifactGraph,
-        ver_graph: &mut VersionGraph<'a>,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
         rows: &postgres::rows::Rows,
     ) -> Result<BTreeMap<i64, VersionGraphIndex>, Error> {
         // TODO: not using hash. See other comments.
@@ -490,16 +530,20 @@ impl PostgresStore {
                 hash: ver_node_row.get::<_, i64>(VerNodeRow::ArtifactHash as usize) as u64,
             };
             let (art_idx, art) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
-            let ver_node = Version {
-                id: Identity {
-                    uuid: ver_node_row.get(VerNodeRow::UUID as usize),
-                    hash: ver_node_row.get::<_, i64>(VerNodeRow::Hash as usize) as u64,
-                },
-                artifact: art,
-                status: ver_node_row.get(VerNodeRow::Status as usize),
-                representation: DatatypeRepresentationKind::State,  // TODO
+
+            let ver_id = Identity {
+                uuid: ver_node_row.get(VerNodeRow::UUID as usize),
+                hash: ver_node_row.get::<_, i64>(VerNodeRow::Hash as usize) as u64,
             };
-            let ver_node_idx = ver_graph.versions.add_node(ver_node);
+
+            let ver_node_idx = ver_graph.emplace(
+                &ver_id,
+                || Version {
+                    id: ver_id,
+                    artifact: art,
+                    status: ver_node_row.get(VerNodeRow::Status as usize),
+                    representation: DatatypeRepresentationKind::State,  // TODO
+                });
             idx_map.insert(ver_node_id, ver_node_idx);
         }
 
@@ -508,11 +552,11 @@ impl PostgresStore {
 
     /// Postgres-specific method for adding version relations for a set of
     /// database IDs to a version graph.
-    fn get_version_relations<'a>(
+    fn get_version_relations<'a, 'b>(
         &self,
         trans: &Transaction,
-        art_graph: &'a ArtifactGraph,
-        ver_graph: &mut VersionGraph<'a>,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
         v_db_ids: &Vec<i64>,
         idx_map: &mut BTreeMap<i64, VersionGraphIndex>,
         ancestry_direction: Option<petgraph::Direction>,
@@ -814,6 +858,7 @@ impl ModelController for PostgresStore {
 
         let mut artifacts = ::ArtifactGraphType::new();
         let mut idx_map = HashMap::new();
+        let mut up_idx = None;
 
         for row in &nodes {
             let db_id = row.get::<_, i64>(NodeRow::ID as usize);
@@ -821,15 +866,19 @@ impl ModelController for PostgresStore {
                 uuid: row.get(NodeRow::UUID as usize),
                 hash: row.get::<_, i64>(NodeRow::Hash as usize) as u64,
             };
+            let dtype_name = &row.get::<_, String>(NodeRow::DatatypeName as usize);
             let node = Artifact {
                 id: id,
                 name: row.get(NodeRow::ArtifactName as usize),
-                dtype: dtypes_registry.get_datatype(&row.get::<_, String>(NodeRow::DatatypeName as usize))
+                dtype: dtypes_registry.get_datatype(dtype_name)
                                       .expect("Unknown datatype."),
             };
 
             let node_idx = artifacts.add_node(node);
             idx_map.insert(db_id, node_idx);
+            if dtype_name == "UnaryPartitioning" {
+                up_idx = Some(node_idx);
+            }
         }
 
         enum EdgeRow {
@@ -866,6 +915,7 @@ impl ModelController for PostgresStore {
         Ok(ArtifactGraph {
             id: ag_id,
             artifacts: artifacts,
+            // unary_partitioning_idx: up_idx.expect("Artifact graph lacks unary partitioning"),
         })
     }
 
@@ -927,12 +977,12 @@ impl ModelController for PostgresStore {
         Ok(())
     }
 
-    fn commit_version<'a, T: DatatypeEnum>(
+    fn commit_version<'a, 'b, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
-        ver_graph: &mut VersionGraph<'a>,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
             where Box<::datatype::interface::ProducerController>:
@@ -970,11 +1020,11 @@ impl ModelController for PostgresStore {
         Ok(())
     }
 
-    fn fulfill_policy_requirements<'a>(
+    fn fulfill_policy_requirements<'a, 'b>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
-        ver_graph: &mut VersionGraph<'a>,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
@@ -1118,12 +1168,12 @@ impl ModelController for PostgresStore {
         Ok(())
     }
 
-    fn get_version<'a>(
+    fn get_version<'a, 'b>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
+        art_graph: &'b ArtifactGraph<'a>,
         id: &Identity,
-    ) -> Result<(VersionGraphIndex, VersionGraph<'a>), Error> {
+    ) -> Result<(VersionGraphIndex, VersionGraph<'a, 'b>), Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
             _ => panic!("PostgresStore received a non-Postgres context")
@@ -1264,11 +1314,11 @@ impl ModelController for PostgresStore {
         Ok((ver_node_idx, ver_graph))
     }
 
-    fn get_version_graph<'a>(
+    fn get_version_graph<'a, 'b>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
-    ) -> Result<VersionGraph<'a>, Error> {
+        art_graph: &'b ArtifactGraph<'a>,
+    ) -> Result<VersionGraph<'a, 'b>, Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
             _ => panic!("PostgresStore received a non-Postgres context")
@@ -1338,6 +1388,50 @@ impl ModelController for PostgresStore {
         trans.set_commit();
         Ok(())
     }
+
+    fn get_hunks<'a, 'b, 'c, 'd>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        version: &'d Version<'a, 'b>,
+        partitioning: &'c Version<'a, 'b>
+    ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error> {
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        enum HunkRow {
+            UUID = 0,
+            Hash,
+            PartitionID,
+        };
+        let hunk_rows = trans.query(r#"
+                SELECT h.uuid_, h.hash, h.partition_id
+                FROM version v
+                JOIN hunk h ON (h.version_id = v.id)
+                WHERE v.uuid_ = $1::uuid AND v.hash = $2::bigint;"#,
+            &[&version.id.uuid, &(version.id.hash as i64)])?;
+        let mut hunks = Vec::new();
+        for row in &hunk_rows {
+            hunks.push(Hunk {
+                id: Identity {
+                    uuid: row.get(HunkRow::UUID as usize),
+                    hash: row.get::<_, i64>(HunkRow::Hash as usize) as u64,
+                },
+                version: version,
+                partition: Partition {
+                    partitioning: partitioning,
+                    index: row.get::<_, i64>(HunkRow::PartitionID as usize) as u64,
+                },
+                completion: PartCompletion::Complete, // TODO
+            });
+        }
+
+        Ok(hunks)
+    }
 }
 
 
@@ -1383,11 +1477,13 @@ mod tests {
             prod_node_idx,
             blob2_node_idx,
             ArtifactRelation::ProducedFrom("output".into())).unwrap();
-        let ag_desc = ArtifactGraphDescription {
+
+        let mut ag_desc = ArtifactGraphDescription {
             artifacts: artifacts,
         };
+        ag_desc.add_unary_partitioning();
 
-        let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry);
+        let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry, None);
 
         let idxs = [
             *idx_map.get(&blob1_node_idx).unwrap(),
@@ -1444,49 +1540,80 @@ mod tests {
 
         model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
 
-        let mut ver_graph = VersionGraph::new();
-        let prod_node_idx_real = idxs[1];
-        let ver_prod = Version {
+        let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
+
+        // TODO: most of this test should eventually fail because no versions
+        // are being committed.
+        for node_idx in ver_graph.versions.graph().node_indices() {
+            model_ctrl.create_staging_version(
+                &mut context.repo_control,
+                &ver_graph,
+                node_idx.clone()).unwrap();
+        }
+
+        let up_idx = ver_graph.versions.graph().node_indices().next().unwrap();
+        let (up_art_idx, up_art) = ag.find_by_id(&ver_graph.versions[up_idx].artifact.id).unwrap();
+
+        let blob1_art_idx = idxs[0];
+        let blob1_art = &ag.artifacts[blob1_art_idx];
+        let blob1_ver = Version {
             id: Identity {uuid: Uuid::new_v4(), hash: 0},
-            artifact: ag.artifacts.node_weight(prod_node_idx_real).expect("Couldn't find producer"),
+            artifact: blob1_art,
             status: VersionStatus::Staging,
             representation: DatatypeRepresentationKind::State,
         };
-        let ver_prod_idx = ver_graph.versions.add_node(ver_prod);
+        let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
+        ver_graph.versions.add_edge(up_idx, blob1_ver_idx,
+            VersionRelation::Dependence(
+                &ag.artifacts[ag.artifacts.find_edge(up_art_idx, blob1_art_idx).unwrap()]));
 
         model_ctrl.create_staging_version(
             &mut context.repo_control,
             &ver_graph,
-            ver_prod_idx.clone()).unwrap();
-        model_ctrl.commit_version(
-            &context.dtypes_registry,
-            &mut context.repo_control,
-            &ag,
-            &mut ver_graph,
-            ver_prod_idx).expect("Commit prod failed");
+            blob1_ver_idx.clone()).unwrap();
 
-        let ver_node_idx_real = idxs[2];
-        let ver_blob = Version {
-            id: Identity {uuid: Uuid::new_v4(), hash: 0},
-            artifact: ag.artifacts.node_weight(ver_node_idx_real).expect("Couldn't find blob"),
-            status: VersionStatus::Staging,
-            representation: DatatypeRepresentationKind::State,
-        };
-        let ver_blob_id = ver_blob.id.clone();
-        let ver_blob_idx = ver_graph.versions.add_node(ver_blob);
+        // let prod_art = ag.artifacts[idxs[1]];
+        // let ver_prod = Version {
+        //     id: Identity {uuid: Uuid::new_v4(), hash: 0},
+        //     artifact: prod_art,
+        //     status: VersionStatus::Staging,
+        //     representation: DatatypeRepresentationKind::State,
+        // };
+        // let ver_prod_idx = ver_graph.versions.add_node(ver_prod);
 
-        let prod_blob_idx_real = ag.artifacts.find_edge(prod_node_idx_real, ver_node_idx_real)
-                                             .expect("Couldn't find relation");
-        let prod_blob_edge_real = ag.artifacts.edge_weight(prod_blob_idx_real).expect("Couldn't find relation");
-        ver_graph.versions.add_edge(
-            ver_prod_idx,
-            ver_blob_idx,
-            VersionRelation::Dependence(prod_blob_edge_real)).unwrap();
+        // model_ctrl.create_staging_version(
+        //     &mut context.repo_control,
+        //     &ver_graph,
+        //     ver_prod_idx.clone()).unwrap();
+        // model_ctrl.commit_version(
+        //     &context.dtypes_registry,
+        //     &mut context.repo_control,
+        //     &ag,
+        //     &mut ver_graph,
+        //     ver_prod_idx).expect("Commit prod failed");
 
-        model_ctrl.create_staging_version(
-            &mut context.repo_control,
-            &ver_graph,
-            ver_blob_idx.clone()).unwrap();
+        // let ver_node_idx_real = idxs[2];
+        // let ver_blob = Version {
+        //     id: Identity {uuid: Uuid::new_v4(), hash: 0},
+        //     artifact: ag.artifacts.node_weight(ver_node_idx_real).expect("Couldn't find blob"),
+        //     status: VersionStatus::Staging,
+        //     representation: DatatypeRepresentationKind::State,
+        // };
+        // let ver_blob_id = ver_blob.id.clone();
+        // let ver_blob_idx = ver_graph.versions.add_node(ver_blob);
+
+        // let prod_blob_idx_real = ag.artifacts.find_edge(prod_node_idx_real, ver_node_idx_real)
+        //                                      .expect("Couldn't find relation");
+        // let prod_blob_edge_real = ag.artifacts.edge_weight(prod_blob_idx_real).expect("Couldn't find relation");
+        // ver_graph.versions.add_edge(
+        //     ver_prod_idx,
+        //     ver_blob_idx,
+        //     VersionRelation::Dependence(prod_blob_edge_real)).unwrap();
+
+        // model_ctrl.create_staging_version(
+        //     &mut context.repo_control,
+        //     &ver_graph,
+        //     ver_blob_idx.clone()).unwrap();
 
         // TODO: A mess from de-static-ing UP Singleton.
         // let unary_partitioning_art = Artifact {
@@ -1504,13 +1631,16 @@ mod tests {
         //     status: ::VersionStatus::Committed,
         //     representation: ::DatatypeRepresentationKind::State,
         // };
-        let unary_partitioning_singleton =
-            ::datatype::partitioning::UnaryPartitioning::build_singleton_version(&context.dtypes_registry);
+        // let unary_partitioning_singleton =
+        //     ::datatype::partitioning::UnaryPartitioning::build_singleton_version(&context.dtypes_registry);
         // let unary_partitioning_art = unary_partitioning_singleton.artifact;
         // let foobar: &String = unary_partitioning_singleton.ref_rent_all(|s| &s.version.t);
-        // let unary_partitioning_ver: &Version = unary_partitioning_singleton.ref_rent_all(|s| &s.v_ref);
-        let unary_partitioning_ver: &Version = unary_partitioning_singleton.rent();
-        let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx).unwrap_or(unary_partitioning_ver);
+        // let unary_partitioning_ver: &Version = unary_partitioning_singleton.ref_rent_all(|s| &s.version);
+        // let unary_partitioning_ver: &Version = unary_partitioning_singleton.rent();
+        // let unary_partitioning_ver = ag.get_unary_partitioning();
+        // let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx).unwrap_or(unary_partitioning_ver);
+        let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
+            .expect("Partitioning version missing");
         let ver_part_control: Box<::datatype::interface::PartitioningController> =
                 context.dtypes_registry.models
                                       .get(&ver_partitioning.artifact.dtype.name)
@@ -1521,7 +1651,7 @@ mod tests {
                                       .into();
 
         let mut blob_control = ::datatype::blob::model_controller(store);
-        let ver_blob_real = ver_graph.versions.node_weight(ver_blob_idx).unwrap();
+        let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
         let ver_hunks = ver_part_control
                 .get_partition_ids(&mut context.repo_control, ver_partitioning)
                 .iter()
@@ -1558,7 +1688,7 @@ mod tests {
         let (ver_blob_idx2, ver_graph2) = model_ctrl.get_version(
             &mut context.repo_control,
             &ag,
-            &ver_blob_id).unwrap();
+            &ver_blob_real.id).unwrap();
 
         assert!(petgraph::algo::is_isomorphic_matching(
             &ver_graph.versions.graph(),
@@ -1587,42 +1717,64 @@ mod tests {
 
         model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
 
-        let mut ver_graph = VersionGraph::new();
+        let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
-        let ver_node_idx_real = idxs[0];
-        let ver_blob = Version {
+        // TODO: most of this test should eventually fail because no versions
+        // are being committed.
+        for node_idx in ver_graph.versions.graph().node_indices() {
+            model_ctrl.create_staging_version(
+                &mut context.repo_control,
+                &ver_graph,
+                node_idx.clone()).unwrap();
+            model_ctrl.commit_version(
+                &context.dtypes_registry,
+                &mut context.repo_control,
+                &ag,
+                &mut ver_graph,
+                node_idx).expect("Commit source failed");
+        }
+
+        let up_idx = ver_graph.versions.graph().node_indices().next().unwrap();
+        let (up_art_idx, up_art) = ag.find_by_id(&ver_graph.versions[up_idx].artifact.id).unwrap();
+
+        let blob1_art_idx = idxs[0];
+        let blob1_art = &ag.artifacts[blob1_art_idx];
+        let blob1_ver = Version {
             id: Identity {uuid: Uuid::new_v4(), hash: 0},
-            artifact: ag.artifacts.node_weight(ver_node_idx_real).expect("Couldn't find blob"),
+            artifact: blob1_art,
             status: VersionStatus::Staging,
             representation: DatatypeRepresentationKind::State,
         };
-        let ver_blob_id = ver_blob.id.clone();
-        let ver_blob_idx = ver_graph.versions.add_node(ver_blob);
+        let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
+        ver_graph.versions.add_edge(up_idx, blob1_ver_idx,
+            VersionRelation::Dependence(
+                &ag.artifacts[ag.artifacts.find_edge(up_art_idx, blob1_art_idx).unwrap()]));
 
         model_ctrl.create_staging_version(
             &mut context.repo_control,
             &ver_graph,
-            ver_blob_idx.clone()).unwrap();
+            blob1_ver_idx.clone()).unwrap();
 
         // TODO: A mess from de-static-ing UP Singleton.
-        let unary_partitioning_art = Artifact {
-            id: Identity {uuid: ::datatype::partitioning::UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
-            name: None,
-            dtype: context.dtypes_registry.get_datatype("UnaryPartitioning")
-                                  .expect("Unary partitioning missing from registry"),
-        };
-        let unary_partitioning_ver = Version {
-            id: Identity {
-                uuid: ::datatype::partitioning::UNARY_PARTITIONING_VERSION_UUID.clone(),
-                hash: 0,
-            },
-            artifact: &unary_partitioning_art,
-            status: ::VersionStatus::Committed,
-            representation: ::DatatypeRepresentationKind::State,
-        };
+        // let unary_partitioning_art = Artifact {
+        //     id: Identity {uuid: ::datatype::partitioning::UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
+        //     name: None,
+        //     dtype: context.dtypes_registry.get_datatype("UnaryPartitioning")
+        //                           .expect("Unary partitioning missing from registry"),
+        // };
+        // let unary_partitioning_ver = Version {
+        //     id: Identity {
+        //         uuid: ::datatype::partitioning::UNARY_PARTITIONING_VERSION_UUID.clone(),
+        //         hash: 0,
+        //     },
+        //     artifact: &unary_partitioning_art,
+        //     status: ::VersionStatus::Committed,
+        //     representation: ::DatatypeRepresentationKind::State,
+        // };
 
         {
-            let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx).unwrap_or(&unary_partitioning_ver);
+            // let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx).unwrap_or(&unary_partitioning_ver);
+            let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
             let ver_part_control: Box<::datatype::interface::PartitioningController> =
                     context.dtypes_registry.models
                                           .get(&ver_partitioning.artifact.dtype.name)
@@ -1633,7 +1785,7 @@ mod tests {
                                           .into();
 
             let mut blob_control = ::datatype::blob::model_controller(store);
-            let ver_blob_real = ver_graph.versions.node_weight(ver_blob_idx).unwrap();
+            let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
             let ver_hunks = ver_part_control
                     .get_partition_ids(&mut context.repo_control, ver_partitioning)
                     .iter()
@@ -1668,11 +1820,13 @@ mod tests {
             &mut context.repo_control,
             &ag,
             &mut ver_graph,
-            ver_blob_idx).expect("Commit blob failed");
+            blob1_ver_idx).expect("Commit blob failed");
 
         let vg2 = model_ctrl.get_version_graph(
             &mut context.repo_control,
             &ag).unwrap();
+
+        println!("{:?}", petgraph::dot::Dot::new(&vg2.versions.graph()));
         let blob2_vg2_idxs = vg2.artifact_versions(
             &ag.artifacts[idxs[2]]);
 

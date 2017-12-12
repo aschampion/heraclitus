@@ -37,11 +37,11 @@ pub trait PartitioningController {
 pub trait ProducerController {
     fn output_descriptions(&self) -> Vec<DependencyDescription>;
 
-    fn notify_new_version<'a>(
+    fn notify_new_version<'a, 'b>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'a ArtifactGraph,
-        ver_graph: &mut VersionGraph<'a>,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     );
 }
