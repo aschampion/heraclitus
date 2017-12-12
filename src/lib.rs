@@ -60,7 +60,7 @@ pub enum Error {
 
 //struct InternalId(u64);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Identity {
     uuid: Uuid,
     hash: u64,

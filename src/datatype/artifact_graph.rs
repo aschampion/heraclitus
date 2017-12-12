@@ -31,6 +31,7 @@ use ::{
 use super::{
     DatatypeEnum, DatatypesRegistry, DependencyDescription,
     DependencyStoreRestriction, Description, InterfaceController, Store};
+use ::datatype::interface::ProductionOutput;
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
 
@@ -298,6 +299,39 @@ pub trait ModelController {
         From<<T as DatatypeEnum>::InterfaceControllerType>;
     // TODO: many args to avoid reloading state. A 2nd-level API should just take an ID.
 
+    fn cascade_notify_producers<'a, 'b, T:DatatypeEnum> (
+        &mut self,
+        dtypes_registry: &DatatypesRegistry<T>,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &'b ArtifactGraph<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
+        seed_v_idx: VersionGraphIndex,
+    ) -> Result<HashMap<Identity, ProductionOutput>, Error>
+            where Box<::datatype::interface::ProducerController>:
+            From<<T as DatatypeEnum>::InterfaceControllerType> {
+        let outputs = self.notify_producers(
+            dtypes_registry,
+            repo_control,
+            art_graph,
+            ver_graph,
+            seed_v_idx)?;
+
+        for (_, output) in &outputs {
+            if let &ProductionOutput::Synchronous(ref v_idxs) = output {
+                for v_idx in v_idxs {
+                    self.commit_version(
+                        dtypes_registry,
+                        repo_control,
+                        art_graph,
+                        ver_graph,
+                        *v_idx);
+                }
+            }
+        }
+
+        Ok(outputs)
+    }
+
     fn notify_producers<'a, 'b, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
@@ -305,7 +339,7 @@ pub trait ModelController {
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
-    ) -> Result<Vec<Identity>, Error>
+    ) -> Result<HashMap<Identity, ProductionOutput>, Error>
             where Box<::datatype::interface::ProducerController>:
             From<<T as DatatypeEnum>::InterfaceControllerType> {
         let production_policies: Vec<Box<ProductionPolicy>> = vec![
@@ -332,7 +366,7 @@ pub trait ModelController {
 
         let dependent_arts = art_graph.artifacts.children(ver_art_idx).iter(&art_graph.artifacts);
 
-        let mut new_prod_vers = Vec::new();
+        let mut new_prod_vers = HashMap::new();
 
         for (e_idx, dep_art_idx) in dependent_arts {
             let dependent = art_graph.artifacts.node_weight(dep_art_idx)
@@ -398,13 +432,13 @@ pub trait ModelController {
                         ver_graph,
                         new_prod_ver_idx.clone());
 
-                    producer_controller.notify_new_version(
+                    let output = producer_controller.notify_new_version(
                         repo_control,
                         art_graph,
                         ver_graph,
-                        new_prod_ver_idx.clone());
+                        new_prod_ver_idx.clone())?;
 
-                    new_prod_vers.push(new_prod_ver_id);
+                    new_prod_vers.insert(new_prod_ver_id, output);
                 }
             }
         }
@@ -1010,7 +1044,7 @@ impl ModelController for PostgresStore {
             trans.commit()?;
         }
 
-        self.notify_producers(
+        self.cascade_notify_producers(
             dtypes_registry,
             repo_control,
             art_graph,

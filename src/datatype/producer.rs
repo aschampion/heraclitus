@@ -8,14 +8,14 @@ use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
 use ::{
     ArtifactGraph, ArtifactRelation,
-    DatatypeRepresentationKind, Identity, IdentifiableGraph,
+    DatatypeRepresentationKind, Error, Identity, IdentifiableGraph,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
 use ::datatype::{
     Description, DependencyDescription, DependencyStoreRestriction,
     InterfaceController, MetaController,
     Model, PostgresMetaController, StoreMetaController};
 use ::datatype::artifact_graph::ModelController as ArtifactGraphModelController;
-use ::datatype::interface::ProducerController;
+use ::datatype::interface::{ProducerController, ProductionOutput};
 use ::repo::{PostgresMigratable};
 use ::store::Store;
 
@@ -78,7 +78,9 @@ impl ProducerController for NoopProducerController {
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
-    ) {}
+    ) -> Result<ProductionOutput, Error> {
+        Ok(ProductionOutput::Synchronous(vec![v_idx]))
+    }
 }
 
 #[cfg(test)]
@@ -158,7 +160,8 @@ pub(crate) mod tests {
             art_graph: &'b ArtifactGraph<'a>,
             ver_graph: &mut VersionGraph<'a, 'b>,
             v_idx: VersionGraphIndex,
-        ) {
+        ) -> Result<ProductionOutput, Error> {
+            // Find input relation, artifact, and versions.
             let input_art_relation = ArtifactRelation::ProducedFrom("input".into());
             let input_relation = VersionRelation::Dependence(&input_art_relation);
             let input_ver = *ver_graph.get_related_versions(
@@ -169,6 +172,7 @@ pub(crate) mod tests {
             let (art_idx, art) = art_graph.find_by_id(&ver_graph.versions[v_idx].artifact.id)
                 .expect("TODO2");
 
+            // Find output relation and artifact.
             let output_art_relation_needle = ArtifactRelation::ProducedFrom("output".into());
             let (output_art_relation, output_art_idx) = art_graph.artifacts.graph()
                 .edges_directed(art_idx, Direction::Outgoing)
@@ -177,6 +181,7 @@ pub(crate) mod tests {
                 .expect("TODO3");
             let output_art = &art_graph.artifacts[output_art_idx];
 
+            // Create output version.
             let ver_blob = Version::new(output_art, DatatypeRepresentationKind::State);
             let ver_blob_idx = ver_graph.versions.add_node(ver_blob);
             ver_graph.versions.add_edge(
@@ -256,9 +261,9 @@ pub(crate) mod tests {
             // TODO can't do this because can't have generic type in fn sig
             // (prevents boxing) necessary for have dtypes reg for committing.
             // TODO When is producer version committed? Must be before this.
-            // ag_control.commit_version(
-            //     // need dtypes registry
-            //     )
+            // These TODOs are worked around by making AG's cascade_notify_producers.
+
+            Ok(ProductionOutput::Synchronous(vec![v_idx, ver_blob_idx]))
         }
     }
 }

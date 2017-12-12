@@ -283,7 +283,8 @@ So a production strategy takes a version graph and returns a Set of version ID t
 Eventually, production policies should be associated with each dependency->producer relation. For example, changes in constraint dependencies for a multicut solver producer might have Extant policy, but changes in a configuration dependency for the same producer might have a more conservative policy.
 
 Eventually, production policies *may* need to take the representation-production capabilities of the producer (e.g., Deltas vs. States for deps and products) into account. Unclear, as this might be handled purely by the producer.
-  - [ ] Should "representation" of a producer match representation of its products? If so, should all products have the same presentation kind?
+  - [.] Should "representation" of a producer match representation of its products? If so, should all products have the same representation kind?
+    - Should be up to the producer to decide.
 
 Change notification/propagation:
   - When a version is committed:

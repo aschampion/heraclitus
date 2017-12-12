@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use ::{
-    ArtifactGraph, Identity, Interface, PartitionIndex, Version,
+    ArtifactGraph, Error, Identity, Interface, PartitionIndex, Version,
     VersionGraph, VersionGraphIndex};
 use ::datatype::{DependencyDescription, InterfaceDescription};
 
@@ -34,6 +34,16 @@ pub trait PartitioningController {
 }
 
 
+// TODO: this is a temporary workaround in the absence of actual server loop/
+// commit queue and tokio/futures.
+pub enum ProductionOutput {
+    Asynchronous,
+    /// Staged version nodes ready to be committed (typically including the
+    /// producer version itself).
+    Synchronous(Vec<VersionGraphIndex>),
+}
+
+
 pub trait ProducerController {
     fn output_descriptions(&self) -> Vec<DependencyDescription>;
 
@@ -43,5 +53,5 @@ pub trait ProducerController {
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
-    );
+    ) -> Result<ProductionOutput, Error>;
 }
