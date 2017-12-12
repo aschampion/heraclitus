@@ -74,13 +74,20 @@ Milestone Goals
       - [x] Decide: how are dummy unary partitions not serialized/etc? UnaryPartitioning controller handles it.
       - [ ] Postgres: need way for controllers to get unique IDs/prefix for dtype+artifact+version
         - Do we really need this? Already have hunk ID.
-- [ ] Easier goal: artifact graph with producer: producer that performs a trivial operation (negate) on a `blob` to yield another `blob`
+- [x] Easier goal: artifact graph with producer: producer that performs a trivial operation (negate) on a `blob` to yield another `blob`
   - Demonstrates:
     - Producer registration
     - Producer flow
     - Dependent states
   - When do producers become notified of changes?
     - Dependent artifacts get notification hook when parent artifact has new version committed? (Or only for producers since they're the only type which can handle such evenst?)
+- [ ] Goal: chained negation producer
+  - Demonstrates:
+    - Cascading/propagating production
+    - Content hashing (for equivalence between source and sink blobs)
+  - Requires:
+    - De-DAGging datatypes
+    - Better ergonomics for building AGs, invoking producers
 - [ ] Goal: delta state updates in producer test
 - [ ] Goal: organize, e.g., postgres stores out of datatypes
 - [ ] Goal: branches/tags/reflist
@@ -122,7 +129,7 @@ General
 - Can versions depend on staging versions?
 - Can dependencies change after a version is created (i.e., if it is still staging)? (~~Related to above question~~ ~~not related to above because this only constrains dependencies, not dependents~~)
   - Would greatly simplify if the case. Only hunks/content/hash of a staging version could change.
-- [ ] Datatypes Registry should not be a DAG. This is cruft from early testing of daggy. E.g., even the testing negating blob producer datatype both inputs and outputs blobs. Only AGs/VGs must be DAGs.
+- [x] Datatypes Registry should not be a DAG. This is cruft from early testing of daggy. E.g., even the testing negating blob producer datatype both inputs and outputs blobs. Only AGs/VGs must be DAGs.
 
 
 Producers

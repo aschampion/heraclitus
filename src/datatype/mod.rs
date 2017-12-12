@@ -219,8 +219,7 @@ impl InterfaceRegistry {
 
 pub struct DatatypesRegistry<T: DatatypeEnum> {
     interfaces: InterfaceRegistry,
-    graph: super::DatatypeGraph,
-    dtypes_idx: HashMap<String, daggy::NodeIndex>,
+    dtypes: HashMap<String, Datatype>,
     pub models: HashMap<String, T>,
 }
 
@@ -228,32 +227,18 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
     pub fn new() -> DatatypesRegistry<T> {
         DatatypesRegistry {
             interfaces: InterfaceRegistry::new(),
-            graph: super::DatatypeGraph::new(),
-            dtypes_idx: HashMap::new(),
+            dtypes: HashMap::new(),
             models: HashMap::new(),
         }
     }
 
     pub fn get_datatype(&self, name: &str) -> Option<&Datatype> {
-        match self.dtypes_idx.get(name) {
-            Some(idx) => self.graph.node_weight(*idx),
-            None => None,
-        }
+        self.dtypes.get(name)
     }
 
     /// Iterate over datatypes.
     pub fn iter_dtypes<'a>(&'a self) -> impl Iterator<Item = &'a Datatype> {
-        self.graph.raw_nodes().iter().map(|node| &node.weight)
-    }
-
-    /// Iterate over datatypes sorted topologically according to dependency.
-    pub fn iter_dtypes_topo<'a>(&'a self) -> impl Iterator<Item = &'a Datatype> {
-        daggy::petgraph::algo::toposort(self.graph.graph(), None)
-            .expect("Impossible: datatypes are a DAG")
-            .into_iter()
-            // `move` here is necessary to satisfy conservative impl trait
-            // lifetime even though it's pointless.
-            .map(move |idx| self.graph.node_weight(idx).expect("Impossible: indices from this graph"))
+        self.dtypes.values()
     }
 
     pub fn register_interfaces(&mut self, interfaces: Vec<&InterfaceDescription>) {
@@ -261,29 +246,10 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
     }
 
     pub fn register_datatype_models(&mut self, models: Vec<T>) {
-        for model in &models {
-            // Add datatype nodes.
-            let description = model.as_model().info();
-            let name = description.name.clone();
-            let idx = self.graph.add_node(description.to_datatype(&self.interfaces));
-            self.dtypes_idx.insert(name, idx);
-        }
-
-        for model in &models {
-            // Add dependency edges.
-            let description = model.as_model().info();
-            let node_idx = self.dtypes_idx.get(&description.name).expect("Unknown datatype.");
-            for dependency in description.dependencies {
-                let dep_idx = self.dtypes_idx.get(dependency.datatype_name).expect("Depends on unknown datatype.");
-                let relation = ::DatatypeRelation{name: dependency.name.into()};
-                self.graph.add_edge(*node_idx, *dep_idx, relation).unwrap();
-            }
-        }
-
-        // Add model lookup.
         for model in models {
             let description = model.as_model().info();
-            self.models.insert(description.name, model);
+            self.models.insert(description.name.clone(), model);
+            self.dtypes.insert(description.name.clone(), description.to_datatype(&self.interfaces));
         }
     }
 }
