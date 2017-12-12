@@ -1,6 +1,10 @@
 extern crate postgres;
 extern crate schemer;
 
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 use schemer::Migrator;
@@ -169,6 +173,10 @@ pub(crate) mod tests {
                 &input_relation,
                 Direction::Incoming).get(0).expect("TODO");
 
+            // Set own hash to input version.
+            // TODO: not yet clear what producer version hash should be.
+            ver_graph.versions[v_idx].id.hash = ver_graph.versions[input_ver].id.hash;
+
             let (art_idx, art) = art_graph.find_by_id(&ver_graph.versions[v_idx].artifact.id)
                 .expect("TODO2");
 
@@ -224,38 +232,44 @@ pub(crate) mod tests {
                 ver_graph,
                 ver_blob_idx.clone()).unwrap();
 
+            let mut ver_hash = DefaultHasher::new();
             // Get input hunks.
             // TODO: For now this assumes the hunks are associated directly
             // with the input version. Does not account for partial partioning
             // versions.
-            let input_hunks = ag_control.get_hunks(
-                repo_control,
-                &ver_graph.versions[input_ver],
-                &ver_graph.versions[input_ver_part_idx]).expect("TODO");
-
-            // Create output hunks computed from input hunks.
-            let mut blob_control = ::datatype::blob::model_controller(repo_control.store());
-            for input_hunk in &input_hunks {
-                let input_blob = blob_control.read(repo_control, input_hunk).expect("TODO");
-                let output_blob = input_blob.iter().cloned().map(|b| !b).collect::<Vec<u8>>();
-                let output_hunk = Hunk {
-                    id: Identity {
-                        uuid: Uuid::new_v4(),
-                        hash: 0,
-                    },
-                    version: &ver_graph.versions[ver_blob_idx],
-                    partition: input_hunk.partition.clone(),
-                    completion: PartCompletion::Complete,
-                };
-
-                ag_control.create_hunk(
+            {
+                let input_hunks = ag_control.get_hunks(
                     repo_control,
-                    &output_hunk).expect("TODO");
-                blob_control.write(
-                    repo_control,
-                    &output_hunk,
-                    &output_blob).expect("TODO");
+                    &ver_graph.versions[input_ver],
+                    &ver_graph.versions[input_ver_part_idx]).expect("TODO");
+
+                // Create output hunks computed from input hunks.
+                let mut blob_control = ::datatype::blob::model_controller(repo_control.store());
+                for input_hunk in &input_hunks {
+                    let input_blob = blob_control.read(repo_control, input_hunk).expect("TODO");
+                    let output_blob = input_blob.iter().cloned().map(|b| !b).collect::<Vec<u8>>();
+                    let output_hunk = Hunk {
+                        id: Identity {
+                            uuid: Uuid::new_v4(),
+                            hash: blob_control.hash(&output_blob),
+                        },
+                        version: &ver_graph.versions[ver_blob_idx],
+                        partition: input_hunk.partition.clone(),
+                        completion: PartCompletion::Complete,
+                    };
+                    output_hunk.id.hash.hash(&mut ver_hash);
+
+                    ag_control.create_hunk(
+                        repo_control,
+                        &output_hunk).expect("TODO");
+                    blob_control.write(
+                        repo_control,
+                        &output_hunk,
+                        &output_blob).expect("TODO");
+                }
             }
+
+            ver_graph.versions[ver_blob_idx].id.hash = ver_hash.finish();
 
             // TODO commit version
             // TODO can't do this because can't have generic type in fn sig

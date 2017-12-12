@@ -8,6 +8,8 @@ extern crate postgres;
 
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use daggy::petgraph::visit::EdgeRef;
 use daggy::Walker;
@@ -281,6 +283,7 @@ pub trait ModelController {
     ) -> Result<(), Error>;
 
     /// Commit a version node and propagate any changes through the graph.
+    /// Matches version based on UUID only and updates its hash.
     ///
     /// Constraints:
     /// - The version must not already be committed.
@@ -1037,9 +1040,8 @@ impl ModelController for PostgresStore {
 
             trans.query(r#"
                     UPDATE version
-                    SET status = $3
-                    WHERE uuid_ = $1
-                      AND hash = $2;
+                    SET hash = $2, status = $3
+                    WHERE uuid_ = $1;
                 "#, &[&id.uuid, &(id.hash as i64), &VersionStatus::Committed])?;
             trans.commit()?;
         }
@@ -1483,33 +1485,58 @@ mod tests {
         (NegateBlobProducer, NegateBlobProducer),
     ));
 
-    /// Create a simple artifact chain of Blob -> Producer -> Blob.
+    /// Create a simple artifact chain of
+    /// Blob -> Producer -> Blob -> Producer -> Blob.
     fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         dtypes_registry: &'a DatatypesRegistry<T>
-    ) -> (ArtifactGraph<'a>, [ArtifactGraphIndex; 3]) {
+    ) -> (ArtifactGraph<'a>, [ArtifactGraphIndex; 5]) {
         let mut artifacts = ArtifactGraphDescriptionType::new();
+
+        // Blob 1
         let blob1_node = ArtifactDescription {
             name: Some("Test Blob 1".into()),
             dtype: "Blob".into()
         };
         let blob1_node_idx = artifacts.add_node(blob1_node);
-        let prod_node = ArtifactDescription {
-            name: Some("Test Producer".into()),
+        // Prod 1
+        let prod1_node = ArtifactDescription {
+            name: Some("Test Producer 1".into()),
             dtype: "NegateBlobProducer".into(),
         };
-        let prod_node_idx = artifacts.add_node(prod_node);
+        let prod1_node_idx = artifacts.add_node(prod1_node);
         artifacts.add_edge(
             blob1_node_idx,
-            prod_node_idx,
+            prod1_node_idx,
             ArtifactRelation::ProducedFrom("input".into())).unwrap();
+        // Blob 2
         let blob2_node = ArtifactDescription {
             name: Some("Test Blob 2".into()),
             dtype: "Blob".into()
         };
         let blob2_node_idx = artifacts.add_node(blob2_node);
         artifacts.add_edge(
-            prod_node_idx,
+            prod1_node_idx,
             blob2_node_idx,
+            ArtifactRelation::ProducedFrom("output".into())).unwrap();
+        // Prod 2
+        let prod2_node = ArtifactDescription {
+            name: Some("Test Producer 2".into()),
+            dtype: "NegateBlobProducer".into(),
+        };
+        let prod2_node_idx = artifacts.add_node(prod2_node);
+        artifacts.add_edge(
+            blob2_node_idx,
+            prod2_node_idx,
+            ArtifactRelation::ProducedFrom("input".into())).unwrap();
+        // Blob 3
+        let blob3_node = ArtifactDescription {
+            name: Some("Test Blob 3".into()),
+            dtype: "Blob".into()
+        };
+        let blob3_node_idx = artifacts.add_node(blob3_node);
+        artifacts.add_edge(
+            prod2_node_idx,
+            blob3_node_idx,
             ArtifactRelation::ProducedFrom("output".into())).unwrap();
 
         let mut ag_desc = ArtifactGraphDescription {
@@ -1521,8 +1548,10 @@ mod tests {
 
         let idxs = [
             *idx_map.get(&blob1_node_idx).unwrap(),
-            *idx_map.get(&prod_node_idx).unwrap(),
+            *idx_map.get(&prod1_node_idx).unwrap(),
             *idx_map.get(&blob2_node_idx).unwrap(),
+            *idx_map.get(&prod2_node_idx).unwrap(),
+            *idx_map.get(&blob3_node_idx).unwrap(),
         ];
 
         (ag, idxs)
@@ -1686,13 +1715,14 @@ mod tests {
 
         let mut blob_control = ::datatype::blob::model_controller(store);
         let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
+        let fake_blob = vec![0, 1, 2, 3, 4, 5, 6];
         let ver_hunks = ver_part_control
                 .get_partition_ids(&mut context.repo_control, ver_partitioning)
                 .iter()
                 .map(|partition_id| Hunk {
                     id: Identity {
                         uuid: Uuid::new_v4(),
-                        hash: 0,
+                        hash: blob_control.hash(&fake_blob),
                     },
                     version: ver_blob_real,
                     partition: Partition {
@@ -1703,7 +1733,6 @@ mod tests {
                 }).collect::<Vec<_>>();
 
         // Can't do this in an iterator because of borrow conflict on context?
-        let fake_blob = vec![0, 1, 2, 3, 4, 5, 6];
         for hunk in &ver_hunks {
             model_ctrl.create_hunk(
                 &mut context.repo_control,
@@ -1789,25 +1818,7 @@ mod tests {
             &ver_graph,
             blob1_ver_idx.clone()).unwrap();
 
-        // TODO: A mess from de-static-ing UP Singleton.
-        // let unary_partitioning_art = Artifact {
-        //     id: Identity {uuid: ::datatype::partitioning::UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
-        //     name: None,
-        //     dtype: context.dtypes_registry.get_datatype("UnaryPartitioning")
-        //                           .expect("Unary partitioning missing from registry"),
-        // };
-        // let unary_partitioning_ver = Version {
-        //     id: Identity {
-        //         uuid: ::datatype::partitioning::UNARY_PARTITIONING_VERSION_UUID.clone(),
-        //         hash: 0,
-        //     },
-        //     artifact: &unary_partitioning_art,
-        //     status: ::VersionStatus::Committed,
-        //     representation: ::DatatypeRepresentationKind::State,
-        // };
-
-        {
-            // let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx).unwrap_or(&unary_partitioning_ver);
+        let ver_hash = {
             let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
             let ver_part_control: Box<::datatype::interface::PartitioningController> =
                     context.dtypes_registry.models
@@ -1820,13 +1831,16 @@ mod tests {
 
             let mut blob_control = ::datatype::blob::model_controller(store);
             let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
+            let fake_blob = vec![0, 1, 2, 3, 4, 5, 6];
             let ver_hunks = ver_part_control
+                    // Note that this is in ascending order, so version hash
+                    // is correct.
                     .get_partition_ids(&mut context.repo_control, ver_partitioning)
                     .iter()
                     .map(|partition_id| Hunk {
                         id: Identity {
                             uuid: Uuid::new_v4(),
-                            hash: 0,
+                            hash: blob_control.hash(&fake_blob),
                         },
                         version: ver_blob_real,
                         partition: Partition {
@@ -1835,9 +1849,13 @@ mod tests {
                         },
                         completion: PartCompletion::Complete,
                     }).collect::<Vec<_>>();
+            let ver_hash = ver_hunks.iter()
+                .fold(
+                    DefaultHasher::new(),
+                    |mut s, hunk| {hunk.id.hash.hash(&mut s); s})
+                .finish();
 
             // Can't do this in an iterator because of borrow conflict on context?
-            let fake_blob = vec![0, 1, 2, 3, 4, 5, 6];
             for hunk in &ver_hunks {
                 model_ctrl.create_hunk(
                     &mut context.repo_control,
@@ -1847,7 +1865,11 @@ mod tests {
                     &hunk,
                     &fake_blob).unwrap();
             }
-        }
+
+            ver_hash
+        };
+
+        ver_graph.versions[blob1_ver_idx].id.hash = ver_hash;
 
         model_ctrl.commit_version(
             &context.dtypes_registry,
@@ -1861,10 +1883,25 @@ mod tests {
             &ag).unwrap();
 
         println!("{:?}", petgraph::dot::Dot::new(&vg2.versions.graph()));
+
+        let blob1_vg2_idxs = vg2.artifact_versions(
+            &ag.artifacts[idxs[0]]);
+
         let blob2_vg2_idxs = vg2.artifact_versions(
             &ag.artifacts[idxs[2]]);
 
         assert_eq!(blob2_vg2_idxs.len(), 1);
+
+        let blob3_vg2_idxs = vg2.artifact_versions(
+            &ag.artifacts[idxs[4]]);
+
+        assert_eq!(blob3_vg2_idxs.len(), 1);
+
+        assert_eq!(
+            vg2.versions[blob1_vg2_idxs[0]].id.hash,
+            vg2.versions[blob3_vg2_idxs[0]].id.hash,
+            "Version hashes for original and double-negated blob should match.",
+            );
     }
 
     #[test]

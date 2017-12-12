@@ -2,6 +2,9 @@ extern crate schemer;
 extern crate uuid;
 
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemer::Migrator;
@@ -80,6 +83,15 @@ pub fn model_controller(store: Store) -> impl ModelController {
 //   composing with the MetaController trait. Which is preferrable?
 
 pub trait ModelController: super::ModelController {
+    fn hash(
+        &self,
+        blob: &[u8],
+    ) -> u64 {
+        let mut s = DefaultHasher::new();
+        blob.hash(&mut s);
+        s.finish()
+    }
+
     fn write(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,

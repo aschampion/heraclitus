@@ -81,13 +81,13 @@ Milestone Goals
     - Dependent states
   - When do producers become notified of changes?
     - Dependent artifacts get notification hook when parent artifact has new version committed? (Or only for producers since they're the only type which can handle such evenst?)
-- [ ] Goal: chained negation producer
+- [x] Goal: chained negation producer
   - Demonstrates:
     - Cascading/propagating production
-    - Content hashing (for equivalence between source and sink blobs)
+    - [x] Content hashing (for equivalence between source and sink blobs)
   - Requires:
-    - De-DAGging datatypes
-    - Better ergonomics for building AGs, invoking producers
+    - [x] De-DAGging datatypes
+    - [ ] Better ergonomics for building AGs, invoking producers
 - [ ] Goal: delta state updates in producer test
 - [ ] Goal: organize, e.g., postgres stores out of datatypes
 - [ ] Goal: branches/tags/reflist
