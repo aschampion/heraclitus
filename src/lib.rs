@@ -418,12 +418,7 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
         let mut versions = daggy::Dag::new();
         for node_idx in art_graph.artifacts.graph().externals(Direction::Incoming) {
             let art = &art_graph.artifacts[node_idx];
-            versions.add_node(Version {
-                id: Identity {uuid: Uuid::new_v4(), hash: 0},
-                artifact: art,
-                status: VersionStatus::Staging,
-                representation: RepresentationKind::State,
-            });
+            versions.add_node(Version::new(art, RepresentationKind::State));
         }
 
         VersionGraph {

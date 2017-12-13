@@ -397,12 +397,7 @@ pub trait ModelController {
                         |mut specs, x| {specs.merge(x); specs});
 
                 for (specs, parent_prod_vers) in &prod_specs.specs {
-                    let new_prod_ver = Version {
-                        id: Identity {uuid: Uuid::new_v4(), hash: 0},
-                        artifact: dependent,
-                        status: VersionStatus::Staging,
-                        representation: RepresentationKind::State,
-                    };
+                    let new_prod_ver = Version::new(dependent, RepresentationKind::State);
                     let new_prod_ver_id = new_prod_ver.id.clone();
                     let new_prod_ver_idx = ver_graph.versions.add_node(new_prod_ver);
 
@@ -1548,12 +1543,7 @@ mod tests {
 
         let blob1_art_idx = idxs[0];
         let blob1_art = &ag.artifacts[blob1_art_idx];
-        let blob1_ver = Version {
-            id: Identity {uuid: Uuid::new_v4(), hash: 0},
-            artifact: blob1_art,
-            status: VersionStatus::Staging,
-            representation: RepresentationKind::State,
-        };
+        let blob1_ver = Version::new(blob1_art, RepresentationKind::State);
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
         ver_graph.versions.add_edge(up_idx, blob1_ver_idx,
             VersionRelation::Dependence(
@@ -1674,12 +1664,7 @@ mod tests {
 
         let blob1_art_idx = idxs[0];
         let blob1_art = &ag.artifacts[blob1_art_idx];
-        let blob1_ver = Version {
-            id: Identity {uuid: Uuid::new_v4(), hash: 0},
-            artifact: blob1_art,
-            status: VersionStatus::Staging,
-            representation: RepresentationKind::State,
-        };
+        let blob1_ver = Version::new(blob1_art, RepresentationKind::State);
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
         ver_graph.versions.add_edge(part_idx, blob1_ver_idx,
             VersionRelation::Dependence(
