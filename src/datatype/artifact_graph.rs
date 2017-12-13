@@ -506,14 +506,18 @@ impl ArtifactGraphDescription {
     }
 
     pub fn add_unary_partitioning(&mut self) {
-        let up_idx = self.artifacts.add_node(ArtifactDescription{
+        self.add_uniform_partitioning(ArtifactDescription{
                     name: Some("Unary Partitioning Singleton".into()),
                     dtype: "UnaryPartitioning".into(),
                 });
+    }
+
+    pub fn add_uniform_partitioning(&mut self, partitioning: ArtifactDescription) {
+        let part_idx = self.artifacts.add_node(partitioning);
         for node_idx in daggy::petgraph::algo::toposort(self.artifacts.graph(), None)
                 .expect("TODO: not a DAG")
                 .into_iter() {
-            if node_idx == up_idx {
+            if node_idx == part_idx {
                 continue;
             }
             let has_partitioning = self.artifacts.parents(node_idx).iter(&self.artifacts)
@@ -525,7 +529,7 @@ impl ArtifactGraphDescription {
                 });
             if !has_partitioning {
                 let edge = ArtifactRelation::DtypeDepends(DatatypeRelation {name: "Partitioning".into()});
-                self.artifacts.add_edge(up_idx, node_idx, edge).expect("Graph is malformed.");
+                self.artifacts.add_edge(part_idx, node_idx, edge).expect("Graph is malformed.");
             }
         }
     }
@@ -1475,11 +1479,13 @@ impl ModelController for PostgresStore {
 mod tests {
     use super::*;
     use ::datatype::blob::ModelController as BlobModelController;
+    use datatype::partitioning::arbitrary::ModelController as ArbitraryPartitioningModelController;
     use ::datatype::producer::tests::NegateBlobProducer;
 
     datatype_enum!(TestDatatypes, ::datatype::DefaultInterfaceController, (
         (ArtifactGraph, ::datatype::artifact_graph::ArtifactGraphDtype),
         (UnaryPartitioning, ::datatype::partitioning::UnaryPartitioning),
+        (ArbitraryPartitioning, ::datatype::partitioning::arbitrary::ArbitraryPartitioning),
         (Blob, ::datatype::blob::Blob),
         (NoopProducer, ::datatype::producer::NoopProducer),
         (NegateBlobProducer, NegateBlobProducer),
@@ -1488,7 +1494,8 @@ mod tests {
     /// Create a simple artifact chain of
     /// Blob -> Producer -> Blob -> Producer -> Blob.
     fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
-        dtypes_registry: &'a DatatypesRegistry<T>
+        dtypes_registry: &'a DatatypesRegistry<T>,
+        partitioning: Option<ArtifactDescription>,
     ) -> (ArtifactGraph<'a>, [ArtifactGraphIndex; 5]) {
         let mut artifacts = ArtifactGraphDescriptionType::new();
 
@@ -1542,7 +1549,11 @@ mod tests {
         let mut ag_desc = ArtifactGraphDescription {
             artifacts: artifacts,
         };
-        ag_desc.add_unary_partitioning();
+
+        match partitioning {
+            Some(part_desc) => ag_desc.add_uniform_partitioning(part_desc),
+            None => ag_desc.add_unary_partitioning(),
+        }
 
         let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry, None);
 
@@ -1570,7 +1581,7 @@ mod tests {
             repo_control: repo_control,
         };
 
-        let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry);
+        let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry, None);
 
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
         let mut model_ctrl = model_controller(store);
@@ -1596,7 +1607,7 @@ mod tests {
             repo_control: repo_control,
         };
 
-        let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry);
+        let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry, None);
 
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
         let mut model_ctrl = model_controller(store);
@@ -1773,32 +1784,41 @@ mod tests {
             repo_control: repo_control,
         };
 
-        let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry);
+        let partitioning = ArtifactDescription {
+            name: Some("Arbitrary Partitioning".into()),
+            dtype: "ArbitraryPartitioning".into(),
+        };
+        let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry, Some(partitioning));
 
-        // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
         let mut model_ctrl = model_controller(store);
 
         model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
 
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
-        // TODO: most of this test should eventually fail because no versions
-        // are being committed.
-        for node_idx in ver_graph.versions.graph().node_indices() {
+        let part_idx = ver_graph.versions.graph().node_indices().next().unwrap();
+        let (part_art_idx, part_art) = ag.find_by_id(&ver_graph.versions[part_idx].artifact.id).unwrap();
+
+        // Create arbitrary partitions.
+        {
+            let mut part_control = ::datatype::partitioning::arbitrary::model_controller(store);
+
+
             model_ctrl.create_staging_version(
                 &mut context.repo_control,
                 &ver_graph,
-                node_idx.clone()).unwrap();
+                part_idx);
+            part_control.write(
+                &mut context.repo_control,
+                &ver_graph.versions[part_idx],
+                &[0, 1]).expect("TODO");
             model_ctrl.commit_version(
                 &context.dtypes_registry,
                 &mut context.repo_control,
                 &ag,
                 &mut ver_graph,
-                node_idx).expect("Commit source failed");
+                part_idx).expect("TODO");
         }
-
-        let up_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (up_art_idx, up_art) = ag.find_by_id(&ver_graph.versions[up_idx].artifact.id).unwrap();
 
         let blob1_art_idx = idxs[0];
         let blob1_art = &ag.artifacts[blob1_art_idx];
@@ -1809,9 +1829,9 @@ mod tests {
             representation: DatatypeRepresentationKind::State,
         };
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
-        ver_graph.versions.add_edge(up_idx, blob1_ver_idx,
+        ver_graph.versions.add_edge(part_idx, blob1_ver_idx,
             VersionRelation::Dependence(
-                &ag.artifacts[ag.artifacts.find_edge(up_art_idx, blob1_art_idx).unwrap()]));
+                &ag.artifacts[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()]));
 
         model_ctrl.create_staging_version(
             &mut context.repo_control,

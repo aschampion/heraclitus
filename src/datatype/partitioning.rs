@@ -26,11 +26,10 @@ use ::{
     Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Identity,
     PartCompletion, PartitionIndex,
     Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
-// use ::SingletonVersion;
-// use ::singleton::SingletonVersion;
 use super::{
     DatatypeEnum, DatatypesRegistry, DependencyDescription, DependencyStoreRestriction,
-    Description, InterfaceController, Model, Store};
+    Description, InterfaceController, MetaController, Model,
+    PostgresMetaController, Store, StoreMetaController};
 use ::datatype::interface::PartitioningController;
 use ::repo::{PostgresRepoController, PostgresMigratable};
 
@@ -53,7 +52,7 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
 
     fn meta_controller(&self, store: Store) -> Option<super::StoreMetaController> {
         match store {
-            Store::Postgres => Some(super::StoreMetaController::Postgres(
+            Store::Postgres => Some(StoreMetaController::Postgres(
                 Box::new(UnaryPartitioningController {}))),
             _ => None,
         }
@@ -65,10 +64,6 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
         name: &str
     ) -> Option<T> {
         match name {
-            // "Partitioning" => T::from_box::<PartitioningController>(
-            //     name,
-            //     Box::new(UnaryPartitioningController {})
-            // ),
             "Partitioning" => {
                 let control: Box<PartitioningController> = Box::new(UnaryPartitioningController {});
                 Some(T::from(control))
@@ -78,129 +73,6 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
     }
 }
 
-// // TODO: Code smell.
-// pub struct SingletonVersion<'a> {
-//     artifact: Artifact<'a>,
-//     version: Version<'a>,
-// }
-
-// impl UnaryPartitioning {
-//     pub fn build_singleton_version<'a, T: DatatypeEnum>(
-//         dtypes_registry: &'a DatatypesRegistry<T>,
-//     ) -> SingletonVersion<'a> {
-//         ::new_singleton_version(
-//             dtypes_registry,
-//             Identity {uuid: UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
-//             Identity {uuid: UNARY_PARTITIONING_VERSION_UUID.clone(), hash: 0},
-//             "UnaryPartitioning")
-//         // let art = Artifact {
-//         //     id: Identity {uuid: UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
-//         //     name: None,
-//         //     dtype: dtypes_registry.get_datatype("UnaryPartitioning")
-//         //                           .expect("Unary partitioning missing from registry"),
-//         // };
-//         // let art_graph = ArtifactGraph::new_singleton(
-//         //     dtypes_registry.get_datatype("UnaryPartitioning")
-//         //                           .expect("Unary partitioning missing from registry"),
-//         //     UNARY_PARTITIONING_ART_GRAPH_UUID.clone(),
-//         //     UNARY_PARTITIONING_ARTIFACT_UUID.clone(),
-//         // );
-
-//         // let up_an = art_graph
-//         //     .find_artifact_by_uuid(&UNARY_PARTITIONING_ARTIFACT_UUID)
-//         //     .expect("Impossible for unary partitioning to be missing from own singleton graph.").1;
-
-
-//         // let mut sv = SingletonVersion {artifact: art, version: Version {
-//         //         id: Identity {
-//         //             uuid: UNARY_PARTITIONING_VERSION_UUID.clone(),
-//         //             hash: 0,
-//         //         },
-//         //         artifact: &art,
-//         //         status: ::VersionStatus::Committed,
-//         //         representation: ::DatatypeRepresentationKind::State,
-//         //     }};
-//         // sv.version.artifact = &sv.artifact;
-//         // return sv;
-
-//         // (
-//         //     Version {
-//         //         id: Identity {
-//         //             uuid: UNARY_PARTITIONING_VERSION_UUID.clone(),
-//         //             hash: 0,
-//         //         },
-//         //         artifact: &art,
-//         //         status: ::VersionStatus::Committed,
-//         //         representation: ::DatatypeRepresentationKind::State,
-//         //     },
-//         //     art,
-//         // )
-//     }
-// }
-
-// impl PartitioningControllerFactor for UnaryPartitioning {
-//     fn meta_controller(&self, store: Store) -> Box<PartitioningController> {
-//         // Always return the same controller, since no backend is necessary.
-//         Box::new(UnaryPartitioning)
-//     }
-// }
-
-// TODO: The necessity of this singleton smells, but alternatives seem to
-// converge back to it.
-lazy_static! {
-    pub static ref UNARY_PARTITIONING_ARTIFACT_UUID: Uuid =
-        Uuid::parse_str("07659fa1-15a1-4e0d-a2b0-fb7b47685890").unwrap();
-
-    pub static ref UNARY_PARTITIONING_ART_GRAPH_UUID: Uuid =
-        Uuid::parse_str("0c1fac94-b785-42cf-b155-6869c116e036").unwrap();
-
-//     static ref UNARY_PARTITIONING_DTYPE: Datatype = {
-//         let model = UnaryPartitioning {};
-//         model.info().datatype
-//     };
-
-//     static ref UNARY_PARTITIONING_SINGLETON_ART_GRAPH: ArtifactGraph<'static> = {
-//         let mut art_graph = ArtifactGraph {
-//             id: Identity {
-//                 uuid: UNARY_PARTITIONING_ART_GRAPH_UUID.clone(),
-//                 hash: 0,
-//             },
-//             artifacts: daggy::Dag::new(),
-//         };
-//         let mut s = DefaultHasher::new();
-//         let mut ag_hash = DefaultHasher::new();
-//         let mut art = Artifact {
-//             id: Identity {uuid: UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
-//             name: Some("Unary Partitioning".into()),
-//             dtype: &UNARY_PARTITIONING_DTYPE,
-//         };
-//         art.hash(&mut s);
-//         art.id.hash = s.finish();
-//         art.id.hash.hash(&mut ag_hash);
-//         let art_node = ArtifactNode::Artifact(art);
-//         art_graph.artifacts.add_node(art_node);
-//         art_graph.id.hash = ag_hash.finish();
-//         art_graph
-//     };
-
-    pub static ref UNARY_PARTITIONING_VERSION_UUID: Uuid =
-        Uuid::parse_str("d1addd57-7846-48c5-bd09-565790c7ce29").unwrap();
-
-//     pub static ref UNARY_PARTITIONING_VERSION: Version<'static> = {
-//         let (_, up_an) = UNARY_PARTITIONING_SINGLETON_ART_GRAPH
-//             .find_artifact_by_uuid(&UNARY_PARTITIONING_ARTIFACT_UUID)
-//             .expect("Impossible for unary partitioning to be missing from own singleton graph.");
-//         Version {
-//             id: Identity {
-//                 uuid: ,
-//                 hash: 0,
-//             },
-//             artifact: up_an,
-//             status: ::VersionStatus::Committed,
-//             representation: ::DatatypeRepresentationKind::State,
-//         }
-//     };
-}
 
 const UNARY_PARTITION_INDEX: PartitionIndex = 0;
 pub struct UnaryPartitioningController;
@@ -223,3 +95,175 @@ impl super::MetaController for UnaryPartitioningController {
 impl PostgresMigratable for UnaryPartitioningController {}
 
 impl super::PostgresMetaController for UnaryPartitioningController {}
+
+
+pub mod arbitrary {
+    use super::*;
+
+    // use std::collections::Vec;
+
+
+    #[derive(Default)]
+    pub struct ArbitraryPartitioning;
+
+    impl<T: InterfaceController<PartitioningController>> Model<T> for ArbitraryPartitioning {
+        fn info(&self) -> Description {
+            Description {
+                name: "ArbitraryPartitioning".into(),
+                version: 1,
+                representations: vec![DatatypeRepresentationKind::State]
+                        .into_iter()
+                        .collect(),
+                implements: vec!["Partitioning"],
+                dependencies: vec![],
+            }
+        }
+
+        fn meta_controller(&self, store: Store) -> Option<super::StoreMetaController> {
+            match store {
+                Store::Postgres => Some(StoreMetaController::Postgres(
+                    Box::new(PostgresStore {}))),
+                _ => None,
+            }
+        }
+
+        fn interface_controller(
+            &self,
+            store: Store,
+            name: &str
+        ) -> Option<T> {
+            match name {
+                "Partitioning" => {
+                    let control: Box<PartitioningController> = Box::new(PostgresStore {});
+                    Some(T::from(control))
+                },
+                _ => None,
+            }
+        }
+    }
+
+    pub fn model_controller(store: Store) -> impl ModelController {
+        match store {
+            Store::Postgres => PostgresStore {},
+            _ => unimplemented!(),
+        }
+    }
+
+    pub trait ModelController {
+        // TODO: this should not allow versions with parents, but no current
+        // mechanism exists to enforce this.
+        fn write(
+            &mut self,
+            repo_control: &mut ::repo::StoreRepoController,
+            version: &Version,
+            partition_ids: &[PartitionIndex],
+        ) -> Result<(), Error>;
+
+        fn read(
+            &self,
+            repo_control: &mut ::repo::StoreRepoController,
+            version: &Version
+        ) -> Result<BTreeSet<PartitionIndex>, Error>;
+    }
+
+    pub struct PostgresStore;
+
+    struct PGMigrationArbitraryPartitioning;
+    migration!(
+        PGMigrationArbitraryPartitioning,
+        "bfef8343-453c-463f-a3c6-f3b957e28292",
+        ["7d1fb6d1-a1b0-4bd4-aa6d-e3ee71c4353b",],
+        "create arbitrary_partitioning table");
+
+    impl PostgresMigration for PGMigrationArbitraryPartitioning {
+        fn up(&self, transaction: &Transaction) -> Result<(), PostgresError> {
+            transaction.batch_execute(include_str!("sql/arbitrary_partitioning_0001.up.sql"))
+        }
+
+        fn down(&self, transaction: &Transaction) -> Result<(), PostgresError> {
+            transaction.execute("DROP TABLE arbitrary_partitioning;", &[]).map(|_| ())
+        }
+    }
+
+    impl PartitioningController for PostgresStore {
+        fn get_partition_ids(
+            &self,
+            repo_control: &mut ::repo::StoreRepoController,
+            partitioning: &Version,
+        ) -> BTreeSet<PartitionIndex> {
+            self.read(repo_control, partitioning).expect("TODO")
+        }
+    }
+
+    impl MetaController for PostgresStore {}
+
+    impl PostgresMigratable for PostgresStore {
+        fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
+            vec![
+                Box::new(PGMigrationArbitraryPartitioning),
+            ]
+        }
+    }
+
+    impl PostgresMetaController for PostgresStore {}
+
+    impl ModelController for PostgresStore {
+        fn write(
+            &mut self,
+            repo_control: &mut ::repo::StoreRepoController,
+            version: &Version,
+            partition_ids: &[PartitionIndex],
+        ) -> Result<(), Error> {
+            let rc = match *repo_control {
+                ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+                _ => panic!("PostgresStore received a non-Postgres context")
+            };
+
+            let conn = rc.conn()?;
+            let trans = conn.transaction()?;
+
+            // TODO: Have to construct new array to get Rust to allow this cast.
+            let db_partition_ids = partition_ids.iter().map(|p| *p as i64).collect::<Vec<i64>>();
+
+            let nrows = trans.execute(r#"
+                    INSERT INTO arbitrary_partitioning (version_id, partition_ids)
+                    SELECT v.id, r.partitioning_ids
+                    FROM (VALUES ($2::bigint[]))
+                      AS r (partitioning_ids)
+                    JOIN version v
+                      ON (v.uuid_ = $1::uuid);
+                "#, &[&version.id.uuid, &db_partition_ids])?;
+
+            trans.set_commit();
+            Ok(())
+        }
+
+        fn read(
+            &self,
+            repo_control: &mut ::repo::StoreRepoController,
+            version: &Version
+        ) -> Result<BTreeSet<PartitionIndex>, Error> {
+            let rc = match *repo_control {
+                ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+                _ => panic!("PostgresStore received a non-Postgres context")
+            };
+
+            let conn = rc.conn()?;
+            let trans = conn.transaction()?;
+
+            let partition_ids_row = trans.query(r#"
+                    SELECT partition_ids
+                    FROM arbitrary_partitioning
+                    JOIN version ON id = version_id
+                    WHERE uuid_ = $1::uuid;
+                "#, &[&version.id.uuid])?;
+            let partition_ids = partition_ids_row.get(0).get::<_, Vec<i64>>(0)
+                .into_iter()
+                .map(|p| p as PartitionIndex)
+                .collect();
+
+            Ok(partition_ids)
+        }
+
+    }
+}

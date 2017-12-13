@@ -87,6 +87,10 @@ Milestone Goals
     - [x] Content hashing (for equivalence between source and sink blobs)
   - Requires:
     - [x] De-DAGging datatypes
+- [x] Goal: partitions in fake dtypes test
+  - Requires:
+    - [x] Fixed arbitrary partitioning
+      - [ ] Should only be able to mutate fixed partition ID set when bootstrapping new version.
     - [ ] Better ergonomics for building AGs, invoking producers
 - [ ] Goal: delta state updates in producer test
 - [ ] Goal: organize, e.g., postgres stores out of datatypes
@@ -115,7 +119,6 @@ Milestone Goals
           - But not true for other types of edits, e.g., split, deletion.
       - Lots of trivial tasks become tractable but not trivial (i.e., going from a global skel to an individual node)
   - Seems inefficient for updates, requiring creation of many hunks for each action as simple as, e.g., skeleton merging. May need to make a decision re: squashing head versions or streaming changes. Could be ameliorated at the hunk vs. changeset layer?
-- [ ] Goal: partitions in fake dtypes test
 - [ ] Goal: rocket list of dtypes/ags (hera-server)
 - [ ] Goal: plotly plot of dtypes/ags (hera-server)
   - 3 stratified plot areas: dtypes, AG, VG
@@ -328,5 +331,5 @@ Misc. Cleanup
 -------------
 - [ ] `IdentifiableGraph::find_by_{id,uuid}` should be `get` not `find` to match Rust conventions.
   - [ ] Could also implement index methods to provide panicing access for known items.
-
+- [ ] Empty (hunkless) versions are current allowed. Somewhat nice that this runs through cascade production, etc., without error, but still.
 
