@@ -2,23 +2,14 @@ extern crate postgres;
 extern crate schemer;
 
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
-use petgraph::Direction;
-use petgraph::visit::EdgeRef;
-use schemer::Migrator;
-use schemer_postgres::{PostgresAdapter, PostgresMigration};
-
 use ::{
-    ArtifactGraph, ArtifactRelation,
-    DatatypeRepresentationKind, Error, Identity, IdentifiableGraph,
-    Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
+    ArtifactGraph,
+    DatatypeRepresentationKind, Error,
+    VersionGraph, VersionGraphIndex,};
 use ::datatype::{
-    Description, DependencyDescription, DependencyStoreRestriction,
+    Description, DependencyDescription,
     InterfaceController, MetaController,
     Model, PostgresMetaController, StoreMetaController};
-use ::datatype::artifact_graph::ModelController as ArtifactGraphModelController;
 use ::datatype::interface::{ProducerController, ProductionOutput};
 use ::repo::{PostgresMigratable};
 use ::store::Store;
@@ -50,7 +41,7 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
 
     fn interface_controller(
         &self,
-        store: Store,
+        _store: Store,
         name: &str,
     ) -> Option<T> {
         match name {
@@ -78,9 +69,9 @@ impl ProducerController for NoopProducerController {
 
     fn notify_new_version<'a, 'b>(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        _repo_control: &mut ::repo::StoreRepoController,
+        _art_graph: &'b ArtifactGraph<'a>,
+        _ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<ProductionOutput, Error> {
         Ok(ProductionOutput::Synchronous(vec![v_idx]))
@@ -90,9 +81,23 @@ impl ProducerController for NoopProducerController {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    use petgraph::Direction;
+    use petgraph::visit::EdgeRef;
     use uuid::Uuid;
-    use ::{Hunk, PartCompletion};
+
+    use ::{
+        ArtifactRelation, Hunk, Identity, IdentifiableGraph,
+        PartCompletion, Version, VersionRelation};
+    use datatype::{
+        DependencyStoreRestriction,
+    };
+    use datatype::artifact_graph::ModelController as ArtifactGraphModelController;
     use datatype::blob::ModelController as BlobModelController;
+
 
     #[derive(Default)]
     pub struct NegateBlobProducer;
@@ -126,7 +131,7 @@ pub(crate) mod tests {
 
         fn interface_controller(
             &self,
-            store: Store,
+            _store: Store,
             name: &str,
         ) -> Option<T> {
             match name {
@@ -195,7 +200,7 @@ pub(crate) mod tests {
             ver_graph.versions.add_edge(
                 v_idx,
                 ver_blob_idx,
-                VersionRelation::Dependence(output_art_relation));
+                VersionRelation::Dependence(output_art_relation))?;
 
             // This producer requires that the output use the same partitioning
             // as the input.
@@ -208,7 +213,7 @@ pub(crate) mod tests {
             let output_part_art_rel = &art_graph.artifacts[output_part_art_rel_idx];
             // TODO: check this is actually a partitioning rel.
             ver_graph.versions.add_edge(input_ver_part_idx, ver_blob_idx,
-                VersionRelation::Dependence(output_part_art_rel));
+                VersionRelation::Dependence(output_part_art_rel))?;
 
             // Add output parent relations to all outputs of this
             // producer's parents.
@@ -222,7 +227,7 @@ pub(crate) mod tests {
                     &VersionRelation::Dependence(output_art_relation),
                     Direction::Outgoing).get(0).expect("TODO: parent should have output");
                 ver_graph.versions.add_edge(parent_output_idx, ver_blob_idx,
-                    VersionRelation::Parent);
+                    VersionRelation::Parent)?;
             }
 
             let mut ag_control = ::datatype::artifact_graph::model_controller(repo_control.store());

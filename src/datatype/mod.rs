@@ -2,9 +2,7 @@ extern crate daggy;
 
 use std;
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 
-use enum_set;
 use enum_set::EnumSet;
 
 use super::Datatype;
@@ -211,7 +209,7 @@ impl InterfaceRegistry {
             let idx = self.ifaces_idx.get(iface.interface.name).expect("Impossible");
             for super_iface in &iface.extends {
                 let super_idx = self.ifaces_idx.get(super_iface).expect("Unknown super interface");
-                self.extension.add_edge(*super_idx, *idx, ());
+                self.extension.add_edge(*super_idx, *idx, ()).expect("Interfaces have non-DAG relationship");
             }
         }
     }

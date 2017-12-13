@@ -7,14 +7,11 @@ use std::hash::{Hash, Hasher};
 
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
-use schemer::Migrator;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
-use uuid::Uuid;
-use url::Url;
 
-use super::super::{Datatype, DatatypeRepresentationKind, Error, Hunk};
-use super::{DependencyDescription, DependencyStoreRestriction, Description, InterfaceController, Store};
-use ::repo::{PostgresRepoController, PostgresMigratable};
+use ::{DatatypeRepresentationKind, Error, Hunk};
+use super::{Description, Store};
+use ::repo::{PostgresMigratable};
 
 
 #[derive(Default)]
@@ -42,8 +39,8 @@ impl<T> super::Model<T> for Blob {
 
     fn interface_controller(
         &self,
-        store: Store,
-        name: &str,
+        _store: Store,
+        _name: &str,
     ) -> Option<T> {
         None
     }
@@ -106,57 +103,6 @@ pub trait ModelController: super::ModelController {
     ) -> Result<Vec<u8>, Error>;
 }
 
-// // Sketching: could this all be done with monomorph?
-
-// trait SomeStoreType {}
-
-// struct PostgresStoreType {}
-
-// trait Bar {
-//     fn baz(&self);
-// }
-
-// impl Bar for PostgresStoreType {
-//     fn baz(&self) {
-//         println!("Is assoc traits vtable accessible for obj in impl scoped by other trait?");
-//     }
-// }
-
-// struct FilesystemStoreType {}
-
-// impl SomeStoreType for PostgresStoreType {}
-
-// impl SomeStoreType for FilesystemStoreType {}
-
-// trait BlobMC<T> where T: SomeStoreType {
-//     fn biff(&self) {
-//         println!("non-variant impls?");
-//     }
-//     fn foo(&self, context: &::Context<T>);
-//     fn write(&self, context: &::Context<T>, version: &::Version, blob: &[u8]);
-// }
-
-// impl BlobMC<PostgresStoreType> for Blob {
-//     fn foo(&self, context: &::Context<PostgresStoreType>) {
-//         (self as &BlobMC<PostgresStoreType>).biff();
-//         context.store_type.baz();
-//         println!("PST!");
-//     }
-//     fn write(&self, context: &::Context<PostgresStoreType>, version: &::Version, blob: &[u8]) {
-//         unimplemented!();
-//     }
-// }
-
-// impl BlobMC<FilesystemStoreType> for Blob {
-//     fn foo(&self, context: &::Context<FilesystemStoreType>) {
-//         println!("FST!");
-//     }
-//     fn write(&self, context: &::Context<FilesystemStoreType>, version: &::Version, blob: &[u8]) {
-//         unimplemented!();
-//     }
-// }
-// // Why is above better than below? Callers can call with a Context<T> without
-// // needing to name the specialized type/trait/whatever.
 
 pub struct PostgresStore {}
 
@@ -249,25 +195,3 @@ impl ModelController for PostgresStore {
         Ok(blob)
     }
 }
-
-
-// #[cfg(test)]
-// mod tests {
-//     #[test]
-//     fn test_blob_sketch() {
-//         use super::*;
-
-//         let b = Blob {};
-//         let pgstore = PostgresStoreType {};
-
-//         let repo = ::Repository {
-//             // TODO: fake UUID, version
-//             id: ::Identity{uuid: Uuid::new_v4(), hash: 0},
-//             name: "Test repo".into(),
-//             url: Url::parse("postgresql://hera_test:hera_test@localhost/hera_test").unwrap()
-//         };
-//         let context = ::Context {repo: repo, store_type: pgstore};
-
-//         b.foo(&context);
-//     }
-// }

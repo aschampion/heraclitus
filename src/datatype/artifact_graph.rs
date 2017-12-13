@@ -8,33 +8,27 @@ extern crate postgres;
 
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 use daggy::petgraph::visit::EdgeRef;
 use daggy::Walker;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
-use postgres::types::ToSql;
-use postgres_array::Array as PostgresArray;
-use schemer::Migrator;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
-use url::Url;
 
 use ::{
     Artifact, ArtifactGraph, ArtifactGraphIndex, ArtifactGraphEdgeIndex,
-    ArtifactRelation, Context,
-    Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Hunk, Identity,
+    ArtifactRelation,
+    DatatypeRelation, DatatypeRepresentationKind, Error, Hunk, Identity,
     IdentifiableGraph,
     PartCompletion, Partition,
     Version, VersionGraph, VersionGraphIndex,
     VersionRelation, VersionStatus};
 use super::{
-    DatatypeEnum, DatatypesRegistry, DependencyDescription,
-    DependencyStoreRestriction, Description, InterfaceController, Store};
+    DatatypeEnum, DatatypesRegistry,
+    Description, Store};
 use ::datatype::interface::ProductionOutput;
-use ::repo::{PostgresRepoController, PostgresMigratable};
+use ::repo::{PostgresMigratable};
 
 
 #[derive(Default)]
@@ -62,8 +56,8 @@ impl<T> super::Model<T> for ArtifactGraphDtype {
 
     fn interface_controller(
         &self,
-        store: Store,
-        name: &str,
+        _store: Store,
+        _name: &str,
     ) -> Option<T> {
         None
     }
@@ -327,7 +321,7 @@ pub trait ModelController {
                         repo_control,
                         art_graph,
                         ver_graph,
-                        *v_idx);
+                        *v_idx)?;
                 }
             }
         }
@@ -389,7 +383,7 @@ pub trait ModelController {
                     ver_graph,
                     v_idx,
                     dep_art_idx,
-                    &production_policy_reqs);
+                    &production_policy_reqs)?;
 
                 let prod_specs = production_policies
                     .iter()
@@ -418,7 +412,7 @@ pub trait ModelController {
                         ver_graph.versions.add_edge(
                             spec.version,
                             new_prod_ver_idx,
-                            VersionRelation::Dependence(art_rel));
+                            VersionRelation::Dependence(art_rel))?;
                     }
 
                     for parent_ver in parent_prod_vers {
@@ -426,14 +420,14 @@ pub trait ModelController {
                             ver_graph.versions.add_edge(
                                 *idx,
                                 new_prod_ver_idx,
-                                VersionRelation::Parent);
+                                VersionRelation::Parent)?;
                         }
                     }
 
                     self.create_staging_version(
                         repo_control,
                         ver_graph,
-                        new_prod_ver_idx.clone());
+                        new_prod_ver_idx.clone())?;
 
                     let output = producer_controller.notify_new_version(
                         repo_control,
@@ -662,7 +656,7 @@ impl PostgresStore {
             let edge = VersionRelation::Parent;
             let parent_idx = idx_map.get(&row.get(AncNodeRow::ParentID as usize)).expect("Graph is malformed.");
             let child_idx = idx_map.get(&row.get(AncNodeRow::ChildID as usize)).expect("Graph is malformed.");
-            ver_graph.versions.add_edge(*parent_idx, *child_idx, edge);
+            ver_graph.versions.add_edge(*parent_idx, *child_idx, edge)?;
         }
 
         enum DepNodeRow {
@@ -743,7 +737,7 @@ impl PostgresStore {
             } else {
                 (other_v_idx, v_idx)
             };
-            ver_graph.versions.add_edge(parent_idx, child_idx, edge);
+            ver_graph.versions.add_edge(parent_idx, child_idx, edge)?;
         }
 
         Ok(())
@@ -949,14 +943,13 @@ impl ModelController for PostgresStore {
 
             let source_idx = idx_map.get(&e.get(EdgeRow::SourceID as usize)).expect("Graph is malformed.");
             let dependent_idx = idx_map.get(&e.get(EdgeRow::DependentID as usize)).expect("Graph is malformed.");
-            artifacts.add_edge(*source_idx, *dependent_idx, relation);
+            artifacts.add_edge(*source_idx, *dependent_idx, relation)?;
 
         }
 
         Ok(ArtifactGraph {
             id: ag_id,
             artifacts: artifacts,
-            // unary_partitioning_idx: up_idx.expect("Artifact graph lacks unary partitioning"),
         })
     }
 
@@ -1055,7 +1048,7 @@ impl ModelController for PostgresStore {
             repo_control,
             art_graph,
             ver_graph,
-            v_idx);
+            v_idx)?;
 
         Ok(())
     }
@@ -1242,106 +1235,6 @@ impl ModelController for PostgresStore {
         let (ver_node_id, ver_node_idx) = idx_map.iter().next()
             .map(|(db_id, idx)| (*db_id, *idx)).expect("TODO");
 
-        // enum AncNodeRow {
-        //     ID = 0,
-        //     UUID,
-        //     Hash,
-        //     Status,
-        //     ArtifactUUID,
-        //     ArtifactHash,
-        //     ParentID,
-        //     ChildID,
-        // };
-        // let ancestry_node_rows = trans.query(r#"
-        //         SELECT
-        //           v.id, v.uuid_, v.hash, v.status,
-        //           a.uuid_, a.hash, vp.parent_id, vp.child_id
-        //         FROM version_parent vp
-        //         JOIN version v
-        //           ON ((vp.parent_id = $1 AND v.id = vp.child_id)
-        //             OR (vp.child_id = $1 AND v.id = vp.parent_id))
-        //         JOIN artifact a ON a.id = v.artifact_id;
-        //     "#, &[&ver_node_id])?;
-        // for row in &ancestry_node_rows {
-        //     let db_id = row.get::<_, i64>(AncNodeRow::ID as usize);
-        //     let an_id = Identity {
-        //         uuid: row.get(AncNodeRow::ArtifactUUID as usize),
-        //         hash: row.get::<_, i64>(AncNodeRow::ArtifactHash as usize) as u64,
-        //     };
-        //     let v_node = Version {
-        //         id: Identity {
-        //             uuid: row.get(AncNodeRow::UUID as usize),
-        //             hash: row.get::<_, i64>(AncNodeRow::Hash as usize) as u64,
-        //         },
-        //         artifact: art_graph.find_by_id(&an_id).expect("Version references unkown artifact").1,
-        //         status: row.get(AncNodeRow::Status as usize),
-        //         representation: DatatypeRepresentationKind::State,  // TODO
-        //     };
-
-        //     let v_idx = ver_graph.versions.add_node(v_node);
-        //     idx_map.insert(db_id, v_idx);
-
-        //     let edge = VersionRelation::Parent;
-        //     let parent_idx = idx_map.get(&row.get(AncNodeRow::ParentID as usize)).expect("Graph is malformed.");
-        //     let child_idx = idx_map.get(&row.get(AncNodeRow::ChildID as usize)).expect("Graph is malformed.");
-        //     ver_graph.versions.add_edge(*parent_idx, *child_idx, edge);
-        // }
-
-        // enum DepNodeRow {
-        //     ID = 0,
-        //     UUID,
-        //     Hash,
-        //     Status,
-        //     ArtifactUUID,
-        //     ArtifactHash,
-        //     Inbound,
-        // };
-        // let dependence_node_rows = trans.query(r#"
-        //         SELECT
-        //           v.id, v.uuid_, v.hash, v.status,
-        //           a.uuid_, a.hash,
-        //           vr.dependent_version_id = $1
-        //         FROM version_relation vr
-        //         JOIN version v
-        //           ON ((vr.dependent_version_id = $1 AND v.id = vr.source_version_id)
-        //             OR (vr.source_version_id = $1 AND v.id = vr.dependent_version_id))
-        //         JOIN artifact a ON a.id = v.artifact_id;
-        //     "#, &[&ver_node_id])?;
-        // for row in &dependence_node_rows {
-        //     let db_id = row.get::<_, i64>(DepNodeRow::ID as usize);
-        //     let an_id = Identity {
-        //         uuid: row.get(DepNodeRow::ArtifactUUID as usize),
-        //         hash: row.get::<_, i64>(DepNodeRow::ArtifactHash as usize) as u64,
-        //     };
-        //     let (an_idx, an) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
-        //     let v_node = Version {
-        //         id: Identity {
-        //             uuid: row.get(DepNodeRow::UUID as usize),
-        //             hash: row.get::<_, i64>(DepNodeRow::Hash as usize) as u64,
-        //         },
-        //         artifact: an,
-        //         status: row.get(DepNodeRow::Status as usize),
-        //         representation: DatatypeRepresentationKind::State,  // TODO
-        //     };
-
-        //     let v_idx = ver_graph.versions.add_node(v_node);
-
-        //     let inbound = row.get(DepNodeRow::Inbound as usize);
-        //     let art_rel_idx = if inbound {
-        //         art_graph.artifacts.find_edge(an_idx, art_idx)
-        //     } else {
-        //         art_graph.artifacts.find_edge(art_idx, an_idx)
-        //     }.expect("Version graph references unknown artifact relation");
-        //     let art_rel = art_graph.artifacts.edge_weight(art_rel_idx).expect("Graph is malformed");
-        //     let edge = VersionRelation::Dependence(art_rel);
-        //     let (parent_idx, child_idx) = if inbound {
-        //         (v_idx, ver_node_idx)
-        //     } else {
-        //         (ver_node_idx, v_idx)
-        //     };
-        //     ver_graph.versions.add_edge(parent_idx, child_idx, edge);
-        // }
-
         self.get_version_relations(
             &trans,
             &art_graph,
@@ -1478,9 +1371,15 @@ impl ModelController for PostgresStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    use ::{Context};
     use ::datatype::blob::ModelController as BlobModelController;
     use datatype::partitioning::arbitrary::ModelController as ArbitraryPartitioningModelController;
     use ::datatype::producer::tests::NegateBlobProducer;
+
 
     datatype_enum!(TestDatatypes, ::datatype::DefaultInterfaceController, (
         (ArtifactGraph, ::datatype::artifact_graph::ArtifactGraphDtype),
@@ -1555,7 +1454,7 @@ mod tests {
             None => ag_desc.add_unary_partitioning(),
         }
 
-        let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry, None);
+        let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry);
 
         let idxs = [
             *idx_map.get(&blob1_node_idx).unwrap(),
@@ -1639,80 +1538,13 @@ mod tests {
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
         ver_graph.versions.add_edge(up_idx, blob1_ver_idx,
             VersionRelation::Dependence(
-                &ag.artifacts[ag.artifacts.find_edge(up_art_idx, blob1_art_idx).unwrap()]));
+                &ag.artifacts[ag.artifacts.find_edge(up_art_idx, blob1_art_idx).unwrap()])).unwrap();
 
         model_ctrl.create_staging_version(
             &mut context.repo_control,
             &ver_graph,
             blob1_ver_idx.clone()).unwrap();
 
-        // let prod_art = ag.artifacts[idxs[1]];
-        // let ver_prod = Version {
-        //     id: Identity {uuid: Uuid::new_v4(), hash: 0},
-        //     artifact: prod_art,
-        //     status: VersionStatus::Staging,
-        //     representation: DatatypeRepresentationKind::State,
-        // };
-        // let ver_prod_idx = ver_graph.versions.add_node(ver_prod);
-
-        // model_ctrl.create_staging_version(
-        //     &mut context.repo_control,
-        //     &ver_graph,
-        //     ver_prod_idx.clone()).unwrap();
-        // model_ctrl.commit_version(
-        //     &context.dtypes_registry,
-        //     &mut context.repo_control,
-        //     &ag,
-        //     &mut ver_graph,
-        //     ver_prod_idx).expect("Commit prod failed");
-
-        // let ver_node_idx_real = idxs[2];
-        // let ver_blob = Version {
-        //     id: Identity {uuid: Uuid::new_v4(), hash: 0},
-        //     artifact: ag.artifacts.node_weight(ver_node_idx_real).expect("Couldn't find blob"),
-        //     status: VersionStatus::Staging,
-        //     representation: DatatypeRepresentationKind::State,
-        // };
-        // let ver_blob_id = ver_blob.id.clone();
-        // let ver_blob_idx = ver_graph.versions.add_node(ver_blob);
-
-        // let prod_blob_idx_real = ag.artifacts.find_edge(prod_node_idx_real, ver_node_idx_real)
-        //                                      .expect("Couldn't find relation");
-        // let prod_blob_edge_real = ag.artifacts.edge_weight(prod_blob_idx_real).expect("Couldn't find relation");
-        // ver_graph.versions.add_edge(
-        //     ver_prod_idx,
-        //     ver_blob_idx,
-        //     VersionRelation::Dependence(prod_blob_edge_real)).unwrap();
-
-        // model_ctrl.create_staging_version(
-        //     &mut context.repo_control,
-        //     &ver_graph,
-        //     ver_blob_idx.clone()).unwrap();
-
-        // TODO: A mess from de-static-ing UP Singleton.
-        // let unary_partitioning_art = Artifact {
-        //     id: Identity {uuid: ::datatype::partitioning::UNARY_PARTITIONING_ARTIFACT_UUID.clone(), hash: 0},
-        //     name: None,
-        //     dtype: context.dtypes_registry.get_datatype("UnaryPartitioning")
-        //                           .expect("Unary partitioning missing from registry"),
-        // };
-        // let unary_partitioning_ver = Version {
-        //     id: Identity {
-        //         uuid: ::datatype::partitioning::UNARY_PARTITIONING_VERSION_UUID.clone(),
-        //         hash: 0,
-        //     },
-        //     artifact: &unary_partitioning_art,
-        //     status: ::VersionStatus::Committed,
-        //     representation: ::DatatypeRepresentationKind::State,
-        // };
-        // let unary_partitioning_singleton =
-        //     ::datatype::partitioning::UnaryPartitioning::build_singleton_version(&context.dtypes_registry);
-        // let unary_partitioning_art = unary_partitioning_singleton.artifact;
-        // let foobar: &String = unary_partitioning_singleton.ref_rent_all(|s| &s.version.t);
-        // let unary_partitioning_ver: &Version = unary_partitioning_singleton.ref_rent_all(|s| &s.version);
-        // let unary_partitioning_ver: &Version = unary_partitioning_singleton.rent();
-        // let unary_partitioning_ver = ag.get_unary_partitioning();
-        // let ver_partitioning = ver_graph.get_partitioning(ver_blob_idx).unwrap_or(unary_partitioning_ver);
         let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
             .expect("Partitioning version missing");
         let ver_part_control: Box<::datatype::interface::PartitioningController> =
@@ -1807,7 +1639,7 @@ mod tests {
             model_ctrl.create_staging_version(
                 &mut context.repo_control,
                 &ver_graph,
-                part_idx);
+                part_idx).expect("TODO");
             part_control.write(
                 &mut context.repo_control,
                 &ver_graph.versions[part_idx],
@@ -1831,7 +1663,7 @@ mod tests {
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
         ver_graph.versions.add_edge(part_idx, blob1_ver_idx,
             VersionRelation::Dependence(
-                &ag.artifacts[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()]));
+                &ag.artifacts[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()])).unwrap();
 
         model_ctrl.create_staging_version(
             &mut context.repo_control,

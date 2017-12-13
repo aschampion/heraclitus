@@ -2,10 +2,9 @@ extern crate daggy;
 extern crate postgres;
 extern crate schemer;
 
-// use std::borrow::{Borrow, BorrowMut};
+
 use std::convert::From;
 use std::fmt::Debug;
-use std::io;
 use std::option::Option;
 
 use failure::Fail;
@@ -14,38 +13,16 @@ use postgres::transaction::Transaction;
 use schemer::{Migrator, MigratorError};
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use url::Url;
-use uuid::Uuid;
 
-use ::{Context, Error};
+use ::{Error};
 use ::datatype::{DatatypeEnum, DatatypesRegistry, PostgresMetaController};
-use ::store::{Store, Stored};
+use ::store::{Store};
+
 
 // pub type StoreRepoController = Stored<Box<RepoController>>;
 pub enum StoreRepoController {
     Postgres(PostgresRepoController),
 }
-
-// impl<'a> Borrow<RepoController + 'a> for StoreRepoController {
-//     fn borrow(&self) -> &(RepoController + 'a) {
-//         use self::StoreRepoController::*;
-
-//         println!("borrow");
-//         match *self {
-//             Postgres(ref rc) => rc as &RepoController
-//         }
-//     }
-// }
-
-// impl<'a> BorrowMut<RepoController + 'a> for StoreRepoController {
-//     fn borrow_mut(&mut self) -> &mut (RepoController + 'a) {
-//         use self::StoreRepoController::*;
-
-//         println!("borrow_mut");
-//         match *self {
-//             Postgres(ref mut rc) => rc as &mut RepoController
-//         }
-//     }
-// }
 
 impl StoreRepoController {
     pub fn store(&self) -> Store {
@@ -159,7 +136,7 @@ impl RepoController for PostgresRepoController {
 
         let mut migrator = Migrator::new(adapter);
 
-        migrator.register(Box::new(PGMigrationDatatypes));
+        migrator.register(Box::new(PGMigrationDatatypes))?;
 
         let migrations = dtypes_registry.iter_dtypes()
             .flat_map(|dtype| {
@@ -173,7 +150,7 @@ impl RepoController for PostgresRepoController {
             })
             .collect();
 
-        migrator.register_multiple(migrations);
+        migrator.register_multiple(migrations)?;
         migrator.up(None)?;
 
         let trans = connection.transaction()?;
@@ -190,6 +167,10 @@ impl RepoController for PostgresRepoController {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    use uuid::Uuid;
+
+    use ::{Context};
 
     pub fn init_repo<T: DatatypeEnum>(
             store: Store,

@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use ::{
-    ArtifactGraph, Error, Identity, Interface, PartitionIndex, Version,
+    ArtifactGraph, Error, Interface, PartitionIndex, Version,
     VersionGraph, VersionGraphIndex};
 use ::datatype::{DependencyDescription, InterfaceDescription};
 

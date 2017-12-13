@@ -1,7 +1,6 @@
 use std::mem;
 
 use enum_set;
-use enum_set::EnumSet;
 
 //pub mod postgres;
 

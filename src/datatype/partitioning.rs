@@ -6,32 +6,22 @@ extern crate serde_json;
 extern crate uuid;
 
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::collections::{BTreeSet};
 use std::iter::FromIterator;
 
-use daggy::petgraph::visit::EdgeRef;
-use daggy::Walker;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
-use postgres::types::ToSql;
-use schemer::Migrator;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
-use uuid::Uuid;
-use url::Url;
 
 use ::{
-    Artifact, ArtifactGraph, ArtifactRelation, Context,
-    Datatype, DatatypeRelation, DatatypeRepresentationKind, Error, Identity,
-    PartCompletion, PartitionIndex,
-    Version, VersionGraph, VersionGraphIndex, VersionRelation, VersionStatus};
+    DatatypeRepresentationKind, Error,
+    PartitionIndex,
+    Version};
 use super::{
-    DatatypeEnum, DatatypesRegistry, DependencyDescription, DependencyStoreRestriction,
     Description, InterfaceController, MetaController, Model,
     PostgresMetaController, Store, StoreMetaController};
 use ::datatype::interface::PartitioningController;
-use ::repo::{PostgresRepoController, PostgresMigratable};
+use ::repo::{PostgresMigratable};
 
 
 #[derive(Default)]
@@ -80,8 +70,8 @@ pub struct UnaryPartitioningController;
 impl PartitioningController for UnaryPartitioningController {
     fn get_partition_ids(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
-        partitioning: &Version,
+        _repo_control: &mut ::repo::StoreRepoController,
+        _partitioning: &Version,
     ) -> BTreeSet<PartitionIndex> {
         BTreeSet::from_iter(vec![UNARY_PARTITION_INDEX])
     }
@@ -134,8 +124,13 @@ pub mod arbitrary {
         ) -> Option<T> {
             match name {
                 "Partitioning" => {
-                    let control: Box<PartitioningController> = Box::new(PostgresStore {});
-                    Some(T::from(control))
+                    match store {
+                        Store::Postgres => {
+                            let control: Box<PartitioningController> = Box::new(PostgresStore {});
+                            Some(T::from(control))
+                        }
+                        _ => unimplemented!()
+                    }
                 },
                 _ => None,
             }
