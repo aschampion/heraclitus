@@ -54,6 +54,7 @@ pub fn noop() {
 pub enum Error {
     Io(io::Error),
     Store(String),
+    Model(String),
 }
 
 impl<T: Debug> From<daggy::WouldCycle<T>> for Error {
@@ -89,21 +90,25 @@ type InterfaceIndexType = petgraph::graph::DefaultIx;
 pub type InterfaceIndex = petgraph::graph::NodeIndex<InterfaceIndexType>;
 type InterfaceExtension = daggy::Dag<Interface, (), InterfaceIndexType>;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ToSql, FromSql)]
 #[repr(u32)]
-pub enum DatatypeRepresentationKind {
+#[postgres(name = "representation_kind")]
+pub enum RepresentationKind {
+    #[postgres(name = "state")]
     State,
+    #[postgres(name = "delta")]
     Delta,
+    #[postgres(name = "cumulative_delta")]
     CumulativeDelta,
 }
 
 // Boilerplate necessary for EnumSet compatibility.
-impl enum_set::CLike for DatatypeRepresentationKind {
+impl enum_set::CLike for RepresentationKind {
     fn to_u32(&self) -> u32 {
         *self as u32
     }
 
-    unsafe fn from_u32(v: u32) -> DatatypeRepresentationKind {
+    unsafe fn from_u32(v: u32) -> RepresentationKind {
         mem::transmute(v)
     }
 }
@@ -119,7 +124,7 @@ pub struct Datatype {
     id: Identity,
     name: String,
     version: u64,
-    representations: EnumSet<DatatypeRepresentationKind>,
+    representations: EnumSet<RepresentationKind>,
     implements: HashSet<InterfaceIndex>,
 }
 
@@ -127,7 +132,7 @@ impl Datatype {
     fn new(
         name: String,
         version: u64,
-        representations: EnumSet<DatatypeRepresentationKind>,
+        representations: EnumSet<RepresentationKind>,
         implements: HashSet<InterfaceIndex>,
     ) -> Datatype {
         let uuid = Uuid::new_v5(&DATATYPES_UUID_NAMESPACE, &name);
@@ -417,7 +422,7 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
                 id: Identity {uuid: Uuid::new_v4(), hash: 0},
                 artifact: art,
                 status: VersionStatus::Staging,
-                representation: DatatypeRepresentationKind::State,
+                representation: RepresentationKind::State,
             });
         }
 
@@ -516,13 +521,13 @@ pub struct Version<'a: 'b, 'b> {
     id: Identity,
     artifact: &'b Artifact<'a>,
     status: VersionStatus,
-    representation: DatatypeRepresentationKind,
+    representation: RepresentationKind,
 }
 
 impl<'a: 'b, 'b> Version<'a, 'b> {
     fn new(
         artifact: &'b Artifact<'a>,
-        representation: DatatypeRepresentationKind,
+        representation: RepresentationKind,
     ) -> Self {
         Version {
             id: Identity {uuid: Uuid::new_v4(), hash: 0},
@@ -548,9 +553,12 @@ pub struct Partition<'a: 'b, 'b: 'c, 'c> {
     // TODO: also need to be able to handle partition types (leaf v. neighborhood, level, arbitrary)
 }
 
-#[derive(Debug)]
+#[derive(Debug, ToSql, FromSql)]
+#[postgres(name = "part_completion")]
 pub enum PartCompletion {
+    #[postgres(name = "complete")]
     Complete,
+    #[postgres(name = "ragged")]
     Ragged,
 }
 
@@ -560,6 +568,28 @@ pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
     id: Identity, // TODO: Not clear hunk needs a UUID.
     version: &'d Version<'a, 'b>,
     partition: Partition<'a, 'b, 'c>,
+    /// Representation kind of this hunk's contents. `State` versions may
+    /// contains only `State` hunks, `Delta` versions may contain either
+    /// `State` or `Delta` hunks, and 'CumulativeDelta' versions may contain
+    /// combinations of any hunk representations.
+    representation: RepresentationKind,
     completion: PartCompletion,
-    // TODO: do hunks also need a DatatypeRepresentationKind?
+}
+
+impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
+    /// Check that local properties of this hunk are consistent with the model
+    /// constraints. Note that this does *not* verify data contained by this
+    /// hunk, graph-level constraints, or consistency with the stored
+    /// representation.
+    fn is_valid(&self) -> bool {
+        match self.version.representation {
+            RepresentationKind::State => self.representation == RepresentationKind::State,
+            RepresentationKind::Delta => match self.representation {
+                RepresentationKind::State => true,
+                RepresentationKind::Delta => true,
+                RepresentationKind::CumulativeDelta => false
+            },
+            RepresentationKind::CumulativeDelta => true,
+        }
+    }
 }

@@ -14,7 +14,7 @@ use postgres::transaction::Transaction;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
 use ::{
-    DatatypeRepresentationKind, Error,
+    RepresentationKind, Error,
     PartitionIndex,
     Version};
 use super::{
@@ -32,7 +32,7 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
         Description {
             name: "UnaryPartitioning".into(),
             version: 1,
-            representations: vec![DatatypeRepresentationKind::State]
+            representations: vec![RepresentationKind::State]
                     .into_iter()
                     .collect(),
             implements: vec!["Partitioning"],
@@ -101,7 +101,7 @@ pub mod arbitrary {
             Description {
                 name: "ArbitraryPartitioning".into(),
                 version: 1,
-                representations: vec![DatatypeRepresentationKind::State]
+                representations: vec![RepresentationKind::State]
                         .into_iter()
                         .collect(),
                 implements: vec!["Partitioning"],

@@ -9,7 +9,7 @@ use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
-use ::{DatatypeRepresentationKind, Error, Hunk};
+use ::{RepresentationKind, Error, Hunk};
 use super::{Description, Store};
 use ::repo::{PostgresMigratable};
 
@@ -22,7 +22,7 @@ impl<T> super::Model<T> for Blob {
         Description {
             name: "Blob".into(),
             version: 1,
-            representations: vec![DatatypeRepresentationKind::State]
+            representations: vec![RepresentationKind::State]
                     .into_iter()
                     .collect(),
             implements: vec![],

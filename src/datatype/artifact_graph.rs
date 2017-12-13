@@ -19,7 +19,7 @@ use uuid::Uuid;
 use ::{
     Artifact, ArtifactGraph, ArtifactGraphIndex, ArtifactGraphEdgeIndex,
     ArtifactRelation,
-    DatatypeRelation, DatatypeRepresentationKind, Error, Hunk, Identity,
+    DatatypeRelation, RepresentationKind, Error, Hunk, Identity,
     IdentifiableGraph,
     PartCompletion, Partition,
     Version, VersionGraph, VersionGraphIndex,
@@ -39,7 +39,7 @@ impl<T> super::Model<T> for ArtifactGraphDtype {
         Description {
             name: "ArtifactGraph".into(),
             version: 1,
-            representations: vec![DatatypeRepresentationKind::State]
+            representations: vec![RepresentationKind::State]
                     .into_iter()
                     .collect(),
             implements: vec![], // TODO: should artifact graph be an interface?
@@ -401,7 +401,7 @@ pub trait ModelController {
                         id: Identity {uuid: Uuid::new_v4(), hash: 0},
                         artifact: dependent,
                         status: VersionStatus::Staging,
-                        representation: DatatypeRepresentationKind::State,
+                        representation: RepresentationKind::State,
                     };
                     let new_prod_ver_id = new_prod_ver.id.clone();
                     let new_prod_ver_idx = ver_graph.versions.add_node(new_prod_ver);
@@ -554,6 +554,7 @@ impl PostgresStore {
             UUID,
             Hash,
             Status,
+            Representation,
             ArtifactUUID,
             ArtifactHash,
         };
@@ -577,7 +578,7 @@ impl PostgresStore {
                     id: ver_id,
                     artifact: art,
                     status: ver_node_row.get(VerNodeRow::Status as usize),
-                    representation: DatatypeRepresentationKind::State,  // TODO
+                    representation: ver_node_row.get(VerNodeRow::Representation as usize),
                 });
             idx_map.insert(ver_node_id, ver_node_idx);
         }
@@ -603,6 +604,7 @@ impl PostgresStore {
             UUID,
             Hash,
             Status,
+            Representation,
             ArtifactUUID,
             ArtifactHash,
             ParentID,
@@ -620,7 +622,7 @@ impl PostgresStore {
         let ancestry_node_rows = trans.query(
             &format!(r#"
                 SELECT
-                  v.id, v.uuid_, v.hash, v.status,
+                  v.id, v.uuid_, v.hash, v.status, v.representation,
                   a.uuid_, a.hash, vp.parent_id, vp.child_id
                 FROM version_parent vp
                 JOIN version v
@@ -647,7 +649,7 @@ impl PostgresStore {
                         id: v_id,
                         artifact: art_graph.find_by_id(&an_id).expect("Version references unkown artifact").1,
                         status: row.get(AncNodeRow::Status as usize),
-                        representation: DatatypeRepresentationKind::State,  // TODO
+                        representation: row.get(AncNodeRow::Representation as usize),
                     });
 
                 idx_map.insert(db_id, v_idx);
@@ -664,6 +666,7 @@ impl PostgresStore {
             UUID,
             Hash,
             Status,
+            Representation,
             ArtifactUUID,
             ArtifactHash,
             SourceID,
@@ -681,7 +684,7 @@ impl PostgresStore {
         let dependence_node_rows = trans.query(
             &format!(r#"
                 SELECT
-                  v.id, v.uuid_, v.hash, v.status,
+                  v.id, v.uuid_, v.hash, v.status, v.representation,
                   a.uuid_, a.hash,
                   vr.source_version_id, vr.dependent_version_id
                 FROM version_relation vr
@@ -711,7 +714,7 @@ impl PostgresStore {
                             id: v_id,
                             artifact: an,
                             status: row.get(DepNodeRow::Status as usize),
-                            representation: DatatypeRepresentationKind::State,  // TODO
+                            representation: row.get(DepNodeRow::Representation as usize),
                         })
                 });
 
@@ -972,13 +975,15 @@ impl ModelController for PostgresStore {
         // TODO: should check that if a root version, must be State and not Delta.
 
         let ver_id_row = trans.query(r#"
-                INSERT INTO version (uuid_, hash, artifact_id, status)
-                SELECT r.uuid_, r.hash, a.id, r.status
-                FROM (VALUES ($1::uuid, $2::bigint, $3::uuid, $4::version_status))
-                AS r (uuid_, hash, a_uuid, status)
+                INSERT INTO version (uuid_, hash, artifact_id, status, representation)
+                SELECT r.uuid_, r.hash, a.id, r.status, r.representation
+                FROM (VALUES ($1::uuid, $2::bigint, $3::uuid,
+                        $4::version_status, $5::representation_kind))
+                AS r (uuid_, hash, a_uuid, status, representation)
                 JOIN artifact a ON a.uuid_ = r.a_uuid
                 RETURNING id;
-            "#, &[&ver.id.uuid, &(ver.id.hash as i64), &ver.artifact.id.uuid, &ver.status])?;
+            "#, &[&ver.id.uuid, &(ver.id.hash as i64), &ver.artifact.id.uuid,
+                  &ver.status, &ver.representation])?;
         let ver_id: i64 = ver_id_row.get(0).get(0);
 
         let insert_parent = trans.prepare(r#"
@@ -1100,7 +1105,7 @@ impl ModelController for PostgresStore {
                     // Any producer version dependent on parent versions of the
                     // new dependency version.
                     PolicyProducerRequirements::DependentOnParentVersions => trans.query(r#"
-                            SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
+                            SELECT v.id, v.uuid_, v.hash, v.status, v.representation, a.uuid_, a.hash
                             FROM version v
                             JOIN artifact a ON a.id = v.artifact_id
                             JOIN version_parent vp ON v.id = vp.child_id
@@ -1147,7 +1152,7 @@ impl ModelController for PostgresStore {
                 let ver_rows = match requirements.dependency {
                     PolicyDependencyRequirements::None => unreachable!(),
                     PolicyDependencyRequirements::DependencyOfProducerVersion => trans.query(r#"
-                            SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
+                            SELECT v.id, v.uuid_, v.hash, v.status, v.representation, a.uuid_, a.hash
                             FROM version v
                             JOIN artifact a ON a.id = v.artifact_id
                             JOIN version_relation vr ON vr.source_version_id = v.id
@@ -1167,7 +1172,7 @@ impl ModelController for PostgresStore {
                             .collect();
 
                         trans.query(r#"
-                            SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
+                            SELECT v.id, v.uuid_, v.hash, v.status, v.representation, a.uuid_, a.hash
                             FROM version v
                             JOIN artifact a ON a.id = v.artifact_id
                             WHERE a.uuid_ = ANY($1::uuid[]);
@@ -1219,7 +1224,7 @@ impl ModelController for PostgresStore {
         let mut idx_map = BTreeMap::new();
 
         let ver_node_rows = trans.query(r#"
-                SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
+                SELECT v.id, v.uuid_, v.hash, v.status, v.representation, a.uuid_, a.hash
                 FROM version v
                 JOIN artifact a ON a.id = v.artifact_id
                 WHERE v.uuid_ = $1::uuid
@@ -1267,7 +1272,7 @@ impl ModelController for PostgresStore {
             .map(|n| n.weight.id.uuid)
             .collect();
         let ver_node_rows = trans.query(r#"
-                SELECT v.id, v.uuid_, v.hash, v.status, a.uuid_, a.hash
+                SELECT v.id, v.uuid_, v.hash, v.status, v.representation, a.uuid_, a.hash
                 FROM version v
                 JOIN artifact a ON a.id = v.artifact_id
                 WHERE a.uuid_ = ANY($1::uuid[]);
@@ -1303,20 +1308,31 @@ impl ModelController for PostgresStore {
             _ => panic!("PostgresStore received a non-Postgres context")
         };
 
+        if !hunk.is_valid() {
+            return Err(Error::Model("Hunk is invalid.".into()));
+        }
+
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
 
         // TODO should check that version is not committed
         trans.execute(r#"
-                INSERT INTO hunk (uuid_, hash, version_id, partition_id)
-                SELECT r.uuid_, r.hash, v.id, r.partition_id
-                FROM (VALUES ($1::uuid, $2::bigint, $3::uuid, $4::bigint, $5::bigint))
-                  AS r (uuid_, hash, v_uuid, v_hash, partition_id)
+                INSERT INTO hunk (
+                    uuid_, hash,
+                    version_id, partition_id,
+                    representation, completion)
+                SELECT r.uuid_, r.hash, v.id, r.partition_id, r.representation, r.completion
+                FROM (VALUES (
+                        $1::uuid, $2::bigint,
+                        $3::uuid, $4::bigint, $5::bigint,
+                        $6::representation_kind, $7::part_completion))
+                  AS r (uuid_, hash, v_uuid, v_hash, partition_id, representation, completion)
                 JOIN version v
                   ON (v.uuid_ = r.v_uuid AND v.hash = r.v_hash);
             "#, &[&hunk.id.uuid, &(hunk.id.hash as i64),
                   &hunk.version.id.uuid, &(hunk.version.id.hash as i64),
-                  &(hunk.partition.index as i64)])?;
+                  &(hunk.partition.index as i64),
+                  &hunk.representation, &hunk.completion])?;
 
         trans.set_commit();
         Ok(())
@@ -1340,9 +1356,11 @@ impl ModelController for PostgresStore {
             UUID = 0,
             Hash,
             PartitionID,
+            Representation,
+            Completion,
         };
         let hunk_rows = trans.query(r#"
-                SELECT h.uuid_, h.hash, h.partition_id
+                SELECT h.uuid_, h.hash, h.partition_id, h.representation, h.completion
                 FROM version v
                 JOIN hunk h ON (h.version_id = v.id)
                 WHERE v.uuid_ = $1::uuid AND v.hash = $2::bigint;"#,
@@ -1359,7 +1377,8 @@ impl ModelController for PostgresStore {
                     partitioning: partitioning,
                     index: row.get::<_, i64>(HunkRow::PartitionID as usize) as u64,
                 },
-                completion: PartCompletion::Complete, // TODO
+                representation: row.get(HunkRow::Representation as usize),
+                completion: row.get(HunkRow::Completion as usize),
             });
         }
 
@@ -1533,7 +1552,7 @@ mod tests {
             id: Identity {uuid: Uuid::new_v4(), hash: 0},
             artifact: blob1_art,
             status: VersionStatus::Staging,
-            representation: DatatypeRepresentationKind::State,
+            representation: RepresentationKind::State,
         };
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
         ver_graph.versions.add_edge(up_idx, blob1_ver_idx,
@@ -1572,6 +1591,7 @@ mod tests {
                         partitioning: ver_partitioning,
                         index: partition_id.to_owned(),
                     },
+                    representation: RepresentationKind::State,
                     completion: PartCompletion::Complete,
                 }).collect::<Vec<_>>();
 
@@ -1658,7 +1678,7 @@ mod tests {
             id: Identity {uuid: Uuid::new_v4(), hash: 0},
             artifact: blob1_art,
             status: VersionStatus::Staging,
-            representation: DatatypeRepresentationKind::State,
+            representation: RepresentationKind::State,
         };
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
         ver_graph.versions.add_edge(part_idx, blob1_ver_idx,
@@ -1699,6 +1719,7 @@ mod tests {
                             partitioning: ver_partitioning,
                             index: partition_id.to_owned(),
                         },
+                        representation: RepresentationKind::State,
                         completion: PartCompletion::Complete,
                     }).collect::<Vec<_>>();
             let ver_hash = ver_hunks.iter()

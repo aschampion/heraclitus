@@ -46,6 +46,12 @@ CREATE TABLE artifact_edge (
 --   OIDS=FALSE
 -- );
 
+CREATE TYPE representation_kind AS ENUM (
+  'state',
+  'delta',
+  'cumulative_delta'
+);
+
 CREATE TYPE version_status AS ENUM (
   'staging',
   'committed'
@@ -55,15 +61,16 @@ CREATE TABLE version (
   id bigserial PRIMARY KEY,
   LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
   artifact_id bigint NOT NULL REFERENCES artifact (id) DEFERRABLE INITIALLY IMMEDIATE,
-  status version_status NOT NULL
-  -- TODO ignoring datatype representation kind
+  status version_status NOT NULL,
+  representation representation_kind NOT NULL
 ) WITH (
   OIDS=FALSE
 );
 
 CREATE TABLE version_parent (
   parent_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
-  child_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE
+  child_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
+  PRIMARY KEY (parent_id, child_id)
   -- TODO existence of this relation implies versions reference same artifact, may be a check constraint
 ) WITH (
   OIDS=FALSE
@@ -79,12 +86,18 @@ CREATE TABLE version_relation (
   OIDS=FALSE
 );
 
+CREATE TYPE part_completion AS ENUM (
+  'complete',
+  'ragged'
+);
+
 CREATE TABLE hunk (
   id bigserial PRIMARY KEY,
   LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
   version_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
-  partition_id bigint
-  -- TODO ignoring completion
+  partition_id bigint NOT NULL,
+  representation representation_kind NOT NULL,
+  completion part_completion NOT NULL
 ) WITH (
   OIDS=FALSE
 );

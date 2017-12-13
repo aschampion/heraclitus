@@ -93,6 +93,10 @@ Milestone Goals
       - [ ] Should only be able to mutate fixed partition ID set when bootstrapping new version.
     - [ ] Better ergonomics for building AGs, invoking producers
 - [ ] Goal: delta state updates in producer test
+  - Requires:
+    - [x] Representation persistence
+    - [ ] Resolving sufficient ancestry for materialized state
+    - [ ] Producer policies for input and output representations
 - [ ] Goal: organize, e.g., postgres stores out of datatypes
 - [ ] Goal: branches/tags/reflist
 - [ ] Goal: artifact graph with producer: test fake dtypes `nodes` and `components`, with a producer that computes CCs of node arborescences

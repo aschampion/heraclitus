@@ -4,7 +4,7 @@ extern crate schemer;
 
 use ::{
     ArtifactGraph,
-    DatatypeRepresentationKind, Error,
+    RepresentationKind, Error,
     VersionGraph, VersionGraphIndex,};
 use ::datatype::{
     Description, DependencyDescription,
@@ -23,7 +23,7 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
         Description {
             name: "NoopProducer".into(),
             version: 1,
-            representations: vec![DatatypeRepresentationKind::State]
+            representations: vec![RepresentationKind::State]
                     .into_iter()
                     .collect(),
             implements: vec!["Producer"],
@@ -107,7 +107,7 @@ pub(crate) mod tests {
             Description {
                 name: "NegateBlobProducer".into(),
                 version: 1,
-                representations: vec![DatatypeRepresentationKind::State]
+                representations: vec![RepresentationKind::State]
                         .into_iter()
                         .collect(),
                 implements: vec!["Producer"],
@@ -195,7 +195,7 @@ pub(crate) mod tests {
             let output_art = &art_graph.artifacts[output_art_idx];
 
             // Create output version.
-            let ver_blob = Version::new(output_art, DatatypeRepresentationKind::State);
+            let ver_blob = Version::new(output_art, RepresentationKind::State);
             let ver_blob_idx = ver_graph.versions.add_node(ver_blob);
             ver_graph.versions.add_edge(
                 v_idx,
@@ -259,6 +259,7 @@ pub(crate) mod tests {
                             hash: blob_control.hash(&output_blob),
                         },
                         version: &ver_graph.versions[ver_blob_idx],
+                        representation: RepresentationKind::State,
                         partition: input_hunk.partition.clone(),
                         completion: PartCompletion::Complete,
                     };

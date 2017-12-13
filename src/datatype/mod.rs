@@ -21,7 +21,7 @@ pub mod producer;
 pub struct Description {
     name: String,
     version: u64,
-    representations: EnumSet<::DatatypeRepresentationKind>,
+    representations: EnumSet<::RepresentationKind>,
     implements: Vec<&'static str>,
     dependencies: Vec<DependencyDescription>,
 }
