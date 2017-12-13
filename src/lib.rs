@@ -324,7 +324,7 @@ impl<'a> ArtifactGraph<'a> {
         }, idx_map)
     }
 
-    fn verify_hash(&self) -> bool {
+    pub fn verify_hash(&self) -> bool {
         let to_visit = daggy::petgraph::algo::toposort(self.artifacts.graph(), None)
             .expect("TODO: not a DAG");
 
