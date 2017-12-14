@@ -96,20 +96,27 @@ type InterfaceExtension = daggy::Dag<Interface, (), InterfaceIndexType>;
 #[repr(u32)]
 #[postgres(name = "representation_kind")]
 pub enum RepresentationKind {
+    /// Contains independent representation of the state of its datatype.
+    /// That is, a single hunk per partition is sufficient.
     #[postgres(name = "state")]
     State,
-    #[postgres(name = "delta")]
-    Delta,
+    /// Contains a dependent representation given a *single* prior state of a
+    /// datatype. That is, a single state hunk and this delta is sufficient.
     #[postgres(name = "cumulative_delta")]
     CumulativeDelta,
+    /// Contains a dependent representation given prior state of a datatype.
+    /// This dependent representation may be a sequence of multiple prior
+    /// representations.
+    #[postgres(name = "delta")]
+    Delta,
 }
 
 impl RepresentationKind {
     pub fn all() -> EnumSet<Self> {
         let mut all_rep = EnumSet::new();
         all_rep.insert(RepresentationKind::State);
-        all_rep.insert(RepresentationKind::Delta);
         all_rep.insert(RepresentationKind::CumulativeDelta);
+        all_rep.insert(RepresentationKind::Delta);
 
         all_rep
     }
@@ -577,8 +584,8 @@ pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
     version: &'d Version<'a, 'b>,
     partition: Partition<'a, 'b, 'c>,
     /// Representation kind of this hunk's contents. `State` versions may
-    /// contains only `State` hunks, `Delta` versions may contain either
-    /// `State` or `Delta` hunks, and 'CumulativeDelta' versions may contain
+    /// contains only `State` hunks, `CumulativeDelta` versions may contain either
+    /// `State` or `CumulativeDelta` hunks, and 'Delta' versions may contain
     /// combinations of any hunk representations.
     representation: RepresentationKind,
     completion: PartCompletion,
@@ -592,12 +599,12 @@ impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
     fn is_valid(&self) -> bool {
         match self.version.representation {
             RepresentationKind::State => self.representation == RepresentationKind::State,
-            RepresentationKind::Delta => match self.representation {
+            RepresentationKind::CumulativeDelta => match self.representation {
                 RepresentationKind::State => true,
-                RepresentationKind::Delta => true,
-                RepresentationKind::CumulativeDelta => false
+                RepresentationKind::CumulativeDelta => true,
+                RepresentationKind::Delta => false,
             },
-            RepresentationKind::CumulativeDelta => true,
+            RepresentationKind::Delta => true,
         }
     }
 }

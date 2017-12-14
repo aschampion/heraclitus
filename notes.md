@@ -92,6 +92,12 @@ Milestone Goals
     - [x] Fixed arbitrary partitioning
       - [ ] Should only be able to mutate fixed partition ID set when bootstrapping new version.
     - [ ] Better ergonomics for building AGs, invoking producers
+- [ ] Goals: partial partitions update in fake dtypes test
+  - Requires:
+    - [ ] Clearer distinction between delta and partial state representations
+    - [ ] Partition hunk history resolution
+      - [ ] How to resolve from branched history
+    - [ ] Sufficient ancestry
 - [ ] Goal: delta state updates in producer test
   - Requires:
     - [x] Representation persistence
