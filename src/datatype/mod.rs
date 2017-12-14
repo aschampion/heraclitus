@@ -37,11 +37,43 @@ impl Description {
     }
 }
 
-// impl Hash for Description {
-//     fn hash<H: Hasher>(&self, state: &mut H) {
-//         self.datatype.hash(state);
-//     }
-// }
+
+/// Specifies what source dependency datatypes are allowed for this
+/// relationship.
+pub enum DependencyTypeRestriction {
+    /// Match datatype by its name.
+    Datatype(HashSet<&'static str>),
+    /// Match datatype by name of interface it implements (disjunctive).
+    ImplementsInterface(HashSet<&'static str>),
+    /// Match any datatype.
+    Any,
+}
+
+/// Specifies how many incoming dependency relationships of this type may exist
+/// for a particular artifact in an artifact graph.
+pub enum DependencyCardinalityRestriction {
+    Exact(u64),
+    // Could represent all restrictions with just this variant:
+    InclusiveRange(Option<u64>, Option<u64>),
+    Unbounded,
+}
+
+impl DependencyCardinalityRestriction {
+    pub fn allows(&self, size: u64) -> bool {
+        match *self {
+            DependencyCardinalityRestriction::Exact(v) => size == v,
+            DependencyCardinalityRestriction::InclusiveRange(ref from, ref to) => {
+                match (*from, *to) {
+                    (None, None) => true,
+                    (Some(low), None) => low <= size,
+                    (None, Some(high)) => size <= high,
+                    (Some(low), Some(high)) => low <= size && size <= high,
+                }
+            },
+            DependencyCardinalityRestriction::Unbounded => true
+        }
+    }
+}
 
 pub enum DependencyStoreRestriction {
     Any,
@@ -52,19 +84,23 @@ pub enum DependencyStoreRestriction {
 pub struct DependencyDescription {
     // TODO: strs or Identities or ??
     name: &'static str,
-    datatype_name: &'static str,
+    datatype_restriction: DependencyTypeRestriction,
+    cardinality_restriction: DependencyCardinalityRestriction,
+    // TODO: not yet used/implemented.
     store_restriction: DependencyStoreRestriction,
 }
 
 impl DependencyDescription {
     fn new(
         name: &'static str,
-        datatype_name: &'static str,
+        datatype_restriction: DependencyTypeRestriction,
+        cardinality_restriction: DependencyCardinalityRestriction,
         store_restriction: DependencyStoreRestriction,
     ) -> DependencyDescription {
         DependencyDescription {
             name,
-            datatype_name,
+            datatype_restriction,
+            cardinality_restriction,
             store_restriction,
         }
     }
@@ -75,32 +111,12 @@ pub struct InterfaceDescription {
     extends: HashSet<&'static str>,
 }
 
-// TODO:
-// This doesn't work because it's impossible to collect a set of generic MCs
-// without knowning the associated types, which is necessary for programs
-// consuming this lib to register their own dtypes.
-// Consumers of the model controller (dependent dtypes) will know the dtype-
-// specific MC trait, but not the concrete impl.
-// What is the purpose of this method? So other datatype controllers can
-// retrieve data from this controller without needing to know anything about
-// the configuration of the hera repo.
-
-// Alternatives:
-// Models just register w/o MC type, consumers call a concrete method in the...
-// ...doesn't work. Every consumer would rebuild, etc.
-//
-
 pub trait MetaController {
-    // fn version_graph<'a>(
-    //         &self,
-    //         repo_control: &mut ::repo::StoreRepoController,
-    //         artifact: &'a Artifact
-    // ) -> Result<VersionGraph<'a>, Error>;
 }
 
 pub trait Model<T> {
     // Necessary to be able to create this as a trait object. See:
-    // https://www.reddit.com/r/rust/comments/620m1v/never_hearing_the_trait_x_cannot_be_made_into_an/dfirs5s/
+    // https://www.reddit.com/r/rust/comments/620m1v//dfirs5s/
     //fn clone(&self) -> Self where Self: Sized;
 
     fn info(&self) -> Description;
@@ -114,9 +130,6 @@ pub trait Model<T> {
 pub trait ModelController {}
 
 // TODO:
-// - When/where are UUIDs generated? Do UUIDs change on versions? How does the map with hash equality?
-// - Datatypes register with a central controller
-//    - How does this mesh with extensions, e.g., VISAG
 // - Sync/compare datatype defs with store
 //    - Fresh init vs diff update
 
@@ -134,15 +147,6 @@ impl Into<Box<PostgresMetaController>> for StoreMetaController {
         }
     }
 }
-
-// pub fn module_datatype_models() -> Vec<Box<Model>> {
-//     vec![
-//         Box::new(artifact_graph::ArtifactGraphDtype {}),
-//         Box::new(partitioning::UnaryPartitioning {}),
-//         Box::new(blob::Blob {}),
-//         Box::new(producer::NoopProducer {}),
-//     ]
-// }
 
 pub trait InterfaceController<T: ?Sized> : From<Box<T>>
         //where Box<T>: From<Self>

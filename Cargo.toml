@@ -18,6 +18,7 @@ daggy = "*"
 enum-set = "*"
 failure = "0.1"
 lazy_static = "*"
+maplit = "*"
 petgraph = { version = "*", features = ["serde-1"] }
 postgres = { version = "0.15", features = ["with-uuid"] }
 postgres_array = "0.9"

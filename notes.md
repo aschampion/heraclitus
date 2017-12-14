@@ -97,6 +97,10 @@ Milestone Goals
     - [x] Representation persistence
     - [ ] Resolving sufficient ancestry for materialized state
     - [ ] Producer policies for input and output representations
+      - [x] Call this ProductionRepresentationPolicy
+        - Producers should provide sets of representation capabilities for different internal production paths, identified somehow (names or ids, etc.)
+        - Like with ProductionPolicies, AG selects from among these by some manager, selected policy is stored w/ production version
+          - Could be partition-local or something, but really down the rabbit hole with that. For now uniform.
 - [ ] Goal: organize, e.g., postgres stores out of datatypes
 - [ ] Goal: branches/tags/reflist
 - [ ] Goal: artifact graph with producer: test fake dtypes `nodes` and `components`, with a producer that computes CCs of node arborescences
@@ -336,4 +340,7 @@ Misc. Cleanup
 - [ ] `IdentifiableGraph::find_by_{id,uuid}` should be `get` not `find` to match Rust conventions.
   - [ ] Could also implement index methods to provide panicing access for known items.
 - [ ] Empty (hunkless) versions are current allowed. Somewhat nice that this runs through cascade production, etc., without error, but still.
-
+- [ ] Kill magic values
+  - [ ] Dependency/input/output name strings
+  - [ ] Interface identifiers
+  - [ ] Datatype identifiers

@@ -21,13 +21,13 @@ use ::{
     ArtifactRelation,
     DatatypeRelation, RepresentationKind, Error, Hunk, Identity,
     IdentifiableGraph,
-    PartCompletion, Partition,
+    Partition,
     Version, VersionGraph, VersionGraphIndex,
     VersionRelation, VersionStatus};
 use super::{
     DatatypeEnum, DatatypesRegistry,
     Description, Store};
-use ::datatype::interface::ProductionOutput;
+use ::datatype::interface::{ProductionOutput, ProductionStrategies, ProductionStrategyID};
 use ::repo::{PostgresMigratable};
 
 
@@ -253,6 +253,83 @@ impl ProductionPolicy for LeafBootstrapProductionPolicy {
 }
 
 
+/// Enacts a policy for what production strategy (from the set of those of
+/// which the producer is capable) to use for a particular version.
+///
+/// Currently this only involves the representation kinds of inputs and outputs
+/// the producer supports.
+///
+/// Note that unlike `ProductionPolicy`, no requirements for related versions
+/// are necessary, because this policy by construction only depends on
+/// dependency versions of the relevant producer version, which are always in
+/// the version graph when producer versions are created and notified.
+trait ProductionStrategyPolicy {
+    fn select_representation(
+        &self,
+        ver_graph: &VersionGraph,
+        v_idx: VersionGraphIndex,
+        strategies: &ProductionStrategies,
+    ) -> Option<ProductionStrategyID>;
+}
+
+/// A production strategy policy selecting for the strategy with the most
+/// parsimonious output representations.
+pub struct ParsimoniousRepresentationProductionStrategyPolicy;
+
+impl ProductionStrategyPolicy for ParsimoniousRepresentationProductionStrategyPolicy {
+    fn select_representation(
+        &self,
+        ver_graph: &VersionGraph,
+        v_idx: VersionGraphIndex,
+        strategies: &ProductionStrategies,
+    ) -> Option<ProductionStrategyID> {
+        // Collect current version inputs.
+        let inputs = ver_graph.versions.graph().edges_directed(v_idx, petgraph::Direction::Incoming)
+            .filter_map(|edgeref| match *edgeref.weight() {
+                VersionRelation::Dependence(relation) => {
+                    match *relation {
+                        ArtifactRelation::DtypeDepends(ref dtype_relation) =>
+                            Some((dtype_relation.name.as_str(),
+                                  ver_graph.versions[edgeref.source()].representation)),
+                        _ => None,
+                    }
+                }
+                VersionRelation::Parent => None,
+            })
+            .collect();
+
+        strategies.iter()
+            // Filter strategies by those applicable to current version inputs.
+            .filter(|&(id, capability)| capability.matches_inputs(&inputs))
+            // From remaining strategies, select that with minimal sum minimum
+            // representation kind weighting.
+            .map(|(id, capability)|
+                (id, capability.outputs().values()
+                    .map(|reps| {
+                        reps.iter().map(|r| match r {
+                            RepresentationKind::State => 3usize,
+                            RepresentationKind::CumulativeDelta => 2,
+                            RepresentationKind::Delta => 1,
+                        })
+                        .min()
+                        .unwrap_or(0)
+                    })
+                    .sum::<usize>()
+            ))
+            .min_by_key(|&(id, score)| score)
+            .map(|(id, score)| id.clone())
+    }
+}
+
+
+/// Specifies the production strategy to use for a particular producer version.
+pub struct ProductionStrategySpecs {
+    representation: ProductionStrategyID,
+    // TODO: there may be other categories capabilities, strategies and
+    // policies in addition representation.
+}
+
+
 pub trait ModelController {
     fn list_graphs(&self) -> Vec<Identity>;
 
@@ -339,10 +416,15 @@ pub trait ModelController {
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
             where Box<::datatype::interface::ProducerController>:
             From<<T as DatatypeEnum>::InterfaceControllerType> {
+        // TODO: should be configurable per-production artifact.
         let production_policies: Vec<Box<ProductionPolicy>> = vec![
             Box::new(ExtantProductionPolicy),
             Box::new(LeafBootstrapProductionPolicy),
         ];
+
+        // TODO: should be configurable per-production artifact.
+        let production_strategy_policy: Box<ProductionStrategyPolicy> =
+            Box::new(ParsimoniousRepresentationProductionStrategyPolicy);
 
         let production_policy_reqs = production_policies
             .iter()
@@ -396,6 +478,8 @@ pub trait ModelController {
                         ProductionVersionSpecs::new(),
                         |mut specs, x| {specs.merge(x); specs});
 
+                let production_strategies = producer_controller.production_strategies();
+
                 for (specs, parent_prod_vers) in &prod_specs.specs {
                     let new_prod_ver = Version::new(dependent, RepresentationKind::State);
                     let new_prod_ver_id = new_prod_ver.id.clone();
@@ -419,10 +503,23 @@ pub trait ModelController {
                         }
                     }
 
+                    let strategy_specs = ProductionStrategySpecs {
+                        representation: production_strategy_policy.select_representation(
+                            ver_graph,
+                            new_prod_ver_idx.clone(),
+                            &production_strategies)
+                                .expect("TODO: producer is incompatible with input versions"),
+                    };
+
                     self.create_staging_version(
                         repo_control,
                         ver_graph,
                         new_prod_ver_idx.clone())?;
+
+                    self.write_production_specs(
+                        repo_control,
+                        &ver_graph.versions[new_prod_ver_idx],
+                        strategy_specs)?;
 
                     let output = producer_controller.notify_new_version(
                         repo_control,
@@ -479,6 +576,19 @@ pub trait ModelController {
         version: &'d Version<'a, 'b>,
         partitioning: &'c Version<'a, 'b>
     ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error>;
+
+    fn write_production_specs<'a, 'b>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        version: &Version<'a, 'b>,
+        specs: ProductionStrategySpecs,
+    ) -> Result<(), Error>;
+
+    fn get_production_specs<'a, 'b>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        version: &Version<'a, 'b>,
+    ) -> Result<ProductionStrategySpecs, Error>;
 }
 
 
@@ -891,7 +1001,6 @@ impl ModelController for PostgresStore {
 
         let mut artifacts = ::ArtifactGraphType::new();
         let mut idx_map = HashMap::new();
-        let mut up_idx = None;
 
         for row in &nodes {
             let db_id = row.get::<_, i64>(NodeRow::ID as usize);
@@ -909,9 +1018,6 @@ impl ModelController for PostgresStore {
 
             let node_idx = artifacts.add_node(node);
             idx_map.insert(db_id, node_idx);
-            if dtype_name == "UnaryPartitioning" {
-                up_idx = Some(node_idx);
-            }
         }
 
         enum EdgeRow {
@@ -1379,6 +1485,61 @@ impl ModelController for PostgresStore {
 
         Ok(hunks)
     }
+
+    fn write_production_specs<'a, 'b>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        version: &Version<'a, 'b>,
+        specs: ProductionStrategySpecs,
+    ) -> Result<(), Error> {
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        // TODO: ignoring hash here, because semantics of producer versions
+        // (esp. uncommitted) are unclear.
+        trans.execute(r#"
+                INSERT INTO producer_version (version_id, strategy)
+                SELECT v.id, r.strategy
+                FROM (VALUES ($1::uuid, $2::text))
+                  AS r (v_uuid, strategy)
+                JOIN version v
+                  ON (v.uuid_ = r.v_uuid);
+            "#, &[&version.id.uuid, &specs.representation])?;
+
+        trans.set_commit();
+        Ok(())
+    }
+
+    fn get_production_specs<'a, 'b>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        version: &Version<'a, 'b>,
+    ) -> Result<ProductionStrategySpecs, Error> {
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        // TODO: ignoring hash here, because semantics of producer versions
+        // (esp. uncommitted) are unclear.
+        let spec_row = trans.query(r#"
+                SELECT pv.strategy
+                FROM version v
+                JOIN producer_version pv ON (pv.version_id = v.id)
+                WHERE v.uuid_ = $1::uuid;"#,
+            &[&version.id.uuid])?;
+        Ok(ProductionStrategySpecs {
+            representation: spec_row.get(0).get(0),
+        })
+    }
 }
 
 
@@ -1389,7 +1550,7 @@ mod tests {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
-    use ::{Context};
+    use ::{Context, PartCompletion};
     use ::datatype::blob::ModelController as BlobModelController;
     use datatype::partitioning::arbitrary::ModelController as ArbitraryPartitioningModelController;
     use ::datatype::producer::tests::NegateBlobProducer;

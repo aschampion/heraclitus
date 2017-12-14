@@ -7,6 +7,7 @@ DROP TABLE artifact_dtype_edge;
 DROP TYPE representation_kind;
 DROP TYPE version_status;
 DROP TABLE version;
+DROP TABLE producer_version;
 DROP TABLE version_parent;
 DROP TABLE version_relation;
 DROP TYPE part_completion;

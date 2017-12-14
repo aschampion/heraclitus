@@ -2,15 +2,20 @@ extern crate postgres;
 extern crate schemer;
 
 
+use std::collections::HashMap;
+
 use ::{
     ArtifactGraph,
     RepresentationKind, Error,
     VersionGraph, VersionGraphIndex,};
 use ::datatype::{
-    Description, DependencyDescription,
+    Description, DependencyDescription, DependencyTypeRestriction,
+    DependencyCardinalityRestriction, DependencyStoreRestriction,
     InterfaceController, MetaController,
     Model, PostgresMetaController, StoreMetaController};
-use ::datatype::interface::{ProducerController, ProductionOutput};
+use ::datatype::interface::{
+    ProducerController, ProductionOutput,
+    ProductionRepresentationCapability, ProductionStrategies};
 use ::repo::{PostgresMigratable};
 use ::store::Store;
 
@@ -27,7 +32,14 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
                     .into_iter()
                     .collect(),
             implements: vec!["Producer"],
-            dependencies: vec![],
+            dependencies: vec![
+                DependencyDescription::new(
+                    "input",
+                    DependencyTypeRestriction::Any,
+                    DependencyCardinalityRestriction::Unbounded,
+                    DependencyStoreRestriction::Same,
+                ),
+            ],
         }
     }
 
@@ -63,6 +75,16 @@ impl PostgresMigratable for NoopProducerController {}
 impl PostgresMetaController for NoopProducerController {}
 
 impl ProducerController for NoopProducerController {
+    fn production_strategies(&self) -> ProductionStrategies {
+    // fn representation_capabilities(&self) -> Vec<ProductionRepresentationCapability> {
+        hashmap!{
+            "only".into() => ProductionRepresentationCapability::new(
+                hashmap!{"input" => RepresentationKind::all()},
+                HashMap::new(),
+            )
+        }
+    }
+
     fn output_descriptions(&self) -> Vec<DependencyDescription> {
         vec![]
     }
@@ -85,6 +107,7 @@ pub(crate) mod tests {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
+    use enum_set::EnumSet;
     use petgraph::Direction;
     use petgraph::visit::EdgeRef;
     use uuid::Uuid;
@@ -92,9 +115,6 @@ pub(crate) mod tests {
     use ::{
         ArtifactRelation, Hunk, Identity, IdentifiableGraph,
         PartCompletion, Version, VersionRelation};
-    use datatype::{
-        DependencyStoreRestriction,
-    };
     use datatype::artifact_graph::ModelController as ArtifactGraphModelController;
     use datatype::blob::ModelController as BlobModelController;
 
@@ -114,7 +134,8 @@ pub(crate) mod tests {
                 dependencies: vec![
                     DependencyDescription::new(
                         "input",
-                        "Blob",
+                        DependencyTypeRestriction::Datatype(hashset!["Blob"]),
+                        DependencyCardinalityRestriction::Exact(1),
                         DependencyStoreRestriction::Same,
                     ),
                 ],
@@ -153,11 +174,25 @@ pub(crate) mod tests {
     impl PostgresMetaController for NegateBlobProducerController {}
 
     impl ProducerController for NegateBlobProducerController {
+        fn production_strategies(&self) -> ProductionStrategies {
+        // fn representation_capabilities(&self) -> Vec<ProductionRepresentationCapability> {
+            let mut state_rep = EnumSet::new();
+            state_rep.insert(RepresentationKind::State);
+
+            hashmap!{
+                "state".into() => ProductionRepresentationCapability::new(
+                    hashmap!{"input" => state_rep.clone()},
+                    hashmap!{"output" => state_rep},
+                )
+            }
+        }
+
         fn output_descriptions(&self) -> Vec<DependencyDescription> {
             vec![
                 DependencyDescription::new(
                     "output",
-                    "Blob",
+                    DependencyTypeRestriction::Datatype(hashset!["Blob"]),
+                    DependencyCardinalityRestriction::Exact(1),
                     DependencyStoreRestriction::Same,
                 ),
             ]
@@ -231,6 +266,10 @@ pub(crate) mod tests {
             }
 
             let mut ag_control = ::datatype::artifact_graph::model_controller(repo_control.store());
+
+            let production_specs = ag_control.get_production_specs(
+                repo_control,
+                &ver_graph.versions[v_idx])?;
 
             ag_control.create_staging_version(
                 repo_control,

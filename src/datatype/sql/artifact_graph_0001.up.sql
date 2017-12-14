@@ -67,6 +67,13 @@ CREATE TABLE version (
   OIDS=FALSE
 );
 
+CREATE TABLE producer_version (
+  version_id bigint PRIMARY KEY REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
+  strategy text NOT NULL
+) WITH (
+  OIDS=FALSE
+);
+
 CREATE TABLE version_parent (
   parent_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
   child_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,

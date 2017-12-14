@@ -7,6 +7,8 @@ extern crate enum_set;
 extern crate failure;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate maplit;
 extern crate petgraph;
 #[macro_use]
 extern crate postgres;
@@ -100,6 +102,17 @@ pub enum RepresentationKind {
     Delta,
     #[postgres(name = "cumulative_delta")]
     CumulativeDelta,
+}
+
+impl RepresentationKind {
+    pub fn all() -> EnumSet<Self> {
+        let mut all_rep = EnumSet::new();
+        all_rep.insert(RepresentationKind::State);
+        all_rep.insert(RepresentationKind::Delta);
+        all_rep.insert(RepresentationKind::CumulativeDelta);
+
+        all_rep
+    }
 }
 
 // Boilerplate necessary for EnumSet compatibility.
