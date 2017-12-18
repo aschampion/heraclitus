@@ -175,14 +175,14 @@ pub(crate) mod tests {
 
     impl ProducerController for NegateBlobProducerController {
         fn production_strategies(&self) -> ProductionStrategies {
-        // fn representation_capabilities(&self) -> Vec<ProductionRepresentationCapability> {
-            let mut state_rep = EnumSet::new();
-            state_rep.insert(RepresentationKind::State);
+            let mut rep = EnumSet::new();
+            rep.insert(RepresentationKind::State);
+            rep.insert(RepresentationKind::Delta);
 
             hashmap!{
-                "state".into() => ProductionRepresentationCapability::new(
-                    hashmap!{"input" => state_rep.clone()},
-                    hashmap!{"output" => state_rep},
+                "normal".into() => ProductionRepresentationCapability::new(
+                    hashmap!{"input" => rep.clone()},
+                    hashmap!{"output" => rep},
                 )
             }
         }
@@ -205,6 +205,8 @@ pub(crate) mod tests {
             ver_graph: &mut VersionGraph<'a, 'b>,
             v_idx: VersionGraphIndex,
         ) -> Result<ProductionOutput, Error> {
+            use ::datatype::blob::Payload as BlobPayload;
+
             // Find input relation, artifact, and versions.
             let input_art_relation = ArtifactRelation::ProducedFrom("input".into());
             let input_relation = VersionRelation::Dependence(&input_art_relation);
@@ -279,8 +281,7 @@ pub(crate) mod tests {
             let mut ver_hash = DefaultHasher::new();
             // Get input hunks.
             // TODO: For now this assumes the hunks are associated directly
-            // with the input version. Does not account for partial partioning
-            // versions.
+            // with the input version.
             {
                 let input_hunks = ag_control.get_hunks(
                     repo_control,
@@ -290,12 +291,20 @@ pub(crate) mod tests {
                 // Create output hunks computed from input hunks.
                 let mut blob_control = ::datatype::blob::model_controller(repo_control.store());
                 for input_hunk in &input_hunks {
-                    let input_blob = blob_control.read(repo_control, input_hunk).expect("TODO");
-                    let output_blob = input_blob.iter().cloned().map(|b| !b).collect::<Vec<u8>>();
+                    let input_blob = blob_control.read_hunk(repo_control, input_hunk).expect("TODO");
+                    let output_blob = match input_blob {
+                        BlobPayload::State(ref blob) =>
+                            BlobPayload::State(blob.iter().cloned().map(|b| !b).collect::<Vec<u8>>()),
+                        BlobPayload::Delta((ref indices, ref bytes)) =>
+                            BlobPayload::Delta((
+                                indices.clone(),
+                                bytes.iter().clone().map(|b| !b).collect::<Vec<u8>>(),
+                            )),
+                    };
                     let output_hunk = Hunk {
                         id: Identity {
                             uuid: Uuid::new_v4(),
-                            hash: blob_control.hash(&output_blob),
+                            hash: blob_control.hash_payload(&output_blob),
                         },
                         version: &ver_graph.versions[ver_blob_idx],
                         representation: RepresentationKind::State,
@@ -307,7 +316,7 @@ pub(crate) mod tests {
                     ag_control.create_hunk(
                         repo_control,
                         &output_hunk).expect("TODO");
-                    blob_control.write(
+                    blob_control.write_hunk(
                         repo_control,
                         &output_hunk,
                         &output_blob).expect("TODO");

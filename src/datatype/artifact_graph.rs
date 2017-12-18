@@ -1728,14 +1728,14 @@ mod tests {
 
         let mut blob_control = ::datatype::blob::model_controller(store);
         let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
-        let fake_blob = vec![0, 1, 2, 3, 4, 5, 6];
+        let fake_blob = ::datatype::blob::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
         let ver_hunks = ver_part_control
                 .get_partition_ids(&mut context.repo_control, ver_partitioning)
                 .iter()
                 .map(|partition_id| Hunk {
                     id: Identity {
                         uuid: Uuid::new_v4(),
-                        hash: blob_control.hash(&fake_blob),
+                        hash: blob_control.hash_payload(&fake_blob),
                     },
                     version: ver_blob_real,
                     partition: Partition {
@@ -1751,14 +1751,14 @@ mod tests {
             model_ctrl.create_hunk(
                 &mut context.repo_control,
                 &hunk).unwrap();
-            blob_control.write(
+            blob_control.write_hunk(
                 &mut context.repo_control,
                 &hunk,
                 &fake_blob).unwrap();
         }
 
         for hunk in &ver_hunks {
-            let blob = blob_control.read(&mut context.repo_control, &hunk).unwrap();
+            let blob = blob_control.read_hunk(&mut context.repo_control, &hunk).unwrap();
             assert_eq!(blob, fake_blob);
         }
 
@@ -1849,7 +1849,7 @@ mod tests {
 
             let mut blob_control = ::datatype::blob::model_controller(store);
             let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
-            let fake_blob = vec![0, 1, 2, 3, 4, 5, 6];
+            let fake_blob = ::datatype::blob::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
             let ver_hunks = ver_part_control
                     // Note that this is in ascending order, so version hash
                     // is correct.
@@ -1858,7 +1858,7 @@ mod tests {
                     .map(|partition_id| Hunk {
                         id: Identity {
                             uuid: Uuid::new_v4(),
-                            hash: blob_control.hash(&fake_blob),
+                            hash: blob_control.hash_payload(&fake_blob),
                         },
                         version: ver_blob_real,
                         partition: Partition {
@@ -1879,7 +1879,7 @@ mod tests {
                 model_ctrl.create_hunk(
                     &mut context.repo_control,
                     &hunk).unwrap();
-                blob_control.write(
+                blob_control.write_hunk(
                     &mut context.repo_control,
                     &hunk,
                     &fake_blob).unwrap();

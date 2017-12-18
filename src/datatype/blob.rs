@@ -22,7 +22,10 @@ impl<T> super::Model<T> for Blob {
         Description {
             name: "Blob".into(),
             version: 1,
-            representations: vec![RepresentationKind::State]
+            representations: vec![
+                        RepresentationKind::State,
+                        RepresentationKind::Delta,
+                    ]
                     .into_iter()
                     .collect(),
             implements: vec![],
@@ -79,28 +82,48 @@ pub fn model_controller(store: Store) -> impl ModelController {
 // - Below we have this ModelController extend a generic trait, in addition to
 //   composing with the MetaController trait. Which is preferrable?
 
+pub type StateType = Vec<u8>;
+pub type DeltaType = (Vec<usize>, Vec<u8>);
+
+#[derive(Debug, PartialEq)]
+pub enum Payload {
+    State(StateType),
+    Delta(DeltaType),
+}
+
+// pub enum PayloadRead<'a> {
+//     State(&'a [u8]),
+//     Delta((&'a [usize], &'a [u8])),
+// }
+
 pub trait ModelController: super::ModelController {
-    fn hash(
+    fn hash_payload(
         &self,
-        blob: &[u8],
+        payload: &Payload,
     ) -> u64 {
         let mut s = DefaultHasher::new();
-        blob.hash(&mut s);
+        match *payload {
+            Payload::State(ref blob) => blob.hash(&mut s),
+            Payload::Delta((ref indices, ref bytes)) => {
+                indices.hash(&mut s);
+                bytes.hash(&mut s)
+            },
+        }
         s.finish()
     }
 
-    fn write(
+    fn write_hunk(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
-        blob: &[u8],
+        payload: &Payload,
     ) -> Result<(), Error>;
 
-    fn read(
+    fn read_hunk(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
-    ) -> Result<Vec<u8>, Error>;
+    ) -> Result<Payload, Error>;
 }
 
 
@@ -119,7 +142,7 @@ impl PostgresMigration for PGMigrationBlobs {
     }
 
     fn down(&self, transaction: &Transaction) -> Result<(), PostgresError> {
-        transaction.execute("DROP TABLE blob_dtype;", &[]).map(|_| ())
+        transaction.batch_execute(include_str!("sql/blob_0001.down.sql"))
     }
 }
 
@@ -143,11 +166,11 @@ impl super::PostgresMetaController for PostgresStore {}
 impl super::ModelController for PostgresStore {}
 
 impl ModelController for PostgresStore {
-    fn write(
+    fn write_hunk(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
-        blob: &[u8],
+        payload: &Payload,
     ) -> Result<(), Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
@@ -157,24 +180,49 @@ impl ModelController for PostgresStore {
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
 
-        trans.execute(r#"
-                INSERT INTO blob_dtype (hunk_id, blob)
-                SELECT h.id, r.blob
-                FROM (VALUES ($1::uuid, $2::bigint, $3::bytea))
-                  AS r (uuid_, hash, blob)
-                JOIN hunk h
-                  ON (h.uuid_ = r.uuid_ AND h.hash = r.hash);
-            "#, &[&hunk.id.uuid, &(hunk.id.hash as i64), &blob])?;
+        match hunk.representation {
+            RepresentationKind::State =>
+                match *payload {
+                    Payload::State(ref blob) => {
+                        trans.execute(r#"
+                                INSERT INTO blob_dtype_state (hunk_id, blob)
+                                SELECT h.id, r.blob
+                                FROM (VALUES ($1::uuid, $2::bigint, $3::bytea))
+                                  AS r (uuid_, hash, blob)
+                                JOIN hunk h
+                                  ON (h.uuid_ = r.uuid_ AND h.hash = r.hash);
+                            "#, &[&hunk.id.uuid, &(hunk.id.hash as i64), &blob])?;
+                    }
+                    _ => return Err(Error::Store("Attempt to write state hunk with non-state payload".into())),
+                },
+            RepresentationKind::Delta =>
+                match *payload {
+                    Payload::Delta((ref indices_usize, ref bytes)) => {
+                        // TODO: Have to copy array here for type coercion.
+                        let indices = indices_usize.iter().map(|i| *i as i64).collect::<Vec<i64>>();
+                        trans.execute(r#"
+                                INSERT INTO blob_dtype_delta (hunk_id, indices, bytes)
+                                SELECT h.id, r.indices, r.bytes
+                                FROM (VALUES ($1::uuid, $2::bigint, $3::bigint[], $4::bytea))
+                                  AS r (uuid_, hash, indices, bytes)
+                                JOIN hunk h
+                                  ON (h.uuid_ = r.uuid_ AND h.hash = r.hash);
+                            "#, &[&hunk.id.uuid, &(hunk.id.hash as i64), &indices, &bytes])?;
+                    }
+                    _ => return Err(Error::Store("Attempt to write delta hunk with non-delta payload".into())),
+                },
+            _ => return Err(Error::Store("Attempt to write a hunk with an unsupported representation".into())),
+        }
 
         trans.set_commit();
         Ok(())
     }
 
-    fn read(
+    fn read_hunk(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Payload, Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
             _ => panic!("PostgresStore received a non-Postgres context")
@@ -183,15 +231,33 @@ impl ModelController for PostgresStore {
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
 
-        let blob_rows = trans.query(r#"
-                SELECT b.blob
-                FROM blob_dtype b
-                JOIN hunk h
-                  ON (h.id = b.hunk_id)
-                WHERE h.uuid_ = $1::uuid AND h.hash = $2::bigint;
-            "#, &[&hunk.id.uuid, &(hunk.id.hash as i64)])?;
-        let blob = blob_rows.get(0).get(0);
+        let payload = match hunk.representation {
+            RepresentationKind::State => {
+                let blob_rows = trans.query(r#"
+                        SELECT b.blob
+                        FROM blob_dtype_state b
+                        JOIN hunk h
+                          ON (h.id = b.hunk_id)
+                        WHERE h.uuid_ = $1::uuid AND h.hash = $2::bigint;
+                    "#, &[&hunk.id.uuid, &(hunk.id.hash as i64)])?;
+                Payload::State(blob_rows.get(0).get(0))
+            },
+            RepresentationKind::Delta => {
+                let blob_rows = trans.query(r#"
+                        SELECT b.indices, b.bytes
+                        FROM blob_dtype_delta b
+                        JOIN hunk h
+                          ON (h.id = b.hunk_id)
+                        WHERE h.uuid_ = $1::uuid AND h.hash = $2::bigint;
+                    "#, &[&hunk.id.uuid, &(hunk.id.hash as i64)])?;
+                let delta_row = blob_rows.get(0);
+                Payload::Delta((
+                    delta_row.get::<_, Vec<i64>>(0).into_iter().map(|i| i as usize).collect(),
+                    delta_row.get(1)))
+            },
+            _ => return Err(Error::Store("Attempt to read a hunk with an unsupported representation".into())),
+        };
 
-        Ok(blob)
+        Ok(payload)
     }
 }

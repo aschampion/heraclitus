@@ -44,6 +44,8 @@ pub type ProductionStrategies = HashMap<ProductionStrategyID, ProductionRepresen
 /// a producer supports.
 pub struct ProductionRepresentationCapability {
     inputs: HashMap<&'static str, EnumSet<RepresentationKind>>,
+    // TODO: should this also specify anything about the extant (parent) output
+    // representations?
     outputs: HashMap<&'static str, EnumSet<RepresentationKind>>,
 }
 

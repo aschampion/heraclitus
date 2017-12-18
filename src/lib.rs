@@ -73,9 +73,10 @@ pub struct Identity {
     uuid: Uuid,
     hash: u64,
     // TODO: does, e.g., a delta version hash its whole state or the delta state?
-    // could be multiple hashees for these, for now say that state versions
-    // hash whole state, delta versions hash deltas (but this is garbage, same
-    // delta versions would be ident even if state is different).
+    // could be multiple hashes for these.
+    // For now say that verions hash state/delta of hunks they own. A complete
+    // composite content hash requires partition mapping operations (later this
+    // could be memoized somewhere with the version).
     //internal: InternalId,
 }
 

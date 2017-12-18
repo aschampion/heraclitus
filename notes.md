@@ -95,9 +95,31 @@ Milestone Goals
 - [ ] Goals: partial partitions update in fake dtypes test
   - Requires:
     - [ ] Clearer distinction between delta and partial state representations
+      - One possibility: separate these at version level, that is, one representation kind that specifies partition density and another that specifies compatible representation kinds of those partitions
+        - If this, would the same representation kinds work for the partition-level repr? Specifically, what is a partition-level cumulative delta? Would seem to be collection of all changed partitions since some previous full state -- not unreasonable, but unlikely to be frequently used.
+        - Doesn't seem that this is actually needed anywhere, and can be determined from the version easily.
+      - Let's enumerate the problems:
+        - Even with a stateful version, how to efficiently enumerate all the hunks fulfilling sufficiency for that version (i.e., single-hunk-per-partition resolution)
+        - Extending this, with delta versions, enumerating the sets of hunks fulfilling sufficiency
+        - Not requiring O(|Partitions|) ops when making changes (that means, no full mapping out of hunk<>partitions for each version)
+        - Allowing delta-aware producers to be efficient
+          - Crtically, how is partition-masking vs. intra-partition deltas handled differently
     - [ ] Partition hunk history resolution
       - [ ] How to resolve from branched history
+        - [ ] Partition-level conflicts must be enumerated
+          - Merge version must either
+            - [ ] Provide a new state hunk
+            - [ ] Designate a "winning" conflict hunk
+            - [ ] Designate a "winning" conflict hunk and provide own delta/cumulative delta hunk
+          - Requires
+            - Hunk precedence relating version to hunk of some ancestor version
+              - Should point to hunk directly, or just partition?
+              - Model constraints: requires no hunks for that partition on *some* ancestry path from version to ancestor
+          - Partition-level conflicts can be determined using only the more proximate of (a) nearest common ancestor (3-way merge base) or (b) sufficient ancestors
+          - What about >2 branch merge?
+          - Rebasing can reuse much of this
     - [ ] Sufficient ancestry
+      - Must be to node with state hunk representation, but can be partition-sparse
 - [ ] Goal: delta state updates in producer test
   - Requires:
     - [x] Representation persistence
@@ -314,7 +336,7 @@ Change notification/propagation:
   - When a version is committed:
     - [x] Check for producers
       - [x] If any, apply production strategy based on parent version to generate producer versions
-      - [ ] Notify/invoke producer for generated producer versions
+      - [x] Notify/invoke producer for generated producer versions
   - First problem: how to specify version to commit
     - ID only requires re-fetching local graph
     - Can have either ID *OR* VG + VGIndex
@@ -350,3 +372,4 @@ Misc. Cleanup
   - [ ] Dependency/input/output name strings
   - [ ] Interface identifiers
   - [ ] Datatype identifiers
+- [ ] Model controllers should have a verify_hunk_hash method, e.g., if in trait Foo would impl<T: DatatypesModelController> Foo<T>. Not clear if these sorts of methods should be on datatype::MetaController or datatype::ModelController.
