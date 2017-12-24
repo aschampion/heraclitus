@@ -2,11 +2,14 @@ extern crate daggy;
 
 use std;
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
 
 use enum_set::EnumSet;
 
-use super::Datatype;
-use super::store::Store;
+use ::{Composition, Datatype, Error, Hunk};
+use ::store::Store;
 use self::interface::{PartitioningController, ProducerController};
 
 
@@ -111,6 +114,8 @@ pub struct InterfaceDescription {
     extends: HashSet<&'static str>,
 }
 
+/// Common interface to all datatypes that does not involve their state or
+/// types associated with their state.
 pub trait MetaController {
 }
 
@@ -127,7 +132,45 @@ pub trait Model<T> {
     fn interface_controller(&self, store: Store, name: &str) -> Option<T>;
 }
 
-pub trait ModelController {}
+#[derive(Debug, Hash, PartialEq)]
+pub enum Payload<S, D> {
+    State(S),
+    Delta(D),
+}
+
+/// Common interface to all datatypes that involves state.
+pub trait ModelController {
+    type StateType: Debug + Hash + PartialEq;
+    type DeltaType: Debug + Hash + PartialEq;
+
+    fn hash_payload(
+        &self,
+        payload: &Payload<Self::StateType, Self::DeltaType>,
+    ) -> ::HashType {
+        let mut s = DefaultHasher::new();
+        payload.hash(&mut s);
+        s.finish()
+    }
+
+    fn write_hunk(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunk: &Hunk,
+        payload: &Payload<Self::StateType, Self::DeltaType>,
+    ) -> Result<(), Error>;
+
+    fn read_hunk(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunk: &Hunk,
+    ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error>;
+
+    fn get_composite_state(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        composition: &Composition,
+    ) -> Result<Self::StateType, Error>;
+}
 
 // TODO:
 // - Sync/compare datatype defs with store

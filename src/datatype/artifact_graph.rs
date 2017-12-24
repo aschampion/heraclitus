@@ -1728,7 +1728,7 @@ mod tests {
     use std::hash::{Hash, Hasher};
 
     use ::{Context, PartCompletion};
-    use ::datatype::blob::ModelController as BlobModelController;
+    use ::datatype::ModelController as DatatypeModelController;
     use datatype::partitioning::arbitrary::ModelController as ArbitraryPartitioningModelController;
     use ::datatype::producer::tests::NegateBlobProducer;
 
@@ -1905,7 +1905,7 @@ mod tests {
 
         let mut blob_control = ::datatype::blob::model_controller(store);
         let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
-        let fake_blob = ::datatype::blob::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
+        let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
         let ver_hunks = ver_part_control
                 .get_partition_ids(&mut context.repo_control, ver_partitioning)
                 .iter()
@@ -2027,7 +2027,7 @@ mod tests {
 
             let mut blob_control = ::datatype::blob::model_controller(store);
             let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
-            let fake_blob = ::datatype::blob::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
+            let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
             let ver_hunks = ver_part_control
                     // Note that this is in ascending order, so version hash
                     // is correct.
@@ -2127,7 +2127,7 @@ mod tests {
 
             let mut blob_control = ::datatype::blob::model_controller(store);
             let ver_blob_real = ver_graph.versions.node_weight(blob1_ver2_idx).unwrap();
-            let fake_blob = ::datatype::blob::Payload::Delta((vec![1, 6], vec![7, 8]));
+            let fake_blob = ::datatype::Payload::Delta((vec![1, 6], vec![7, 8]));
             let ver_hunks = ver_part_control
                     // Note that this is in ascending order, so version hash
                     // is correct.

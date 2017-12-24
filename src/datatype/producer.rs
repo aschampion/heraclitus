@@ -115,8 +115,8 @@ pub(crate) mod tests {
     use ::{
         ArtifactRelation, Hunk, Identity, IdentifiableGraph,
         PartCompletion, Version, VersionRelation};
+    use datatype::{Payload, ModelController as DatatypeModelController};
     use datatype::artifact_graph::ModelController as ArtifactGraphModelController;
-    use datatype::blob::ModelController as BlobModelController;
 
 
     #[derive(Default)]
@@ -205,8 +205,6 @@ pub(crate) mod tests {
             ver_graph: &mut VersionGraph<'a, 'b>,
             v_idx: VersionGraphIndex,
         ) -> Result<ProductionOutput, Error> {
-            use ::datatype::blob::Payload as BlobPayload;
-
             // Find input relation, artifact, and versions.
             let input_art_relation = ArtifactRelation::ProducedFrom("input".into());
             let input_relation = VersionRelation::Dependence(&input_art_relation);
@@ -296,10 +294,10 @@ pub(crate) mod tests {
                 for input_hunk in &input_hunks {
                     let input_blob = blob_control.read_hunk(repo_control, input_hunk).expect("TODO");
                     let output_blob = match input_blob {
-                        BlobPayload::State(ref blob) =>
-                            BlobPayload::State(blob.iter().cloned().map(|b| !b).collect::<Vec<u8>>()),
-                        BlobPayload::Delta((ref indices, ref bytes)) =>
-                            BlobPayload::Delta((
+                        Payload::State(ref blob) =>
+                            Payload::State(blob.iter().cloned().map(|b| !b).collect::<Vec<u8>>()),
+                        Payload::Delta((ref indices, ref bytes)) =>
+                            Payload::Delta((
                                 indices.clone(),
                                 bytes.iter().clone().map(|b| !b).collect::<Vec<u8>>(),
                             )),

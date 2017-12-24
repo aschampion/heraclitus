@@ -2,15 +2,12 @@ extern crate schemer;
 extern crate uuid;
 
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
-use ::{Composition, HashType, RepresentationKind, Error, Hunk};
-use super::{Description, Store};
+use ::{Composition, RepresentationKind, Error, Hunk};
+use super::{Description, Payload, Store};
 use ::repo::{PostgresMigratable};
 
 
@@ -82,74 +79,43 @@ pub fn model_controller(store: Store) -> impl ModelController {
 // - Below we have this ModelController extend a generic trait, in addition to
 //   composing with the MetaController trait. Which is preferrable?
 
-pub type StateType = Vec<u8>;
-pub type DeltaType = (Vec<usize>, Vec<u8>);
+type StateType = Vec<u8>;
+type DeltaType = (Vec<usize>, Vec<u8>);
 
-#[derive(Debug, PartialEq)]
-pub enum Payload {
-    State(StateType),
-    Delta(DeltaType),
-}
+macro_rules! common_model_controller_impl {
+    () => (
+        type StateType = StateType;
+        type DeltaType = DeltaType;
 
-// pub enum PayloadRead<'a> {
-//     State(&'a [u8]),
-//     Delta((&'a [usize], &'a [u8])),
-// }
+        fn get_composite_state(
+            &self,
+            repo_control: &mut ::repo::StoreRepoController,
+            composition: &Composition,
+        ) -> Result<Self::StateType, Error> {
+            let mut hunk_iter = composition.iter().rev();
 
-pub trait ModelController: super::ModelController {
-    fn hash_payload(
-        &self,
-        payload: &Payload,
-    ) -> HashType {
-        let mut s = DefaultHasher::new();
-        match *payload {
-            Payload::State(ref blob) => blob.hash(&mut s),
-            Payload::Delta((ref indices, ref bytes)) => {
-                indices.hash(&mut s);
-                bytes.hash(&mut s)
-            },
-        }
-        s.finish()
-    }
+            let mut state = match self.read_hunk(repo_control, hunk_iter.next().expect("TODO"))? {
+                Payload::State(mut state) => state,
+                _ => panic!("Composition rooted in non-state hunk"),
+            };
 
-    fn write_hunk(
-        &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
-        hunk: &Hunk,
-        payload: &Payload,
-    ) -> Result<(), Error>;
-
-    fn read_hunk(
-        &self,
-        repo_control: &mut ::repo::StoreRepoController,
-        hunk: &Hunk,
-    ) -> Result<Payload, Error>;
-
-    fn get_composite_state(
-        &self,
-        repo_control: &mut ::repo::StoreRepoController,
-        composition: &Composition,
-    ) -> Result<StateType, Error> {
-        let mut hunk_iter = composition.iter().rev();
-
-        let mut state = match self.read_hunk(repo_control, hunk_iter.next().expect("TODO"))? {
-            Payload::State(mut state) => state,
-            _ => panic!("Composition rooted in non-state hunk"),
-        };
-
-        for hunk in hunk_iter {
-            match self.read_hunk(repo_control, hunk)? {
-                Payload::State(_) => panic!("TODO: shouldn't have non-root state"),
-                Payload::Delta(ref delta) => {
-                    for (&idx, &val) in delta.0.iter().zip(delta.1.iter()) {
-                        state[idx] = val;
+            for hunk in hunk_iter {
+                match self.read_hunk(repo_control, hunk)? {
+                    Payload::State(_) => panic!("TODO: shouldn't have non-root state"),
+                    Payload::Delta(ref delta) => {
+                        for (&idx, &val) in delta.0.iter().zip(delta.1.iter()) {
+                            state[idx] = val;
+                        }
                     }
                 }
             }
-        }
 
-        Ok(state)
-    }
+            Ok(state)
+        }
+    )
+}
+
+pub trait ModelController: super::ModelController<StateType=StateType, DeltaType=DeltaType> {
 }
 
 
@@ -189,14 +155,14 @@ impl PostgresMigratable for PostgresStore {
 
 impl super::PostgresMetaController for PostgresStore {}
 
-impl super::ModelController for PostgresStore {}
+impl super::ModelController for PostgresStore {
+    common_model_controller_impl!();
 
-impl ModelController for PostgresStore {
     fn write_hunk(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
-        payload: &Payload,
+        payload: &Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
@@ -248,7 +214,7 @@ impl ModelController for PostgresStore {
         &self,
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
-    ) -> Result<Payload, Error> {
+    ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
             _ => panic!("PostgresStore received a non-Postgres context")
@@ -287,3 +253,5 @@ impl ModelController for PostgresStore {
         Ok(payload)
     }
 }
+
+impl ModelController for PostgresStore {}
