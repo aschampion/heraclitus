@@ -232,7 +232,9 @@ pub(crate) mod tests {
             let output_art = &art_graph.artifacts[output_art_idx];
 
             // Create output version.
-            let ver_blob = Version::new(output_art, RepresentationKind::State);
+            let ver_blob = Version::new(
+                output_art,
+                ver_graph.versions[input_ver].representation);
             let ver_blob_idx = ver_graph.versions.add_node(ver_blob);
             ver_graph.versions.add_edge(
                 v_idx,
@@ -286,7 +288,8 @@ pub(crate) mod tests {
                 let input_hunks = ag_control.get_hunks(
                     repo_control,
                     &ver_graph.versions[input_ver],
-                    &ver_graph.versions[input_ver_part_idx]).expect("TODO");
+                    &ver_graph.versions[input_ver_part_idx],
+                    None).expect("TODO");
 
                 // Create output hunks computed from input hunks.
                 let mut blob_control = ::datatype::blob::model_controller(repo_control.store());
@@ -307,9 +310,10 @@ pub(crate) mod tests {
                             hash: blob_control.hash_payload(&output_blob),
                         },
                         version: &ver_graph.versions[ver_blob_idx],
-                        representation: RepresentationKind::State,
+                        representation: input_hunk.representation,
                         partition: input_hunk.partition.clone(),
                         completion: PartCompletion::Complete,
+                        precedence: None, // TODO
                     };
                     output_hunk.id.hash.hash(&mut ver_hash);
 

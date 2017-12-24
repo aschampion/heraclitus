@@ -19,9 +19,10 @@ use uuid::Uuid;
 use ::{
     Artifact, ArtifactGraph, ArtifactGraphIndex, ArtifactGraphEdgeIndex,
     ArtifactRelation,
-    DatatypeRelation, RepresentationKind, Error, Hunk, Identity,
+    CompositionMap,
+    DatatypeRelation, RepresentationKind, Error, HashType, Hunk, Identity,
     IdentifiableGraph,
-    Partition,
+    Partition, PartitionIndex,
     Version, VersionGraph, VersionGraphIndex,
     VersionRelation, VersionStatus};
 use super::{
@@ -199,7 +200,61 @@ impl ProductionPolicy for ExtantProductionPolicy {
                                              .expect("Non-existent version");
         let mut specs = ProductionVersionSpecs::new();
 
-        // TODO
+        // The dependency version must have parents, and all its parents must
+        // have related dependent versions of this producer.
+        // TODO: version artifact and producer artifact could share multiple
+        // relationships. This is not yet handled.
+        let v_parents: BTreeSet<VersionGraphIndex> = ver_graph.get_parents(v_idx)
+            .iter().cloned().collect();
+        if v_parents.is_empty() {
+            return specs
+        }
+
+        let dep_art_idx = art_graph.find_by_id(&ver_graph.versions[v_idx].artifact.id).unwrap().0;
+        // TODO: Petgraph doesn't allow multiedges?
+        let ver_rels = [
+            VersionRelation::Dependence(
+                &art_graph.artifacts[art_graph.artifacts.graph()
+                    .find_edge(dep_art_idx, p_art_idx).expect("TODO")]),
+        ];
+
+        // TODO: a mess that could be written much more concisely.
+        for parent_v_idx in &v_parents {
+            for ver_rel in &ver_rels {
+                let prod_vers = ver_graph.get_related_versions(
+                    *parent_v_idx,
+                    ver_rel,
+                    petgraph::Direction::Outgoing);
+
+                for prod_ver in &prod_vers {
+                    let mut dependencies = ProductionDependenciesSpecs::new();
+
+                    for (e_idx, d_idx) in ver_graph.versions.parents(*prod_ver).iter(&ver_graph.versions) {
+                        if let VersionRelation::Dependence(ref art_rel) = ver_graph.versions[e_idx] {
+                            let new_dep_vers = match v_parents.contains(&d_idx) {
+                                true => v_idx,
+                                false => d_idx,
+                            };
+
+                            // TODO: stupid. stupid. stupid.
+                            let e_art_idx = art_graph.artifacts.graph()
+                                .edges_directed(
+                                    p_art_idx,
+                                    petgraph::Direction::Incoming)
+                                .filter(|e| e.weight() == *art_rel)
+                                .map(|e| e.id())
+                                .nth(0).expect("TODO");
+
+                            dependencies.insert(ProductionDependencySpec {
+                                version: new_dep_vers,
+                                relation: e_art_idx});
+                        }
+                    }
+
+                    specs.insert(dependencies, Some(*prod_ver));
+                }
+            }
+        }
 
         specs
     }
@@ -570,12 +625,29 @@ pub trait ModelController {
         hunk: &Hunk,
     ) -> Result<(), Error>;
 
+    /// Get hunks directly associated with a version.
+    ///
+    /// # Arguments
+    ///
+    /// - `partitions` - Partitions indices for which to return hunks. If
+    ///                  `None`, return hunks for all partitions.
     fn get_hunks<'a, 'b, 'c, 'd>(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
         version: &'d Version<'a, 'b>,
-        partitioning: &'c Version<'a, 'b>
+        partitioning: &'c Version<'a, 'b>,
+        partitions: Option<&BTreeSet<PartitionIndex>>,
     ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error>;
+
+    /// Get hunk sets sufficient to reconstruct composite states for a set of
+    /// partitions.
+    fn get_composition_map<'a: 'b, 'b: 'r, 'c, 'd, 'r: 'c + 'd>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        ver_graph: &'r VersionGraph<'a, 'b>,
+        v_idx: VersionGraphIndex,
+        partitions: BTreeSet<PartitionIndex>,
+    ) -> Result<CompositionMap<'a, 'b, 'c, 'd>, Error>;
 
     fn write_production_specs<'a, 'b>(
         &mut self,
@@ -668,13 +740,13 @@ impl PostgresStore {
             let ver_node_id: i64 = ver_node_row.get(VerNodeRow::ID as usize);
             let an_id = Identity {
                 uuid: ver_node_row.get(VerNodeRow::ArtifactUUID as usize),
-                hash: ver_node_row.get::<_, i64>(VerNodeRow::ArtifactHash as usize) as u64,
+                hash: ver_node_row.get::<_, i64>(VerNodeRow::ArtifactHash as usize) as HashType,
             };
             let (art_idx, art) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
 
             let ver_id = Identity {
                 uuid: ver_node_row.get(VerNodeRow::UUID as usize),
-                hash: ver_node_row.get::<_, i64>(VerNodeRow::Hash as usize) as u64,
+                hash: ver_node_row.get::<_, i64>(VerNodeRow::Hash as usize) as HashType,
             };
 
             let ver_node_idx = ver_graph.emplace(
@@ -739,13 +811,13 @@ impl PostgresStore {
             let db_id = row.get::<_, i64>(AncNodeRow::ID as usize);
             let an_id = Identity {
                 uuid: row.get(AncNodeRow::ArtifactUUID as usize),
-                hash: row.get::<_, i64>(AncNodeRow::ArtifactHash as usize) as u64,
+                hash: row.get::<_, i64>(AncNodeRow::ArtifactHash as usize) as HashType,
             };
 
             if !idx_map.contains_key(&db_id) {
                 let v_id = Identity {
                     uuid: row.get(AncNodeRow::UUID as usize),
-                    hash: row.get::<_, i64>(AncNodeRow::Hash as usize) as u64,
+                    hash: row.get::<_, i64>(AncNodeRow::Hash as usize) as HashType,
                 };
 
                 let v_idx = ver_graph.emplace(
@@ -802,7 +874,7 @@ impl PostgresStore {
             let db_id = row.get::<_, i64>(DepNodeRow::ID as usize);
             let an_id = Identity {
                 uuid: row.get(DepNodeRow::ArtifactUUID as usize),
-                hash: row.get::<_, i64>(DepNodeRow::ArtifactHash as usize) as u64,
+                hash: row.get::<_, i64>(DepNodeRow::ArtifactHash as usize) as HashType,
             };
             let (an_idx, an) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
 
@@ -810,7 +882,7 @@ impl PostgresStore {
                 .or_insert_with(|| {
                     let v_id = Identity {
                         uuid: row.get(DepNodeRow::UUID as usize),
-                        hash: row.get::<_, i64>(DepNodeRow::Hash as usize) as u64,
+                        hash: row.get::<_, i64>(DepNodeRow::Hash as usize) as HashType,
                     };
 
                     ver_graph.emplace(
@@ -977,7 +1049,7 @@ impl ModelController for PostgresStore {
         let ag_row = ag_rows.get(0);
         let ag_id = Identity {
             uuid: ag_row.get(1),
-            hash: ag_row.get::<_, i64>(2) as u64,
+            hash: ag_row.get::<_, i64>(2) as HashType,
         };
 
         enum NodeRow {
@@ -1006,7 +1078,7 @@ impl ModelController for PostgresStore {
             let db_id = row.get::<_, i64>(NodeRow::ID as usize);
             let id = Identity {
                 uuid: row.get(NodeRow::UUID as usize),
-                hash: row.get::<_, i64>(NodeRow::Hash as usize) as u64,
+                hash: row.get::<_, i64>(NodeRow::Hash as usize) as HashType,
             };
             let dtype_name = &row.get::<_, String>(NodeRow::DatatypeName as usize);
             let node = Artifact {
@@ -1417,7 +1489,7 @@ impl ModelController for PostgresStore {
         let trans = conn.transaction()?;
 
         // TODO should check that version is not committed
-        trans.execute(r#"
+        let version_id_row = trans.query(r#"
                 INSERT INTO hunk (
                     uuid_, hash,
                     version_id, partition_id,
@@ -1429,11 +1501,24 @@ impl ModelController for PostgresStore {
                         $6::representation_kind, $7::part_completion))
                   AS r (uuid_, hash, v_uuid, v_hash, partition_id, representation, completion)
                 JOIN version v
-                  ON (v.uuid_ = r.v_uuid AND v.hash = r.v_hash);
+                  ON (v.uuid_ = r.v_uuid AND v.hash = r.v_hash)
+                RETURNING version_id;
             "#, &[&hunk.id.uuid, &(hunk.id.hash as i64),
                   &hunk.version.id.uuid, &(hunk.version.id.hash as i64),
                   &(hunk.partition.index as i64),
                   &hunk.representation, &hunk.completion])?;
+
+        if let Some(ref ver_uuid) = hunk.precedence {
+            let version_id: i64 = version_id_row.get(0).get(0);
+            trans.execute(r#"
+                    INSERT INTO hunk_precedence
+                        (merge_version_id, partition_id, precedent_version_id)
+                    SELECT r.merge_version_id, r.partition_id, hpv.id
+                    FROM (VALUES ($1::bigint, $2::bigint, $3::uuid))
+                      AS r (merge_version_id, partition_id, precedent_version_uuid)
+                    JOIN version hpv ON (hpv.uuid_ = r.precedent_version_uuid);
+                "#, &[&version_id, &(hunk.partition.index as i64), ver_uuid])?;
+        }
 
         trans.set_commit();
         Ok(())
@@ -1443,7 +1528,8 @@ impl ModelController for PostgresStore {
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
         version: &'d Version<'a, 'b>,
-        partitioning: &'c Version<'a, 'b>
+        partitioning: &'c Version<'a, 'b>,
+        partitions: Option<&BTreeSet<PartitionIndex>>,
     ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error> {
         let rc = match *repo_control {
             ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
@@ -1459,31 +1545,122 @@ impl ModelController for PostgresStore {
             PartitionID,
             Representation,
             Completion,
+            PrecedingVersionUuid,
         };
-        let hunk_rows = trans.query(r#"
-                SELECT h.uuid_, h.hash, h.partition_id, h.representation, h.completion
+        let hunk_query = r#"
+                SELECT
+                    h.uuid_, h.hash, h.partition_id, h.representation, h.completion,
+                    hpv.uuid_
                 FROM version v
                 JOIN hunk h ON (h.version_id = v.id)
-                WHERE v.uuid_ = $1::uuid AND v.hash = $2::bigint;"#,
-            &[&version.id.uuid, &(version.id.hash as i64)])?;
+                LEFT JOIN hunk_precedence hp
+                  ON (hp.merge_version_id = v.id AND h.partition_id = hp.partition_id)
+                LEFT JOIN version hpv ON (hp.precedent_version_id = v.id)
+                WHERE v.uuid_ = $1::uuid AND v.hash = $2::bigint"#;
+        let hunk_rows = match partitions {
+            Some(ref part_idxs) => {
+                // TODO: annoying vec cast
+                let part_idxs_db = part_idxs.iter().map(|i| *i as i64).collect::<Vec<i64>>();
+                trans.query(
+                    // TODO: can change to concat! or something after const fns land
+                    format!("{}{}", &hunk_query, " AND h.partition_id = ANY($3::bigint[])").as_str(),
+                    &[&version.id.uuid, &(version.id.hash as i64), &part_idxs_db])?
+            },
+            None =>
+                trans.query(
+                    hunk_query,
+                    &[&version.id.uuid, &(version.id.hash as i64)])?
+        };
+
         let mut hunks = Vec::new();
         for row in &hunk_rows {
             hunks.push(Hunk {
                 id: Identity {
                     uuid: row.get(HunkRow::UUID as usize),
-                    hash: row.get::<_, i64>(HunkRow::Hash as usize) as u64,
+                    hash: row.get::<_, i64>(HunkRow::Hash as usize) as HashType,
                 },
                 version: version,
                 partition: Partition {
                     partitioning: partitioning,
-                    index: row.get::<_, i64>(HunkRow::PartitionID as usize) as u64,
+                    index: row.get::<_, i64>(HunkRow::PartitionID as usize) as PartitionIndex,
                 },
                 representation: row.get(HunkRow::Representation as usize),
                 completion: row.get(HunkRow::Completion as usize),
+                precedence: row.get(HunkRow::PrecedingVersionUuid as usize),
             });
         }
 
         Ok(hunks)
+    }
+
+    fn get_composition_map<'a: 'b, 'b: 'r, 'c, 'd, 'r: 'c + 'd>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        ver_graph: &'r VersionGraph<'a, 'b>,
+        v_idx: VersionGraphIndex,
+        partitions: BTreeSet<PartitionIndex>,
+    ) -> Result<CompositionMap<'a, 'b, 'c, 'd>, Error> {
+        // TODO: assumes whole version graph is loaded.
+        // TODO: not store-specific, but could be optimized to be so.
+        let ancestors = ::util::petgraph::induced_stream_toposort(
+            ver_graph.versions.graph(),
+            &[v_idx],
+            petgraph::Direction::Incoming,
+            |e: &VersionRelation| match *e {
+                VersionRelation::Parent => true,
+                _ => false
+            })?;
+
+        let mut map = CompositionMap::new();
+        // Partition indices that have not yet been resolved.
+        let mut unresolved: BTreeSet<PartitionIndex> = partitions.clone();
+        // Partition indices that are locked from composition changes because
+        // they have received a hunk from an unreached version.
+        let mut locked: BTreeMap<Uuid, BTreeSet<PartitionIndex>> = BTreeMap::new();
+
+        for n_idx in ancestors.into_iter() {
+            let version = &ver_graph.versions[n_idx];
+
+            if let Some(mut part_idxs) = locked.remove(&version.id.uuid) {
+                unresolved.append(&mut part_idxs);
+            }
+
+            let hunks = self.get_hunks(
+                repo_control,
+                version,
+                &ver_graph.versions[ver_graph.get_partitioning(n_idx).unwrap().0],
+                // ver_graph.get_partitioning(n_idx).unwrap().1,
+                Some(&unresolved))?;
+
+            for hunk in hunks.into_iter() {
+                let part_idx = hunk.partition.index;
+
+                if hunk.representation == RepresentationKind::State {
+                    unresolved.remove(&part_idx);
+                }
+
+                if let Some(ver_uuid) = hunk.precedence {
+                    locked.entry(ver_uuid)
+                        .or_insert_with(|| BTreeSet::new())
+                        .insert(hunk.partition.index);
+                    unresolved.remove(&hunk.partition.index);
+                }
+
+                map.entry(part_idx)
+                    .or_insert_with(|| vec![])
+                    .push(hunk);
+            }
+
+            // If sufficient ancestry is reached, return early.
+            if unresolved.is_empty() && locked.is_empty() {
+                return Ok(map)
+            }
+        }
+
+        assert!(
+            unresolved.is_empty() && locked.is_empty(),
+            "Composition map was unfulfilled!");
+        Ok(map)
     }
 
     fn write_production_specs<'a, 'b>(
@@ -1744,6 +1921,7 @@ mod tests {
                     },
                     representation: RepresentationKind::State,
                     completion: PartCompletion::Complete,
+                    precedence: None,
                 }).collect::<Vec<_>>();
 
         // Can't do this in an iterator because of borrow conflict on context?
@@ -1867,6 +2045,7 @@ mod tests {
                         },
                         representation: RepresentationKind::State,
                         completion: PartCompletion::Complete,
+                        precedence: None,
                     }).collect::<Vec<_>>();
             let ver_hash = ver_hunks.iter()
                 .fold(
@@ -1921,6 +2100,140 @@ mod tests {
             vg2.versions[blob3_vg2_idxs[0]].id.hash,
             "Version hashes for original and double-negated blob should match.",
             );
+
+        // Test delta state updates.
+        let blob1_ver2 = Version::new(blob1_art, RepresentationKind::Delta);
+        let blob1_ver2_idx = ver_graph.versions.add_node(blob1_ver2);
+        ver_graph.versions.add_edge(part_idx, blob1_ver2_idx,
+            VersionRelation::Dependence(
+                &ag.artifacts[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()])).unwrap();
+        ver_graph.versions.add_edge(blob1_ver_idx, blob1_ver2_idx, VersionRelation::Parent);
+
+        model_ctrl.create_staging_version(
+            &mut context.repo_control,
+            &ver_graph,
+            blob1_ver2_idx.clone()).unwrap();
+
+        let ver2_hash = {
+            let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver2_idx).unwrap();
+            let ver_part_control: Box<::datatype::interface::PartitioningController> =
+                    context.dtypes_registry.models
+                                          .get(&ver_partitioning.artifact.dtype.name)
+                                          .expect("Datatype must be known")
+                                          .as_model()
+                                          .interface_controller(store, "Partitioning")
+                                          .expect("Partitioning must have controller for store")
+                                          .into();
+
+            let mut blob_control = ::datatype::blob::model_controller(store);
+            let ver_blob_real = ver_graph.versions.node_weight(blob1_ver2_idx).unwrap();
+            let fake_blob = ::datatype::blob::Payload::Delta((vec![1, 6], vec![7, 8]));
+            let ver_hunks = ver_part_control
+                    // Note that this is in ascending order, so version hash
+                    // is correct.
+                    .get_partition_ids(&mut context.repo_control, ver_partitioning)
+                    .iter()
+                    .take(1)
+                    .map(|partition_id| Hunk {
+                        id: Identity {
+                            uuid: Uuid::new_v4(),
+                            hash: blob_control.hash_payload(&fake_blob),
+                        },
+                        version: ver_blob_real,
+                        partition: Partition {
+                            partitioning: ver_partitioning,
+                            index: partition_id.to_owned(),
+                        },
+                        representation: RepresentationKind::Delta,
+                        completion: PartCompletion::Complete,
+                        precedence: None,
+                    }).collect::<Vec<_>>();
+            let ver_hash = ver_hunks.iter()
+                .fold(
+                    DefaultHasher::new(),
+                    |mut s, hunk| {hunk.id.hash.hash(&mut s); s})
+                .finish();
+
+            for hunk in &ver_hunks {
+                model_ctrl.create_hunk(
+                    &mut context.repo_control,
+                    &hunk).unwrap();
+                blob_control.write_hunk(
+                    &mut context.repo_control,
+                    &hunk,
+                    &fake_blob).unwrap();
+            }
+
+            ver_hash
+        };
+
+        ver_graph.versions[blob1_ver2_idx].id.hash = ver2_hash;
+
+        model_ctrl.commit_version(
+            &context.dtypes_registry,
+            &mut context.repo_control,
+            &ag,
+            &mut ver_graph,
+            blob1_ver2_idx).expect("Commit blob failed");
+
+        let vg3 = model_ctrl.get_version_graph(
+            &mut context.repo_control,
+            &ag).unwrap();
+
+        println!("{:?}", petgraph::dot::Dot::new(&vg3.versions.graph()));
+
+        let blob1_vg3_idxs = vg3.artifact_versions(
+            &ag.artifacts[idxs[0]]);
+
+        let blob2_vg3_idxs = vg3.artifact_versions(
+            &ag.artifacts[idxs[2]]);
+
+        assert_eq!(blob2_vg3_idxs.len(), 2);
+
+        let blob3_vg3_idxs = vg3.artifact_versions(
+            &ag.artifacts[idxs[4]]);
+
+        assert_eq!(blob3_vg3_idxs.len(), 2);
+
+        assert_eq!(
+            vg3.versions[blob1_vg3_idxs[1]].id.hash,
+            vg3.versions[blob3_vg3_idxs[1]].id.hash,
+            "Version hashes for original and double-negated blob should match.",
+            );
+
+        {
+            use datatype::interface::PartitioningController;
+            let mut part_control = ::datatype::partitioning::arbitrary::model_controller(store);
+            let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
+            let part_ids = part_control.get_partition_ids(&mut context.repo_control, ver_partitioning);
+
+            let map1 = model_ctrl.get_composition_map(
+                &mut context.repo_control,
+                &ver_graph,
+                blob1_vg3_idxs[1],
+                part_ids.clone(),
+            ).unwrap();
+            let map3 = model_ctrl.get_composition_map(
+                &mut context.repo_control,
+                &ver_graph,
+                blob3_vg3_idxs[1],
+                part_ids,
+            ).unwrap();
+            let mut blob_control = ::datatype::blob::model_controller(store);
+
+            for (p_id, blob1_comp) in &map1 {
+                let blob3_comp = &map3[p_id];
+
+                let blob1_state = blob_control.get_composite_state(
+                    &mut context.repo_control,
+                    blob1_comp).unwrap();
+                let blob3_state = blob_control.get_composite_state(
+                    &mut context.repo_control,
+                    blob3_comp).unwrap();
+
+                assert_eq!(blob1_state, blob3_state);
+            }
+        }
     }
 
     #[test]

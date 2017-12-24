@@ -12,3 +12,4 @@ DROP TABLE version_parent;
 DROP TABLE version_relation;
 DROP TYPE part_completion;
 DROP TABLE hunk;
+DROP TABLE hunk_precedence;

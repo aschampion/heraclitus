@@ -47,6 +47,7 @@ use datatype::artifact_graph::{ArtifactGraphDescription};
 pub mod datatype;
 pub mod repo;
 pub mod store;
+mod util;
 
 pub fn noop() {
     println!("Test");
@@ -57,6 +58,7 @@ pub enum Error {
     Io(io::Error),
     Store(String),
     Model(String),
+    TODO(&'static str),
 }
 
 impl<T: Debug> From<daggy::WouldCycle<T>> for Error {
@@ -67,11 +69,12 @@ impl<T: Debug> From<daggy::WouldCycle<T>> for Error {
 
 
 //struct InternalId(u64);
+pub type HashType = u64;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Identity {
     uuid: Uuid,
-    hash: u64,
+    hash: HashType,
     // TODO: does, e.g., a delta version hash its whole state or the delta state?
     // could be multiple hashes for these.
     // For now say that verions hash state/delta of hunks they own. A complete
@@ -288,7 +291,7 @@ impl<'a> ArtifactGraph<'a> {
                     let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
                     artifacts.node_weight(*new_p_idx).expect("Graph is malformed.").id.hash
                 })
-                .collect::<Vec<u64>>();
+                .collect::<Vec<HashType>>();
             sorted_parent_hashes.sort();
             for hash in &sorted_parent_hashes {
                 hash.hash(&mut s);
@@ -361,7 +364,7 @@ impl<'a> ArtifactGraph<'a> {
                 .map(|(_, p_idx)| {
                     self.artifacts[p_idx].id.hash
                 })
-                .collect::<Vec<u64>>();
+                .collect::<Vec<HashType>>();
             sorted_parent_hashes.sort();
             for hash in &sorted_parent_hashes {
                 hash.hash(&mut s);
@@ -477,6 +480,16 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
             .collect()
     }
 
+    pub fn get_parents(
+        &self,
+        v_idx: VersionGraphIndex,
+    ) -> Vec<VersionGraphIndex> {
+        self.get_related_versions(
+            v_idx,
+            &VersionRelation::Parent,
+            petgraph::Direction::Incoming)
+    }
+
     pub fn get_partitioning(
         &self,
         v_idx: VersionGraphIndex
@@ -513,7 +526,10 @@ for VersionGraph<'a, 'b> {
 
 #[derive(Debug, PartialEq)]
 pub enum VersionRelation<'b>{
+    /// The target version is dependent on the source version congruent with
+    /// a artifact dependence relationship.
     Dependence(&'b ArtifactRelation),
+    /// The target version is a child version of the source version.
     Parent,
 }
 
@@ -578,6 +594,10 @@ pub enum PartCompletion {
     Ragged,
 }
 
+/// Metadata for a version's data for a particular partition.
+///
+/// The absence of a hunk for a partition for a version indicates the version
+/// made no changes relative to its parent versions' hunks for that partition.
 #[derive(Debug)]
 pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
     // Is this a Hunk or a Patch (in which case changeset items would be hunks)?
@@ -590,6 +610,9 @@ pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
     /// combinations of any hunk representations.
     representation: RepresentationKind,
     completion: PartCompletion,
+    /// Indicates for a merge version which ancestral version's hunk takes
+    /// precedence.
+    precedence: Option<Uuid>,
 }
 
 impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
@@ -598,7 +621,7 @@ impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
     /// hunk, graph-level constraints, or consistency with the stored
     /// representation.
     fn is_valid(&self) -> bool {
-        match self.version.representation {
+        (match self.version.representation {
             RepresentationKind::State => self.representation == RepresentationKind::State,
             RepresentationKind::CumulativeDelta => match self.representation {
                 RepresentationKind::State => true,
@@ -606,6 +629,26 @@ impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
                 RepresentationKind::Delta => false,
             },
             RepresentationKind::Delta => true,
-        }
+        })
+        &&
+        (match self.precedence {
+            // State hunks should not need precedence.
+            Some(_) => self.version.representation != RepresentationKind::State,
+            None => true
+        })
     }
 }
+
+// /// Indicates for a merge version which ancestral hunk takes precedence.
+// pub struct HunkPrecedence<'a: 'b, 'b: 'c + 'd + 'e, 'c, 'd, 'e> {
+//     merge_version: &'e Version<'a, 'b>,
+//     preceding_version: &'d Version<'a, 'b>,
+//     partition: Partition<'a, 'b, 'c>,
+// }
+
+/// A sequence of hunks for a partition sufficient to compose state for that
+/// partition's data.
+pub type Composition<'a, 'b, 'c, 'd> = Vec<Hunk<'a, 'b, 'c, 'd>>;
+
+/// A mapping of compositions for a set of partitions.
+pub type CompositionMap<'a, 'b, 'c, 'd> = BTreeMap<PartitionIndex, Composition<'a, 'b, 'c, 'd>>;

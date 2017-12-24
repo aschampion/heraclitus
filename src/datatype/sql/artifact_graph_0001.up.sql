@@ -108,3 +108,12 @@ CREATE TABLE hunk (
 ) WITH (
   OIDS=FALSE
 );
+
+CREATE TABLE hunk_precedence (
+  merge_version_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
+  partition_id bigint NOT NULL,
+  precedent_version_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
+  PRIMARY KEY (merge_version_id, partition_id)
+) WITH (
+  OIDS=FALSE
+);

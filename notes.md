@@ -92,7 +92,7 @@ Milestone Goals
     - [x] Fixed arbitrary partitioning
       - [ ] Should only be able to mutate fixed partition ID set when bootstrapping new version.
     - [ ] Better ergonomics for building AGs, invoking producers
-- [ ] Goals: partial partitions update in fake dtypes test
+- [x] Goals: partial partitions update in fake dtypes test
   - Requires:
     - [ ] Clearer distinction between delta and partial state representations
       - One possibility: separate these at version level, that is, one representation kind that specifies partition density and another that specifies compatible representation kinds of those partitions
@@ -104,8 +104,8 @@ Milestone Goals
         - Not requiring O(|Partitions|) ops when making changes (that means, no full mapping out of hunk<>partitions for each version)
         - Allowing delta-aware producers to be efficient
           - Crtically, how is partition-masking vs. intra-partition deltas handled differently
-    - [ ] Partition hunk history resolution
-      - [ ] How to resolve from branched history
+    - [x] Partition hunk history resolution
+      - [x] How to resolve from branched history
         - [ ] Partition-level conflicts must be enumerated
           - Merge version must either
             - [ ] Provide a new state hunk
@@ -118,12 +118,12 @@ Milestone Goals
           - Partition-level conflicts can be determined using only the more proximate of (a) nearest common ancestor (3-way merge base) or (b) sufficient ancestors
           - What about >2 branch merge?
           - Rebasing can reuse much of this
-    - [ ] Sufficient ancestry
+    - [x] Sufficient ancestry
       - Must be to node with state hunk representation, but can be partition-sparse
-- [ ] Goal: delta state updates in producer test
+- [x] Goal: delta state updates in producer test
   - Requires:
     - [x] Representation persistence
-    - [ ] Resolving sufficient ancestry for materialized state
+    - [x] Resolving sufficient ancestry for materialized state
     - [ ] Producer policies for input and output representations
       - [x] Call this ProductionRepresentationPolicy
         - Producers should provide sets of representation capabilities for different internal production paths, identified somehow (names or ids, etc.)
@@ -373,3 +373,5 @@ Misc. Cleanup
   - [ ] Interface identifiers
   - [ ] Datatype identifiers
 - [ ] Model controllers should have a verify_hunk_hash method, e.g., if in trait Foo would impl<T: DatatypesModelController> Foo<T>. Not clear if these sorts of methods should be on datatype::MetaController or datatype::ModelController.
+- [ ] Refactoring attempt: Since models no longer need to be boxable, could make controllers an assoc type, which would finally remove need to box them?!
+  - Would allow model controllers to specify their payload types

@@ -9,7 +9,7 @@ use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
-use ::{RepresentationKind, Error, Hunk};
+use ::{Composition, HashType, RepresentationKind, Error, Hunk};
 use super::{Description, Store};
 use ::repo::{PostgresMigratable};
 
@@ -100,7 +100,7 @@ pub trait ModelController: super::ModelController {
     fn hash_payload(
         &self,
         payload: &Payload,
-    ) -> u64 {
+    ) -> HashType {
         let mut s = DefaultHasher::new();
         match *payload {
             Payload::State(ref blob) => blob.hash(&mut s),
@@ -124,6 +124,32 @@ pub trait ModelController: super::ModelController {
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
     ) -> Result<Payload, Error>;
+
+    fn get_composite_state(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        composition: &Composition,
+    ) -> Result<StateType, Error> {
+        let mut hunk_iter = composition.iter().rev();
+
+        let mut state = match self.read_hunk(repo_control, hunk_iter.next().expect("TODO"))? {
+            Payload::State(mut state) => state,
+            _ => panic!("Composition rooted in non-state hunk"),
+        };
+
+        for hunk in hunk_iter {
+            match self.read_hunk(repo_control, hunk)? {
+                Payload::State(_) => panic!("TODO: shouldn't have non-root state"),
+                Payload::Delta(ref delta) => {
+                    for (&idx, &val) in delta.0.iter().zip(delta.1.iter()) {
+                        state[idx] = val;
+                    }
+                }
+            }
+        }
+
+        Ok(state)
+    }
 }
 
 

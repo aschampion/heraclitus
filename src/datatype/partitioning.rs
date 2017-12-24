@@ -144,7 +144,7 @@ pub mod arbitrary {
         }
     }
 
-    pub trait ModelController {
+    pub trait ModelController: PartitioningController {
         // TODO: this should not allow versions with parents, but no current
         // mechanism exists to enforce this.
         fn write(
