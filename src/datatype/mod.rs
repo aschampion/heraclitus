@@ -165,11 +165,38 @@ pub trait ModelController {
         hunk: &Hunk,
     ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error>;
 
+    /// Compose state from a composition of sufficient hunks.
+    ///
+    /// Datatypes' store types may choose to implement this more efficiently.
     fn get_composite_state(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
         composition: &Composition,
-    ) -> Result<Self::StateType, Error>;
+    ) -> Result<Self::StateType, Error> {
+            let mut hunk_iter = composition.iter().rev();
+
+            let mut state = match self.read_hunk(repo_control, hunk_iter.next().expect("TODO"))? {
+                Payload::State(mut state) => state,
+                _ => panic!("Composition rooted in non-state hunk"),
+            };
+
+            for hunk in hunk_iter {
+                match self.read_hunk(repo_control, hunk)? {
+                    Payload::State(_) => panic!("TODO: shouldn't have non-root state"),
+                    Payload::Delta(ref delta) => {
+                        self.compose_state(&mut state, delta);
+                    }
+                }
+            }
+
+            Ok(state)
+        }
+
+    fn compose_state(
+        &self,
+        state: &mut Self::StateType,
+        delta: &Self::DeltaType,
+    );
 }
 
 // TODO:

@@ -6,7 +6,7 @@ use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
-use ::{Composition, RepresentationKind, Error, Hunk};
+use ::{RepresentationKind, Error, Hunk};
 use super::{Description, Payload, Store};
 use ::repo::{PostgresMigratable};
 
@@ -87,30 +87,14 @@ macro_rules! common_model_controller_impl {
         type StateType = StateType;
         type DeltaType = DeltaType;
 
-        fn get_composite_state(
+        fn compose_state(
             &self,
-            repo_control: &mut ::repo::StoreRepoController,
-            composition: &Composition,
-        ) -> Result<Self::StateType, Error> {
-            let mut hunk_iter = composition.iter().rev();
-
-            let mut state = match self.read_hunk(repo_control, hunk_iter.next().expect("TODO"))? {
-                Payload::State(mut state) => state,
-                _ => panic!("Composition rooted in non-state hunk"),
-            };
-
-            for hunk in hunk_iter {
-                match self.read_hunk(repo_control, hunk)? {
-                    Payload::State(_) => panic!("TODO: shouldn't have non-root state"),
-                    Payload::Delta(ref delta) => {
-                        for (&idx, &val) in delta.0.iter().zip(delta.1.iter()) {
-                            state[idx] = val;
-                        }
-                    }
-                }
+            state: &mut Self::StateType,
+            delta: &Self::DeltaType,
+        ) {
+            for (&idx, &val) in delta.0.iter().zip(delta.1.iter()) {
+                state[idx] = val;
             }
-
-            Ok(state)
         }
     )
 }
