@@ -217,7 +217,7 @@ pub(crate) mod tests {
             // TODO: not yet clear what producer version hash should be.
             ver_graph.versions[v_idx].id.hash = ver_graph.versions[input_ver].id.hash;
 
-            let (art_idx, art) = art_graph.find_by_id(&ver_graph.versions[v_idx].artifact.id)
+            let (art_idx, art) = art_graph.get_by_id(&ver_graph.versions[v_idx].artifact.id)
                 .expect("TODO2");
 
             // Find output relation and artifact.
@@ -243,7 +243,7 @@ pub(crate) mod tests {
             // as the input.
             // TODO: How should such constraints be formalized?
             let (input_ver_part_idx, _) = ver_graph.get_partitioning(input_ver).unwrap();
-            let (input_art_part_idx, _) = art_graph.find_by_id(&ver_graph.versions[input_ver_part_idx].artifact.id).expect("TODO");
+            let (input_art_part_idx, _) = art_graph.get_by_id(&ver_graph.versions[input_ver_part_idx].artifact.id).expect("TODO");
             // TODO: should check that this is the same the producer's partitioning.
             let output_part_art_rel_idx = art_graph.artifacts.find_edge(input_art_part_idx, output_art_idx)
                 .expect("TODO");

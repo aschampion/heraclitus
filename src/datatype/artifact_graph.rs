@@ -210,7 +210,7 @@ impl ProductionPolicy for ExtantProductionPolicy {
             return specs
         }
 
-        let dep_art_idx = art_graph.find_by_id(&ver_graph.versions[v_idx].artifact.id).unwrap().0;
+        let dep_art_idx = art_graph.get_by_id(&ver_graph.versions[v_idx].artifact.id).unwrap().0;
         // TODO: Petgraph doesn't allow multiedges?
         let ver_rels = [
             VersionRelation::Dependence(
@@ -494,7 +494,7 @@ pub trait ModelController {
 
         let (ver_art_idx, _) = {
             let new_ver = ver_graph.versions.node_weight(v_idx).expect("TODO");
-            art_graph.find_by_id(&new_ver.artifact.id)
+            art_graph.get_by_id(&new_ver.artifact.id)
                 .expect("TODO: Unknown artifact")
         };
 
@@ -742,7 +742,7 @@ impl PostgresStore {
                 uuid: ver_node_row.get(VerNodeRow::ArtifactUUID as usize),
                 hash: ver_node_row.get::<_, i64>(VerNodeRow::ArtifactHash as usize) as HashType,
             };
-            let (art_idx, art) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
+            let (art_idx, art) = art_graph.get_by_id(&an_id).expect("Version references unkown artifact");
 
             let ver_id = Identity {
                 uuid: ver_node_row.get(VerNodeRow::UUID as usize),
@@ -824,7 +824,7 @@ impl PostgresStore {
                     &v_id,
                     || Version {
                         id: v_id,
-                        artifact: art_graph.find_by_id(&an_id).expect("Version references unkown artifact").1,
+                        artifact: art_graph.get_by_id(&an_id).expect("Version references unkown artifact").1,
                         status: row.get(AncNodeRow::Status as usize),
                         representation: row.get(AncNodeRow::Representation as usize),
                     });
@@ -876,7 +876,7 @@ impl PostgresStore {
                 uuid: row.get(DepNodeRow::ArtifactUUID as usize),
                 hash: row.get::<_, i64>(DepNodeRow::ArtifactHash as usize) as HashType,
             };
-            let (an_idx, an) = art_graph.find_by_id(&an_id).expect("Version references unkown artifact");
+            let (an_idx, an) = art_graph.get_by_id(&an_id).expect("Version references unkown artifact");
 
             let v_idx = *idx_map.entry(db_id)
                 .or_insert_with(|| {
@@ -901,7 +901,7 @@ impl PostgresStore {
                 else {row.get(DepNodeRow::SourceID as usize)};
             let other_v_idx = *idx_map.get(&other_v_db_id).expect("Relation with version not in graph");
             let other_art = ver_graph.versions.node_weight(other_v_idx).expect("Impossible").artifact;
-            let other_art_idx = art_graph.find_by_id(&other_art.id)
+            let other_art_idx = art_graph.get_by_id(&other_art.id)
                 .expect("Unknown artifact").0;
 
             let art_rel_idx = if inbound_existing {
@@ -1877,7 +1877,7 @@ mod tests {
         }
 
         let up_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (up_art_idx, up_art) = ag.find_by_id(&ver_graph.versions[up_idx].artifact.id).unwrap();
+        let (up_art_idx, up_art) = ag.get_by_id(&ver_graph.versions[up_idx].artifact.id).unwrap();
 
         let blob1_art_idx = idxs[0];
         let blob1_art = &ag.artifacts[blob1_art_idx];
@@ -1978,7 +1978,7 @@ mod tests {
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
         let part_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (part_art_idx, part_art) = ag.find_by_id(&ver_graph.versions[part_idx].artifact.id).unwrap();
+        let (part_art_idx, part_art) = ag.get_by_id(&ver_graph.versions[part_idx].artifact.id).unwrap();
 
         // Create arbitrary partitions.
         {

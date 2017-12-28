@@ -210,7 +210,7 @@ pub trait IdentifiableGraph<'s, N: Identifiable, E: 's, IT: petgraph::csr::Index
 
     fn graph_mut(&mut self) -> &mut daggy::Dag<N, E, IT>;
 
-    fn find_by_id<'b>(
+    fn get_by_id<'b>(
         &'b self,
         id: &Identity
     ) -> Option<(petgraph::graph::NodeIndex<IT>, &N)> where 's: 'b {
@@ -224,7 +224,7 @@ pub trait IdentifiableGraph<'s, N: Identifiable, E: 's, IT: petgraph::csr::Index
         None
     }
 
-    fn find_by_uuid<'b>(
+    fn get_by_uuid<'b>(
         &'b self,
         uuid: &Uuid
     ) -> Option<(petgraph::graph::NodeIndex<IT>, &N)>  where 's: 'b {
@@ -247,7 +247,7 @@ pub trait IdentifiableGraph<'s, N: Identifiable, E: 's, IT: petgraph::csr::Index
         constructor: F
     ) -> petgraph::graph::NodeIndex<IT>
             where F: FnOnce() -> N {
-        match self.find_by_id(id) {
+        match self.get_by_id(id) {
             Some((idx, _)) => idx,
             None => self.graph_mut().add_node(constructor()),
         }

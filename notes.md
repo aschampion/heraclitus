@@ -365,7 +365,7 @@ VATCAED - VISAGE Annotation Toolkit for CATMAID API Emulation Dataservice
 
 Misc. Cleanup
 -------------
-- [ ] `IdentifiableGraph::find_by_{id,uuid}` should be `get` not `find` to match Rust conventions.
+- [x] `IdentifiableGraph::find_by_{id,uuid}` should be `get` not `find` to match Rust conventions.
   - [ ] Could also implement index methods to provide panicing access for known items.
 - [ ] Empty (hunkless) versions are current allowed. Somewhat nice that this runs through cascade production, etc., without error, but still.
 - [ ] Kill magic values
