@@ -172,7 +172,7 @@ impl CustomProductionPolicyController for TrackingBranchProducerController {
             prod_a_idx,
             &ArtifactRelation::ProducedFrom("output".into()),
             Direction::Outgoing)[0];
-        let ref_art = &art_graph.artifacts[ref_art_idx];
+        let ref_art = &art_graph[ref_art_idx];
 
         // Get ref model controller.
         let mut ref_control = ::datatype::reference::model_controller(repo_control.store());
@@ -215,7 +215,7 @@ impl ProducerController for TrackingBranchProducerController {
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<ProductionOutput, Error> {
-        let prod_a_idx = art_graph.get_by_id(&ver_graph.versions[v_idx].artifact.id).expect("TODO").0;
+        let prod_a_idx = art_graph.get_by_id(&ver_graph[v_idx].artifact.id).expect("TODO").0;
 
         // Find output relation and artifact.
         let ref_art_relation_needle = ArtifactRelation::ProducedFrom("output".into());
@@ -224,7 +224,7 @@ impl ProducerController for TrackingBranchProducerController {
             .find(|e| e.weight() == &ref_art_relation_needle)
             .map(|e| (e.weight(), e.target()))
             .expect("TODO3");
-        let ref_art = &art_graph.artifacts[ref_art_idx];
+        let ref_art = &art_graph[ref_art_idx];
 
         // Create output ref version, which should have same dependencies as
         // this producer version.
@@ -264,9 +264,9 @@ impl ProducerController for TrackingBranchProducerController {
             &VersionRelation::Dependence(&tracked_art_relation_needle),
             Direction::Incoming);
         for tracked_ver_idx in tracked_vers {
-            let tracked_ver_art_idx = art_graph.get_by_id(&ver_graph.versions[tracked_ver_idx].artifact.id)
+            let tracked_ver_art_idx = art_graph.get_by_id(&ver_graph[tracked_ver_idx].artifact.id)
                 .expect("TODO: unable to find tracked ver art").0;
-            let tracked_ref_rel = &art_graph.artifacts[
+            let tracked_ref_rel = &art_graph[
                 art_graph.artifacts.find_edge(tracked_ver_art_idx, ref_art_idx)
                     .expect("TODO")
             ];
@@ -290,13 +290,13 @@ impl ProducerController for TrackingBranchProducerController {
 
         if old_tips.is_empty() {
             // Leaf bootstrapping.
-            ref_control.create_branch(repo_control, &ver_graph.versions[ref_ver_idx], "master")?;
+            ref_control.create_branch(repo_control, &ver_graph[ref_ver_idx], "master")?;
         } else {
             let new_tips: HashMap<_, _> = old_tips.into_iter().filter_map(|(bprt, id)| {
                 match ver_graph.get_by_id(&id) {
                     Some((idx, _)) => {
                         if parent_ref_ver_idxs.contains(&idx) {
-                            Some((bprt, ver_graph.versions[ref_ver_idx].id))
+                            Some((bprt, ver_graph[ref_ver_idx].id))
                         } else {
                             None
                         }

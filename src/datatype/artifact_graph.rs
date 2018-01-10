@@ -225,11 +225,11 @@ impl ProductionPolicy for ExtantProductionPolicy {
             return specs
         }
 
-        let dep_art_idx = art_graph.get_by_id(&ver_graph.versions[v_idx].artifact.id).unwrap().0;
+        let dep_art_idx = art_graph.get_by_id(&ver_graph[v_idx].artifact.id).unwrap().0;
         // TODO: Petgraph doesn't allow multiedges?
         let ver_rels = [
             VersionRelation::Dependence(
-                &art_graph.artifacts[art_graph.artifacts.graph()
+                &art_graph[art_graph.artifacts.graph()
                     .find_edge(dep_art_idx, p_art_idx).expect("TODO")]),
         ];
 
@@ -245,7 +245,7 @@ impl ProductionPolicy for ExtantProductionPolicy {
                     let mut dependencies = ProductionDependenciesSpecs::new();
 
                     for (e_idx, d_idx) in ver_graph.versions.parents(*prod_ver).iter(&ver_graph.versions) {
-                        if let VersionRelation::Dependence(ref art_rel) = ver_graph.versions[e_idx] {
+                        if let VersionRelation::Dependence(ref art_rel) = ver_graph[e_idx] {
                             let new_dep_vers = match v_parents.contains(&d_idx) {
                                 true => v_idx,
                                 false => d_idx,
@@ -384,7 +384,7 @@ impl ProductionStrategyPolicy for ParsimoniousRepresentationProductionStrategyPo
                     match *relation {
                         ArtifactRelation::DtypeDepends(ref dtype_relation) =>
                             Some((dtype_relation.name.as_str(),
-                                  ver_graph.versions[edgeref.source()].representation)),
+                                  ver_graph[edgeref.source()].representation)),
                         _ => None,
                     }
                 }
@@ -647,7 +647,7 @@ pub trait ModelController {
 
                     self.write_production_specs(
                         repo_control,
-                        &ver_graph.versions[new_prod_ver_idx],
+                        &ver_graph[new_prod_ver_idx],
                         strategy_specs)?;
 
                     let output = producer_controller.notify_new_version(
@@ -1708,7 +1708,7 @@ impl ModelController for PostgresStore {
         let mut locked: BTreeMap<Uuid, BTreeSet<PartitionIndex>> = BTreeMap::new();
 
         for n_idx in ancestors.into_iter() {
-            let version = &ver_graph.versions[n_idx];
+            let version = &ver_graph[n_idx];
 
             if let Some(mut part_idxs) = locked.remove(&version.id.uuid) {
                 unresolved.append(&mut part_idxs);
@@ -1717,7 +1717,7 @@ impl ModelController for PostgresStore {
             let hunks = self.get_hunks(
                 repo_control,
                 version,
-                &ver_graph.versions[ver_graph.get_partitioning(n_idx).expect("TODO: comp map part").0],
+                &ver_graph[ver_graph.get_partitioning(n_idx).expect("TODO: comp map part").0],
                 // ver_graph.get_partitioning(n_idx).unwrap().1,
                 Some(&unresolved))?;
 
@@ -2058,15 +2058,15 @@ mod tests {
         }
 
         let up_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (up_art_idx, up_art) = ag.get_by_id(&ver_graph.versions[up_idx].artifact.id).unwrap();
+        let (up_art_idx, up_art) = ag.get_by_id(&ver_graph[up_idx].artifact.id).unwrap();
 
         let blob1_art_idx = idxs[0];
-        let blob1_art = &ag.artifacts[blob1_art_idx];
+        let blob1_art = &ag[blob1_art_idx];
         let blob1_ver = Version::new(blob1_art, RepresentationKind::State);
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
         ver_graph.versions.add_edge(up_idx, blob1_ver_idx,
             VersionRelation::Dependence(
-                &ag.artifacts[ag.artifacts.find_edge(up_art_idx, blob1_art_idx).unwrap()])).unwrap();
+                &ag[ag.artifacts.find_edge(up_art_idx, blob1_art_idx).unwrap()])).unwrap();
 
         model_ctrl.create_staging_version(
             &mut context.repo_control,
@@ -2157,7 +2157,7 @@ mod tests {
         model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
         model_ctrl.write_production_policies(
             &mut context.repo_control,
-            &ag.artifacts[idxs[5]],
+            &ag[idxs[5]],
             EnumSet::from_iter(
                 vec![ProductionPolicies::LeafBootstrap, ProductionPolicies::Custom]
                 .into_iter())).unwrap();
@@ -2165,7 +2165,7 @@ mod tests {
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
         let part_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (part_art_idx, part_art) = ag.get_by_id(&ver_graph.versions[part_idx].artifact.id).unwrap();
+        let (part_art_idx, part_art) = ag.get_by_id(&ver_graph[part_idx].artifact.id).unwrap();
 
         // Create arbitrary partitions.
         {
@@ -2178,7 +2178,7 @@ mod tests {
                 part_idx).expect("TODO");
             part_control.write(
                 &mut context.repo_control,
-                &ver_graph.versions[part_idx],
+                &ver_graph[part_idx],
                 &[0, 1]).expect("TODO");
             model_ctrl.commit_version(
                 &context.dtypes_registry,
@@ -2189,12 +2189,12 @@ mod tests {
         }
 
         let blob1_art_idx = idxs[0];
-        let blob1_art = &ag.artifacts[blob1_art_idx];
+        let blob1_art = &ag[blob1_art_idx];
         let blob1_ver = Version::new(blob1_art, RepresentationKind::State);
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
         ver_graph.versions.add_edge(part_idx, blob1_ver_idx,
             VersionRelation::Dependence(
-                &ag.artifacts[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()])).unwrap();
+                &ag[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()])).unwrap();
 
         model_ctrl.create_staging_version(
             &mut context.repo_control,
@@ -2254,7 +2254,7 @@ mod tests {
             ver_hash
         };
 
-        ver_graph.versions[blob1_ver_idx].id.hash = ver_hash;
+        ver_graph[blob1_ver_idx].id.hash = ver_hash;
 
         model_ctrl.commit_version(
             &context.dtypes_registry,
@@ -2270,21 +2270,21 @@ mod tests {
         println!("{:?}", petgraph::dot::Dot::new(&vg2.versions.graph()));
 
         let blob1_vg2_idxs = vg2.artifact_versions(
-            &ag.artifacts[idxs[0]]);
+            &ag[idxs[0]]);
 
         let blob2_vg2_idxs = vg2.artifact_versions(
-            &ag.artifacts[idxs[2]]);
+            &ag[idxs[2]]);
 
         assert_eq!(blob2_vg2_idxs.len(), 1);
 
         let blob3_vg2_idxs = vg2.artifact_versions(
-            &ag.artifacts[idxs[4]]);
+            &ag[idxs[4]]);
 
         assert_eq!(blob3_vg2_idxs.len(), 1);
 
         assert_eq!(
-            vg2.versions[blob1_vg2_idxs[0]].id.hash,
-            vg2.versions[blob3_vg2_idxs[0]].id.hash,
+            vg2[blob1_vg2_idxs[0]].id.hash,
+            vg2[blob3_vg2_idxs[0]].id.hash,
             "Version hashes for original and double-negated blob should match.",
             );
 
@@ -2293,7 +2293,7 @@ mod tests {
         let blob1_ver2_idx = ver_graph.versions.add_node(blob1_ver2);
         ver_graph.versions.add_edge(part_idx, blob1_ver2_idx,
             VersionRelation::Dependence(
-                &ag.artifacts[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()])).unwrap();
+                &ag[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()])).unwrap();
         ver_graph.versions.add_edge(blob1_ver_idx, blob1_ver2_idx, VersionRelation::Parent);
 
         model_ctrl.create_staging_version(
@@ -2354,7 +2354,7 @@ mod tests {
             ver_hash
         };
 
-        ver_graph.versions[blob1_ver2_idx].id.hash = ver2_hash;
+        ver_graph[blob1_ver2_idx].id.hash = ver2_hash;
 
         model_ctrl.commit_version(
             &context.dtypes_registry,
@@ -2370,21 +2370,21 @@ mod tests {
         println!("{:?}", petgraph::dot::Dot::new(&vg3.versions.graph()));
 
         let blob1_vg3_idxs = vg3.artifact_versions(
-            &ag.artifacts[idxs[0]]);
+            &ag[idxs[0]]);
 
         let blob2_vg3_idxs = vg3.artifact_versions(
-            &ag.artifacts[idxs[2]]);
+            &ag[idxs[2]]);
 
         assert_eq!(blob2_vg3_idxs.len(), 2);
 
         let blob3_vg3_idxs = vg3.artifact_versions(
-            &ag.artifacts[idxs[4]]);
+            &ag[idxs[4]]);
 
         assert_eq!(blob3_vg3_idxs.len(), 2);
 
         assert_eq!(
-            vg3.versions[blob1_vg3_idxs[1]].id.hash,
-            vg3.versions[blob3_vg3_idxs[1]].id.hash,
+            vg3[blob1_vg3_idxs[1]].id.hash,
+            vg3[blob3_vg3_idxs[1]].id.hash,
             "Version hashes for original and double-negated blob should match.",
             );
 
@@ -2428,7 +2428,7 @@ mod tests {
             use datatype::reference::ModelController as RefModelController;
             let ref_control = ::datatype::reference::model_controller(context.repo_control.store());
             assert_eq!(
-                vg3.versions[blob3_vg3_idxs[1]].id,
+                vg3[blob3_vg3_idxs[1]].id,
                 ref_control.get_version_id(
                     &mut context.repo_control,
                     &VersionSpecifier::from_str("master:head/Test Blob 3").unwrap()).unwrap(),

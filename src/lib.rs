@@ -33,6 +33,7 @@ use std::hash::{Hash, Hasher};
 use std::fmt::Debug;
 use std::io;
 use std::mem;
+use std::ops::{Index, IndexMut};
 
 use daggy::Walker;
 use enum_set::EnumSet;
@@ -206,15 +207,19 @@ pub struct Context<T: DatatypeEnum> {
     repo_control: repo::StoreRepoController,
 }
 
-pub trait IdentifiableGraph<'s, N: Identifiable, E: 's, IT: petgraph::csr::IndexType> {
-    fn graph(&self) -> &daggy::Dag<N, E, IT>;
+pub trait IdentifiableGraph {
+    type N: Identifiable;
+    type E;
+    type IT: petgraph::csr::IndexType;
 
-    fn graph_mut(&mut self) -> &mut daggy::Dag<N, E, IT>;
+    fn graph(&self) -> &daggy::Dag<Self::N, Self::E, Self::IT>;
+
+    fn graph_mut(&mut self) -> &mut daggy::Dag<Self::N, Self::E, Self::IT>;
 
     fn get_by_id<'b>(
         &'b self,
         id: &Identity
-    ) -> Option<(petgraph::graph::NodeIndex<IT>, &N)> where 's: 'b {
+    ) -> Option<(petgraph::graph::NodeIndex<Self::IT>, &Self::N)> {
         for node_idx in self.graph().graph().node_indices() {
             let node = self.graph().node_weight(node_idx).expect("Graph is malformed");
             if node.id() == id {
@@ -228,7 +233,7 @@ pub trait IdentifiableGraph<'s, N: Identifiable, E: 's, IT: petgraph::csr::Index
     fn get_by_uuid<'b>(
         &'b self,
         uuid: &Uuid
-    ) -> Option<(petgraph::graph::NodeIndex<IT>, &N)>  where 's: 'b {
+    ) -> Option<(petgraph::graph::NodeIndex<Self::IT>, &Self::N)> {
         for node_idx in self.graph().graph().node_indices() {
             let node = self.graph().node_weight(node_idx).expect("Graph is malformed");
             if node.id().uuid == *uuid {
@@ -246,8 +251,8 @@ pub trait IdentifiableGraph<'s, N: Identifiable, E: 's, IT: petgraph::csr::Index
         &mut self,
         id: &Identity,
         constructor: F
-    ) -> petgraph::graph::NodeIndex<IT>
-            where F: FnOnce() -> N {
+    ) -> petgraph::graph::NodeIndex<Self::IT>
+            where F: FnOnce() -> Self::N {
         match self.get_by_id(id) {
             Some((idx, _)) => idx,
             None => self.graph_mut().add_node(constructor()),
@@ -396,13 +401,44 @@ impl<'a> ArtifactGraph<'a> {
     }
 }
 
-impl<'a, 's> IdentifiableGraph<'s, Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> for ArtifactGraph<'a> {
+impl<'a> IdentifiableGraph for ArtifactGraph<'a> {
+    type N = Artifact<'a>;
+    type E = ArtifactRelation;
+    type IT = ArtifactGraphIndexType;
+
     fn graph(&self) -> &daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
         &self.artifacts
     }
 
     fn graph_mut(&mut self) -> &mut daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
         &mut self.artifacts
+    }
+}
+
+// Annoyingly, cannot write these impl generically for IdentifiableGraph because
+// of https://doc.rust-lang.org/error-index.html#E0210.
+impl<'a> Index<ArtifactGraphIndex> for ArtifactGraph<'a>
+{
+    type Output = Artifact<'a>;
+
+    fn index(&self, index: ArtifactGraphIndex) -> &Artifact<'a> {
+        &self.graph()[index]
+    }
+}
+
+impl<'a> IndexMut<ArtifactGraphIndex> for ArtifactGraph<'a>
+{
+    fn index_mut(&mut self, index: ArtifactGraphIndex) -> &mut Artifact<'a> {
+        &mut self.graph_mut()[index]
+    }
+}
+
+impl<'a> Index<ArtifactGraphEdgeIndex> for ArtifactGraph<'a>
+{
+    type Output = ArtifactRelation;
+
+    fn index(&self, index: ArtifactGraphEdgeIndex) -> &ArtifactRelation {
+        &self.graph()[index]
     }
 }
 
@@ -525,19 +561,44 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
     }
 }
 
-impl<'a: 'b, 'b: 's, 's>
-IdentifiableGraph<
-        's,
-        Version<'a, 'b>,
-        VersionRelation<'b>,
-        VersionGraphIndexType>
+impl<'a: 'b, 'b>
+IdentifiableGraph
 for VersionGraph<'a, 'b> {
+    type N = Version<'a, 'b>;
+    type E = VersionRelation<'b>;
+    type IT = VersionGraphIndexType;
+
     fn graph(&self) -> &daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType> {
         &self.versions
     }
 
     fn graph_mut(&mut self) -> &mut daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType> {
         &mut self.versions
+    }
+}
+
+impl<'a, 'b> Index<VersionGraphIndex> for VersionGraph<'a, 'b>
+{
+    type Output = Version<'a, 'b>;
+
+    fn index(&self, index: VersionGraphIndex) -> &Version<'a, 'b> {
+        &self.graph()[index]
+    }
+}
+
+impl<'a, 'b> IndexMut<VersionGraphIndex> for VersionGraph<'a, 'b>
+{
+    fn index_mut(&mut self, index: VersionGraphIndex) -> &mut Version<'a, 'b> {
+        &mut self.graph_mut()[index]
+    }
+}
+
+impl<'a, 'b> Index<VersionGraphEdgeIndex> for VersionGraph<'a, 'b>
+{
+    type Output = VersionRelation<'b>;
+
+    fn index(&self, index: VersionGraphEdgeIndex) -> &VersionRelation<'b> {
+        &self.graph()[index]
     }
 }
 

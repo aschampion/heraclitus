@@ -215,9 +215,9 @@ pub(crate) mod tests {
 
             // Set own hash to input version.
             // TODO: not yet clear what producer version hash should be.
-            ver_graph.versions[v_idx].id.hash = ver_graph.versions[input_ver].id.hash;
+            ver_graph[v_idx].id.hash = ver_graph[input_ver].id.hash;
 
-            let (art_idx, art) = art_graph.get_by_id(&ver_graph.versions[v_idx].artifact.id)
+            let (art_idx, art) = art_graph.get_by_id(&ver_graph[v_idx].artifact.id)
                 .expect("TODO2");
 
             // Find output relation and artifact.
@@ -227,12 +227,12 @@ pub(crate) mod tests {
                 .find(|e| e.weight() == &output_art_relation_needle)
                 .map(|e| (e.weight(), e.target()))
                 .expect("TODO3");
-            let output_art = &art_graph.artifacts[output_art_idx];
+            let output_art = &art_graph[output_art_idx];
 
             // Create output version.
             let ver_blob = Version::new(
                 output_art,
-                ver_graph.versions[input_ver].representation);
+                ver_graph[input_ver].representation);
             let ver_blob_idx = ver_graph.versions.add_node(ver_blob);
             ver_graph.versions.add_edge(
                 v_idx,
@@ -243,11 +243,11 @@ pub(crate) mod tests {
             // as the input.
             // TODO: How should such constraints be formalized?
             let (input_ver_part_idx, _) = ver_graph.get_partitioning(input_ver).unwrap();
-            let (input_art_part_idx, _) = art_graph.get_by_id(&ver_graph.versions[input_ver_part_idx].artifact.id).expect("TODO");
+            let (input_art_part_idx, _) = art_graph.get_by_id(&ver_graph[input_ver_part_idx].artifact.id).expect("TODO");
             // TODO: should check that this is the same the producer's partitioning.
             let output_part_art_rel_idx = art_graph.artifacts.find_edge(input_art_part_idx, output_art_idx)
                 .expect("TODO");
-            let output_part_art_rel = &art_graph.artifacts[output_part_art_rel_idx];
+            let output_part_art_rel = &art_graph[output_part_art_rel_idx];
             // TODO: check this is actually a partitioning rel.
             ver_graph.versions.add_edge(input_ver_part_idx, ver_blob_idx,
                 VersionRelation::Dependence(output_part_art_rel))?;
@@ -271,7 +271,7 @@ pub(crate) mod tests {
 
             let production_specs = ag_control.get_production_specs(
                 repo_control,
-                &ver_graph.versions[v_idx])?;
+                &ver_graph[v_idx])?;
 
             ag_control.create_staging_version(
                 repo_control,
@@ -285,8 +285,8 @@ pub(crate) mod tests {
             {
                 let input_hunks = ag_control.get_hunks(
                     repo_control,
-                    &ver_graph.versions[input_ver],
-                    &ver_graph.versions[input_ver_part_idx],
+                    &ver_graph[input_ver],
+                    &ver_graph[input_ver_part_idx],
                     None).expect("TODO");
 
                 // Create output hunks computed from input hunks.
@@ -307,7 +307,7 @@ pub(crate) mod tests {
                             uuid: Uuid::new_v4(),
                             hash: blob_control.hash_payload(&output_blob),
                         },
-                        version: &ver_graph.versions[ver_blob_idx],
+                        version: &ver_graph[ver_blob_idx],
                         representation: input_hunk.representation,
                         partition: input_hunk.partition.clone(),
                         completion: PartCompletion::Complete,
@@ -325,7 +325,7 @@ pub(crate) mod tests {
                 }
             }
 
-            ver_graph.versions[ver_blob_idx].id.hash = ver_hash.finish();
+            ver_graph[ver_blob_idx].id.hash = ver_hash.finish();
 
             // TODO commit version
             // TODO can't do this because can't have generic type in fn sig
