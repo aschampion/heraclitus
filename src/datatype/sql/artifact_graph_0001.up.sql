@@ -67,6 +67,19 @@ CREATE TABLE version (
   OIDS=FALSE
 );
 
+CREATE TYPE production_policy AS ENUM (
+  'extant',
+  'leaf_bootstrap',
+  'custom'
+);
+
+CREATE TABLE producer_artifact (
+  artifact_id bigint PRIMARY KEY REFERENCES artifact (id) DEFERRABLE INITIALLY IMMEDIATE,
+  policies production_policy[] NOT NULL
+) WITH (
+  OIDS=FALSE
+);
+
 CREATE TABLE producer_version (
   version_id bigint PRIMARY KEY REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
   strategy text NOT NULL

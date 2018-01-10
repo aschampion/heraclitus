@@ -10,7 +10,11 @@ use enum_set::EnumSet;
 
 use ::{Composition, Datatype, Error, Hunk};
 use ::store::Store;
-use self::interface::{PartitioningController, ProducerController};
+use self::interface::{
+    PartitioningController,
+    ProducerController,
+    CustomProductionPolicyController,
+};
 
 
 #[macro_use]
@@ -20,6 +24,8 @@ pub mod blob;
 pub mod interface;
 pub mod partitioning;
 pub mod producer;
+pub mod reference;
+pub mod tracking_branch_producer;
 
 pub struct Description {
     name: String,
@@ -246,13 +252,17 @@ pub trait DatatypeEnum: Sized {
 interface_controller_enum!(DefaultInterfaceController, (
         (Partitioning, PartitioningController, &*interface::INTERFACE_PARTITIONING_DESC),
         (Producer, ProducerController, &*interface::INTERFACE_PRODUCER_DESC),
+        (CustomProductionPolicy, CustomProductionPolicyController, &*interface::INTERFACE_CUSTOM_PRODUCTION_POLICY_DESC)
     ));
 
 datatype_enum!(DefaultDatatypes, DefaultInterfaceController, (
         (ArtifactGraph, artifact_graph::ArtifactGraphDtype),
+        (Ref, reference::Ref),
         (UnaryPartitioning, partitioning::UnaryPartitioning),
+        (ArbitraryPartitioning, partitioning::arbitrary::ArbitraryPartitioning),
         (Blob, blob::Blob),
         (NoopProducer, producer::NoopProducer),
+        (TrackingBranchProducer, tracking_branch_producer::TrackingBranchProducer),
     ));
 
 

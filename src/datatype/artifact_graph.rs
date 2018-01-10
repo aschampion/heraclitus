@@ -1,4 +1,5 @@
 extern crate daggy;
+extern crate enum_set;
 extern crate petgraph;
 extern crate schemer;
 extern crate serde;
@@ -8,9 +9,12 @@ extern crate postgres;
 
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::iter::FromIterator;
+use std::mem;
 
 use daggy::petgraph::visit::EdgeRef;
 use daggy::Walker;
+use enum_set::EnumSet;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
@@ -28,7 +32,12 @@ use ::{
 use super::{
     DatatypeEnum, DatatypesRegistry,
     Description, Store};
-use ::datatype::interface::{ProductionOutput, ProductionStrategies, ProductionStrategyID};
+use ::datatype::interface::{
+    CustomProductionPolicyController,
+    ProductionOutput,
+    ProductionStrategies,
+    ProductionStrategyID,
+};
 use ::repo::{PostgresMigratable};
 
 
@@ -77,7 +86,7 @@ pub fn model_controller(store: Store) -> impl ModelController {
 ///
 /// Note that later variants are supersets of earlier variants.
 #[derive(PartialOrd, PartialEq, Eq, Ord, Clone)]
-enum PolicyProducerRequirements {
+pub(crate) enum PolicyProducerRequirements {
     /// No requirement.
     None,
     /// Any producer version dependent on parent versions of the new dependency
@@ -93,7 +102,7 @@ enum PolicyProducerRequirements {
 ///
 /// Note that later variants are supersets of earlier variants.
 #[derive(PartialOrd, PartialEq, Eq, Ord, Clone)]
-enum PolicyDependencyRequirements {
+pub(crate) enum PolicyDependencyRequirements {
     /// No requirement.
     None,
     /// Any dependency version on which a producer version (included by
@@ -106,8 +115,8 @@ enum PolicyDependencyRequirements {
 /// Defines what dependency and producer versions a production policy requires
 /// to be in the version graph.
 pub struct ProductionPolicyRequirements {
-    producer: PolicyProducerRequirements,
-    dependency: PolicyDependencyRequirements,
+    pub(crate) producer: PolicyProducerRequirements,
+    pub(crate) dependency: PolicyDependencyRequirements,
 }
 
 impl Default for ProductionPolicyRequirements {
@@ -154,11 +163,17 @@ impl ProductionVersionSpecs {
                 .or_insert(v);
         }
     }
+
+    pub fn retain<F>(&mut self, filter: F)
+            where F: FnMut(&ProductionDependenciesSpecs, &mut BTreeSet<Option<VersionGraphIndex>>) -> bool
+    {
+        self.specs.retain(filter);
+    }
 }
 
 /// Enacts a policy for what new versions to produce in response to updated
 /// dependency versions.
-trait ProductionPolicy {
+pub trait ProductionPolicy {
     /// Defines what this policy requires to be in the version graph for it
     /// to determine what new production versions should be created.
     fn requirements(&self) -> ProductionPolicyRequirements;
@@ -308,6 +323,30 @@ impl ProductionPolicy for LeafBootstrapProductionPolicy {
 }
 
 
+#[derive(Clone, Copy, Debug, ToSql, FromSql)]
+#[repr(u32)]
+#[postgres(name = "production_policy")]
+pub enum ProductionPolicies {
+    #[postgres(name = "extant")]
+    Extant,
+    #[postgres(name = "leaf_bootstrap")]
+    LeafBootstrap,
+    #[postgres(name = "custom")]
+    Custom,
+}
+
+// Boilerplate necessary for EnumSet compatibility.
+impl enum_set::CLike for ProductionPolicies {
+    fn to_u32(&self) -> u32 {
+        *self as u32
+    }
+
+    unsafe fn from_u32(v: u32) -> ProductionPolicies {
+        mem::transmute(v)
+    }
+}
+
+
 /// Enacts a policy for what production strategy (from the set of those of
 /// which the producer is capable) to use for a particular version.
 ///
@@ -425,6 +464,8 @@ pub trait ModelController {
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
         where Box<::datatype::interface::ProducerController>:
+        From<<T as DatatypeEnum>::InterfaceControllerType>,
+        Box<CustomProductionPolicyController>:
         From<<T as DatatypeEnum>::InterfaceControllerType>;
     // TODO: many args to avoid reloading state. A 2nd-level API should just take an ID.
 
@@ -437,6 +478,8 @@ pub trait ModelController {
         seed_v_idx: VersionGraphIndex,
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
             where Box<::datatype::interface::ProducerController>:
+            From<<T as DatatypeEnum>::InterfaceControllerType>,
+            Box<CustomProductionPolicyController>:
             From<<T as DatatypeEnum>::InterfaceControllerType> {
         let outputs = self.notify_producers(
             dtypes_registry,
@@ -470,9 +513,11 @@ pub trait ModelController {
         v_idx: VersionGraphIndex,
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
             where Box<::datatype::interface::ProducerController>:
+            From<<T as DatatypeEnum>::InterfaceControllerType>,
+            Box<CustomProductionPolicyController>:
             From<<T as DatatypeEnum>::InterfaceControllerType> {
-        // TODO: should be configurable per-production artifact.
-        let production_policies: Vec<Box<ProductionPolicy>> = vec![
+
+        let default_production_policies: Vec<Box<ProductionPolicy>> = vec![
             Box::new(ExtantProductionPolicy),
             Box::new(LeafBootstrapProductionPolicy),
         ];
@@ -480,17 +525,6 @@ pub trait ModelController {
         // TODO: should be configurable per-production artifact.
         let production_strategy_policy: Box<ProductionStrategyPolicy> =
             Box::new(ParsimoniousRepresentationProductionStrategyPolicy);
-
-        let production_policy_reqs = production_policies
-            .iter()
-            .map(|policy| policy.requirements())
-            .fold(
-                ProductionPolicyRequirements::default(),
-                |mut max, ref p| {
-                    max.producer = max.producer.max(p.producer.clone());
-                    max.dependency = max.dependency.max(p.dependency.clone());
-                    max
-                });
 
         let (ver_art_idx, _) = {
             let new_ver = ver_graph.versions.node_weight(v_idx).expect("TODO");
@@ -514,6 +548,44 @@ pub trait ModelController {
                 let producer_controller: Box<::datatype::interface::ProducerController> =
                     producer_interface.into();
 
+                let production_policies: Option<Vec<Box<ProductionPolicy>>> =
+                    self.get_production_policies(repo_control, dependent)?
+                    .map(|policies| policies.iter().filter_map(|p| match p {
+                        ProductionPolicies::Extant =>
+                            Some(Box::new(ExtantProductionPolicy) as Box<ProductionPolicy>),
+                        ProductionPolicies::LeafBootstrap =>
+                            Some(Box::new(LeafBootstrapProductionPolicy) as Box<ProductionPolicy>),
+                        ProductionPolicies::Custom => {
+                            if let Some(custom_policy_interface) = dtypes_registry.models
+                                    .get(&dtype.name)
+                                    .expect("Datatype must be known")
+                                    .as_model()
+                                    .interface_controller(repo_control.store(), "CustomProductionPolicy") {
+                                let custom_policy_controller: Box<CustomProductionPolicyController> =
+                                    custom_policy_interface.into();
+                                Some(custom_policy_controller.get_custom_production_policy(
+                                    repo_control,
+                                    &art_graph,
+                                    dep_art_idx).expect("TODO"))
+                            } else {
+                                None // TODO: custom policy for non-interface producer.
+                            }
+                        }
+                    }).collect());
+
+                let production_policy_reqs = match production_policies {
+                        None => default_production_policies.iter(),
+                        Some(ref p) => p.iter(),
+                    }
+                    .map(|policy| policy.requirements())
+                    .fold(
+                        ProductionPolicyRequirements::default(),
+                        |mut max, ref p| {
+                            max.producer = max.producer.max(p.producer.clone());
+                            max.dependency = max.dependency.max(p.dependency.clone());
+                            max
+                        });
+
                 self.fulfill_policy_requirements(
                     repo_control,
                     art_graph,
@@ -522,8 +594,10 @@ pub trait ModelController {
                     dep_art_idx,
                     &production_policy_reqs)?;
 
-                let prod_specs = production_policies
-                    .iter()
+                let prod_specs = match production_policies {
+                        None => default_production_policies.iter(),
+                        Some(ref p) => p.iter(),
+                    }
                     .map(|policy| policy.new_production_version_specs(
                         art_graph,
                         ver_graph,
@@ -648,6 +722,19 @@ pub trait ModelController {
         v_idx: VersionGraphIndex,
         partitions: BTreeSet<PartitionIndex>,
     ) -> Result<CompositionMap<'a, 'b, 'c, 'd>, Error>;
+
+    fn write_production_policies<'a>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        artifact: &Artifact<'a>,
+        policies: EnumSet<ProductionPolicies>,
+    ) -> Result<(), Error>;
+
+    fn get_production_policies<'a>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        artifact: &Artifact<'a>,
+    ) -> Result<Option<EnumSet<ProductionPolicies>>, Error>;
 
     fn write_production_specs<'a, 'b>(
         &mut self,
@@ -1198,6 +1285,8 @@ impl ModelController for PostgresStore {
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
             where Box<::datatype::interface::ProducerController>:
+            From<<T as DatatypeEnum>::InterfaceControllerType>,
+            Box<CustomProductionPolicyController>:
             From<<T as DatatypeEnum>::InterfaceControllerType> {
         {
             let rc = match *repo_control {
@@ -1628,7 +1717,7 @@ impl ModelController for PostgresStore {
             let hunks = self.get_hunks(
                 repo_control,
                 version,
-                &ver_graph.versions[ver_graph.get_partitioning(n_idx).unwrap().0],
+                &ver_graph.versions[ver_graph.get_partitioning(n_idx).expect("TODO: comp map part").0],
                 // ver_graph.get_partitioning(n_idx).unwrap().1,
                 Some(&unresolved))?;
 
@@ -1661,6 +1750,61 @@ impl ModelController for PostgresStore {
             unresolved.is_empty() && locked.is_empty(),
             "Composition map was unfulfilled!");
         Ok(map)
+    }
+
+    fn write_production_policies<'a>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        artifact: &Artifact<'a>,
+        policies: EnumSet<ProductionPolicies>,
+    ) -> Result<(), Error> {
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        // TODO: ignoring hash here, because semantics of producer versions
+        // (esp. uncommitted) are unclear.
+        trans.execute(r#"
+                INSERT INTO producer_artifact (artifact_id, policies)
+                SELECT a.id, r.strategy
+                FROM (VALUES ($1::uuid, $2::production_policy[]))
+                  AS r (a_uuid, strategy)
+                JOIN artifact a
+                  ON (a.uuid_ = r.a_uuid)
+                ON CONFLICT (artifact_id) DO UPDATE SET policies = EXCLUDED.policies;
+            "#, &[&artifact.id.uuid, &policies.iter().collect::<Vec<_>>()])?;
+
+        trans.set_commit();
+        Ok(())
+    }
+
+    fn get_production_policies<'a>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        artifact: &Artifact<'a>,
+    ) -> Result<Option<EnumSet<ProductionPolicies>>, Error> {
+        let rc = match *repo_control {
+            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("PostgresStore received a non-Postgres context")
+        };
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        let policies_row = trans.query(r#"
+                SELECT pa.policies
+                FROM artifact a
+                JOIN producer_artifact pa ON (pa.artifact_id = a.id)
+                WHERE a.uuid_ = $1::uuid;"#,
+            &[&artifact.id.uuid])?;
+        Ok(match policies_row.len() {
+            0 => None,
+            _ => Some(EnumSet::from_iter(policies_row.get(0).get::<_, Vec<ProductionPolicies>>(0))),
+        })
     }
 
     fn write_production_specs<'a, 'b>(
@@ -1735,11 +1879,13 @@ mod tests {
 
     datatype_enum!(TestDatatypes, ::datatype::DefaultInterfaceController, (
         (ArtifactGraph, ::datatype::artifact_graph::ArtifactGraphDtype),
+        (Ref, ::datatype::reference::Ref),
         (UnaryPartitioning, ::datatype::partitioning::UnaryPartitioning),
         (ArbitraryPartitioning, ::datatype::partitioning::arbitrary::ArbitraryPartitioning),
         (Blob, ::datatype::blob::Blob),
         (NoopProducer, ::datatype::producer::NoopProducer),
         (NegateBlobProducer, NegateBlobProducer),
+        (TrackingBranchProducer, ::datatype::tracking_branch_producer::TrackingBranchProducer),
     ));
 
     /// Create a simple artifact chain of
@@ -1747,7 +1893,7 @@ mod tests {
     fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         dtypes_registry: &'a DatatypesRegistry<T>,
         partitioning: Option<ArtifactDescription>,
-    ) -> (ArtifactGraph<'a>, [ArtifactGraphIndex; 5]) {
+    ) -> (ArtifactGraph<'a>, [ArtifactGraphIndex; 7]) {
         let mut artifacts = ArtifactGraphDescriptionType::new();
 
         // Blob 1
@@ -1806,6 +1952,39 @@ mod tests {
             None => ag_desc.add_unary_partitioning(),
         }
 
+        // Do not set up partitioning for these.
+        // Tracking Branch Producer
+        let tbp_node = ArtifactDescription {
+            name: Some("TBP".into()),
+            dtype: "TrackingBranchProducer".into(),
+        };
+        let tbp_node_idx = ag_desc.artifacts.add_node(tbp_node);
+        let tracked_arts = [blob1_node_idx, blob2_node_idx, blob3_node_idx];
+        for &tracked_idx in &tracked_arts {
+            ag_desc.artifacts.add_edge(
+                tracked_idx,
+                tbp_node_idx,
+                ArtifactRelation::ProducedFrom("tracked".into())).unwrap();
+        }
+        // Tracking ref
+        let ref_node = ArtifactDescription {
+            name: None,
+            dtype: "Ref".into(),
+        };
+        let ref_node_idx = ag_desc.artifacts.add_node(ref_node);
+        ag_desc.artifacts.add_edge(
+            tbp_node_idx,
+            ref_node_idx,
+            ArtifactRelation::ProducedFrom("output".into())).unwrap();
+        for &tracked_idx in &tracked_arts {
+            ag_desc.artifacts.add_edge(
+                tracked_idx,
+                ref_node_idx,
+                ArtifactRelation::DtypeDepends(DatatypeRelation {
+                    name: "ref".into()
+                })).unwrap();
+        }
+
         let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry);
 
         let idxs = [
@@ -1814,6 +1993,8 @@ mod tests {
             *idx_map.get(&blob2_node_idx).unwrap(),
             *idx_map.get(&prod2_node_idx).unwrap(),
             *idx_map.get(&blob3_node_idx).unwrap(),
+            *idx_map.get(&tbp_node_idx).unwrap(),
+            *idx_map.get(&ref_node_idx).unwrap(),
         ];
 
         (ag, idxs)
@@ -1974,6 +2155,12 @@ mod tests {
         let mut model_ctrl = model_controller(store);
 
         model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
+        model_ctrl.write_production_policies(
+            &mut context.repo_control,
+            &ag.artifacts[idxs[5]],
+            EnumSet::from_iter(
+                vec![ProductionPolicies::LeafBootstrap, ProductionPolicies::Custom]
+                .into_iter())).unwrap();
 
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
@@ -2174,7 +2361,7 @@ mod tests {
             &mut context.repo_control,
             &ag,
             &mut ver_graph,
-            blob1_ver2_idx).expect("Commit blob failed");
+            blob1_ver2_idx).expect("Commit blob delta failed");
 
         let vg3 = model_ctrl.get_version_graph(
             &mut context.repo_control,
@@ -2209,13 +2396,13 @@ mod tests {
 
             let map1 = model_ctrl.get_composition_map(
                 &mut context.repo_control,
-                &ver_graph,
+                &vg3,
                 blob1_vg3_idxs[1],
                 part_ids.clone(),
             ).unwrap();
             let map3 = model_ctrl.get_composition_map(
                 &mut context.repo_control,
-                &ver_graph,
+                &vg3,
                 blob3_vg3_idxs[1],
                 part_ids,
             ).unwrap();
@@ -2231,8 +2418,21 @@ mod tests {
                     &mut context.repo_control,
                     blob3_comp).unwrap();
 
-                assert_eq!(blob1_state, blob3_state);
+                assert_eq!(blob1_state, blob3_state, "Blob states do not match");
             }
+        }
+
+        {
+            use std::str::FromStr;
+            use datatype::reference::VersionSpecifier;
+            use datatype::reference::ModelController as RefModelController;
+            let ref_control = ::datatype::reference::model_controller(context.repo_control.store());
+            assert_eq!(
+                vg3.versions[blob3_vg3_idxs[1]].id,
+                ref_control.get_version_id(
+                    &mut context.repo_control,
+                    &VersionSpecifier::from_str("master:head/Test Blob 3").unwrap()).unwrap(),
+                "Tracking branch has wrong version for Blob 3.");
         }
     }
 

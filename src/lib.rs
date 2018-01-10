@@ -1,5 +1,6 @@
 #![feature(conservative_impl_trait)]
 #![feature(entry_and_modify)]
+#![feature(never_type)]
 #![feature(vec_remove_item)]
 
 extern crate daggy;
@@ -378,6 +379,21 @@ impl<'a> ArtifactGraph<'a> {
 
         self.id.hash == ag_hash.finish()
     }
+
+    pub fn get_related_artifacts(
+        &self,
+        a_idx: ArtifactGraphIndex,
+        relation: &ArtifactRelation,
+        dir: petgraph::Direction,
+    ) -> Vec<ArtifactGraphIndex> {
+        self.artifacts.graph().edges_directed(a_idx, dir)
+            .filter(|e| e.weight() == relation)
+            .map(|e| match dir {
+                petgraph::Direction::Outgoing => e.target(),
+                petgraph::Direction::Incoming => e.source(),
+            })
+            .collect()
+    }
 }
 
 impl<'a, 's> IdentifiableGraph<'s, Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> for ArtifactGraph<'a> {
@@ -396,6 +412,7 @@ impl<'a, 's> IdentifiableGraph<'s, Artifact<'a>, ArtifactRelation, ArtifactGraph
 #[derive(Debug)]
 pub struct Artifact<'a> {
     id: Identity,
+    /// Name identifier for this artifact. Can not start with '@'.
     name: Option<String>,
     dtype: &'a Datatype,
 }
@@ -531,6 +548,11 @@ pub enum VersionRelation<'b>{
     Dependence(&'b ArtifactRelation),
     /// The target version is a child version of the source version.
     Parent,
+    // /// The target version must walk the ancestry tree back to the source
+    // /// version to materialize a complete state.
+    // /// *Note:* The materialized state may still contain sparse or ragged
+    // /// `PartitionCompletion`.
+    // SufficientAncestor,
 }
 
 #[derive(Debug, ToSql, FromSql)]

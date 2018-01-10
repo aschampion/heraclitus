@@ -130,7 +130,11 @@ Milestone Goals
         - Like with ProductionPolicies, AG selects from among these by some manager, selected policy is stored w/ production version
           - Could be partition-local or something, but really down the rabbit hole with that. For now uniform.
 - [ ] Goal: organize, e.g., postgres stores out of datatypes
-- [ ] Goal: branches/tags/reflist
+- [x] Goal: branches/tags/reflog
+  - Tags: (semi)-immutable VG states
+  - Branches: tracking VGs for AG subsets
+    - What about branch managers, e.g., squashing policies?
+  - A reflog is not necessary as it's persisted in the VG itself.
 - [ ] Goal: artifact graph with producer: test fake dtypes `nodes` and `components`, with a producer that computes CCs of node arborescences
   - Demonstrates:
     - Registration of custom dtypes

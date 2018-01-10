@@ -3,9 +3,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use enum_set::EnumSet;
 
 use ::{
-    ArtifactGraph, Error, Interface, PartitionIndex,
+    ArtifactGraph, ArtifactGraphIndex, Error, Interface, PartitionIndex,
     RepresentationKind, Version, VersionGraph, VersionGraphIndex};
 use ::datatype::{DependencyDescription, InterfaceDescription};
+use ::datatype::artifact_graph::ProductionPolicy;
 
 
 lazy_static! {
@@ -21,6 +22,13 @@ lazy_static! {
     pub static ref INTERFACE_PRODUCER_DESC: InterfaceDescription = InterfaceDescription {
         interface: Interface {
             name: "Producer",
+        },
+        extends: HashSet::new(),
+    };
+
+    pub static ref INTERFACE_CUSTOM_PRODUCTION_POLICY_DESC: InterfaceDescription = InterfaceDescription {
+        interface: Interface {
+            name: "CustomProductionPolicy",
         },
         extends: HashSet::new(),
     };
@@ -103,6 +111,16 @@ pub trait ProducerController {
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<ProductionOutput, Error>;
+}
+
+
+pub trait CustomProductionPolicyController {
+    fn get_custom_production_policy(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &ArtifactGraph,
+        prod_a_idx: ArtifactGraphIndex,
+    ) -> Result<Box<ProductionPolicy>, Error>;
 }
 
 
