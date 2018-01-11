@@ -6,7 +6,6 @@ extern crate uuid;
 
 
 use std::collections::{BTreeSet};
-use std::iter::FromIterator;
 
 use ::{
     RepresentationKind,
