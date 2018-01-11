@@ -1928,7 +1928,7 @@ mod tests {
         }
         // Tracking ref
         let ref_node = ArtifactDescription {
-            name: None,
+            name: Some("blobs".into()),
             dtype: "Ref".into(),
         };
         let ref_node_idx = ag_desc.artifacts.add_node(ref_node);
@@ -2391,7 +2391,7 @@ mod tests {
                 vg3[blob3_vg3_idxs[1]].id,
                 ref_control.get_version_id(
                     &mut context.repo_control,
-                    &VersionSpecifier::from_str("master:head/Test Blob 3").unwrap()).unwrap(),
+                    &VersionSpecifier::from_str("blobs/master/Test Blob 3").unwrap()).unwrap(),
                 "Tracking branch has wrong version for Blob 3.");
         }
     }

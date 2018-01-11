@@ -561,9 +561,7 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
     }
 }
 
-impl<'a: 'b, 'b>
-IdentifiableGraph
-for VersionGraph<'a, 'b> {
+impl<'a: 'b, 'b> IdentifiableGraph for VersionGraph<'a, 'b> {
     type N = Version<'a, 'b>;
     type E = VersionRelation<'b>;
     type IT = VersionGraphIndexType;

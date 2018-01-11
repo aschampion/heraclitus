@@ -270,15 +270,17 @@ impl FromStr for BranchRevisionSpecifier {
 /// assert_eq!(VersionSpecifier::Uuid(UuidSpecifier::Partial("abcd1".to_string())),
 ///            VersionSpecifier::from_str("#abcd1").unwrap());
 /// assert_eq!(VersionSpecifier::BranchArtifact {
+///                ref_artifact: ArtifactSpecifier::Name("all".to_string()),
 ///                branch_revision: BranchRevisionSpecifier::from_str("master:squash~1").unwrap(),
 ///                artifact: ArtifactSpecifier::Name("data".to_string()),
 ///            },
-///            VersionSpecifier::from_str("master:squash~1/data").unwrap());
+///            VersionSpecifier::from_str("all/master:squash~1/data").unwrap());
 /// ```
 #[derive(Debug, PartialEq)]
 pub enum VersionSpecifier {
     Uuid(UuidSpecifier),
     BranchArtifact {
+        ref_artifact: ArtifactSpecifier,
         branch_revision: BranchRevisionSpecifier,
         artifact: ArtifactSpecifier,
     },
@@ -296,9 +298,10 @@ impl FromStr for VersionSpecifier {
                 } else {
                     Err(RevisionSpecifierError::Format)
                 },
-            2 => Ok(VersionSpecifier::BranchArtifact {
-                    branch_revision: BranchRevisionSpecifier::from_str(tokens[0])?,
-                    artifact: ArtifactSpecifier::from_str(tokens[1])?,
+            3 => Ok(VersionSpecifier::BranchArtifact {
+                    ref_artifact: ArtifactSpecifier::from_str(tokens[0])?,
+                    branch_revision: BranchRevisionSpecifier::from_str(tokens[1])?,
+                    artifact: ArtifactSpecifier::from_str(tokens[2])?,
                 }),
             _ => Err(RevisionSpecifierError::Format),
         }
@@ -627,7 +630,11 @@ impl ModelController for PostgresStore {
                     }
                 }
             },
-            VersionSpecifier::BranchArtifact {branch_revision: ref br, artifact: ref art} => {
+            VersionSpecifier::BranchArtifact {
+                ref_artifact: ref ref_art,
+                branch_revision: ref br,
+                artifact: ref art
+            } => {
                 assert_eq!(br.revision.offset, 0, "Non-tip revisions not yet supported"); // TODO
 
                 let br_rev_path_name = match br.revision.path {
@@ -656,32 +663,49 @@ impl ModelController for PostgresStore {
                     }
                 }
 
+                let (ref_art_filter, ref_filter_param) = match *ref_art {
+                    ArtifactSpecifier::Uuid(ref us) => {
+                        match *us {
+                            UuidSpecifier::Complete(ref uuid) =>
+                                ("$2::text IS NULL AND ra.uuid_ = $1::uuid", ArtFilterParam::Uuid(uuid)),
+                            UuidSpecifier::Partial(ref prefix) =>
+                                ("$1::uuid IS NULL AND ra.uuid_::text ILIKE $2::text || '%'", ArtFilterParam::Text(prefix)),
+                        }
+                    },
+                    ArtifactSpecifier::Name(ref name) =>
+                        ("$1::uuid IS NULL AND ra.name = $2::text", ArtFilterParam::Text(name)),
+                };
+
                 let (art_filter, filter_param) = match *art {
                     ArtifactSpecifier::Uuid(ref us) => {
                         match *us {
                             UuidSpecifier::Complete(ref uuid) =>
-                                ("$4::text IS NULL AND tva.uuid_ = $3::uuid", ArtFilterParam::Uuid(uuid)),
+                                ("$6::text IS NULL AND tva.uuid_ = $5::uuid", ArtFilterParam::Uuid(uuid)),
                             UuidSpecifier::Partial(ref prefix) =>
-                                ("$3::uuid IS NULL AND tva.uuid_::text ILIKE $4::text || '%'", ArtFilterParam::Text(prefix)),
+                                ("$5::uuid IS NULL AND tva.uuid_::text ILIKE $6::text || '%'", ArtFilterParam::Text(prefix)),
                         }
                     },
                     ArtifactSpecifier::Name(ref name) =>
-                        ("$3::uuid IS NULL AND tva.name = $4::text", ArtFilterParam::Text(name)),
+                        ("$5::uuid IS NULL AND tva.name = $6::text", ArtFilterParam::Text(name)),
                 };
 
                 trans.query(
                     &format!(r#"
                         SELECT tv.uuid_, tv.hash
-                        FROM branch b
+                        FROM artifact ra
+                        JOIN branch b ON (b.ref_artifact_id = ra.id)
                         JOIN revision_path rp ON (rp.branch_id = b.id)
                         JOIN version_relation rvr ON (rvr.dependent_version_id = rp.ref_version_id)
                         JOIN version tv ON (tv.id = rvr.source_version_id)
                         JOIN artifact tva ON (tva.id = tv.artifact_id)
-                        WHERE b.name = $1::text
-                          AND rp.name = $2::text
+                        WHERE {}
+                          AND b.name = $3::text
+                          AND rp.name = $4::text
                           AND {};
-                    "#, art_filter),
-                    &[&br.name, &br_rev_path_name, &filter_param.uuid(), &filter_param.text()])?
+                    "#, ref_art_filter, art_filter),
+                    &[&ref_filter_param.uuid(), &ref_filter_param.text(),
+                      &br.name, &br_rev_path_name,
+                      &filter_param.uuid(), &filter_param.text()])?
             },
         };
 
