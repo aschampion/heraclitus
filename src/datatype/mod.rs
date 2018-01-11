@@ -38,7 +38,7 @@ pub struct Description {
 }
 
 impl Description {
-    fn to_datatype(self, interfaces: &InterfaceRegistry) -> Datatype {
+    fn into_datatype(self, interfaces: &InterfaceRegistry) -> Datatype {
         Datatype::new(
             self.name,
             self.version,
@@ -275,13 +275,13 @@ impl InterfaceRegistry {
         *self.ifaces_idx.get(name).expect("Unknown interface")
     }
 
-    pub fn register_interfaces(&mut self, interfaces: Vec<&InterfaceDescription>) {
-        for iface in &interfaces {
+    pub fn register_interfaces(&mut self, interfaces: &[&InterfaceDescription]) {
+        for iface in interfaces {
             let idx = self.extension.add_node(iface.interface.clone());
             self.ifaces_idx.insert(iface.interface.name, idx);
         }
 
-        for iface in &interfaces {
+        for iface in interfaces {
             let idx = self.ifaces_idx.get(iface.interface.name).expect("Impossible");
             for super_iface in &iface.extends {
                 let super_idx = self.ifaces_idx.get(super_iface).expect("Unknown super interface");
@@ -311,11 +311,11 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
     }
 
     /// Iterate over datatypes.
-    pub fn iter_dtypes<'a>(&'a self) -> impl Iterator<Item = &'a Datatype> {
+    pub fn iter_dtypes(&self) -> impl Iterator<Item = &Datatype> {
         self.dtypes.values()
     }
 
-    pub fn register_interfaces(&mut self, interfaces: Vec<&InterfaceDescription>) {
+    pub fn register_interfaces(&mut self, interfaces: &[&InterfaceDescription]) {
         self.interfaces.register_interfaces(interfaces);
     }
 
@@ -323,7 +323,7 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
         for model in models {
             let description = model.as_model().info();
             self.models.insert(description.name.clone(), model);
-            self.dtypes.insert(description.name.clone(), description.to_datatype(&self.interfaces));
+            self.dtypes.insert(description.name.clone(), description.into_datatype(&self.interfaces));
         }
     }
 }
@@ -339,7 +339,7 @@ pub(crate) mod tests {
 
     pub fn init_dtypes_registry<T: DatatypeEnum>() -> DatatypesRegistry<T> {
         let mut dtypes_registry = DatatypesRegistry::new();
-        dtypes_registry.register_interfaces(<T as DatatypeEnum>::InterfaceControllerType::all_descriptions());
+        dtypes_registry.register_interfaces(&<T as DatatypeEnum>::InterfaceControllerType::all_descriptions());
         let models = T::all_variants();
             // .iter()
             // .map(|v| v.as_model())

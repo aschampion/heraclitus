@@ -143,7 +143,7 @@ impl ProductionPolicy for TrackingBranchProductionPolicy {
                 ref_v_idx,
                 &VersionRelation::Dependence(&ArtifactRelation::ProducedFrom("output".into())),
                 Direction::Incoming))
-            .flat_map(|s| s.into_iter().map(|v| Some(v)))
+            .flat_map(|s| s.into_iter().map(Some))
             .collect();
 
         extant_specs.retain(|_, ref mut v| !v.is_disjoint(&tip_prod_ver_idxs));
@@ -184,7 +184,7 @@ impl ProducerController for TrackingBranchProducerController {
 
         hashmap!{
             "normal".into() => ProductionRepresentationCapability::new(
-                hashmap!{"input" => rep.clone()},
+                hashmap!{"input" => rep},
                 hashmap!{"output" => rep},
             )
         }
@@ -268,7 +268,7 @@ impl ProducerController for TrackingBranchProducerController {
         ag_control.create_staging_version(
             repo_control,
             ver_graph,
-            ref_ver_idx.clone()).unwrap();
+            ref_ver_idx).unwrap();
 
         // TODO: ref hash
 

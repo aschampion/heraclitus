@@ -283,7 +283,7 @@ impl ModelController for PostgresStore {
                 impl<'a> ArtFilterParam<'a> {
                     fn uuid(&self) -> Option<&Uuid> {
                         match *self {
-                            ArtFilterParam::Uuid(ref uuid) => Some(uuid),
+                            ArtFilterParam::Uuid(uuid) => Some(uuid),
                             ArtFilterParam::Text(_) => None,
                         }
                     }
@@ -291,7 +291,7 @@ impl ModelController for PostgresStore {
                     fn text(&self) -> Option<&str> {
                         match *self {
                             ArtFilterParam::Uuid(_) => None,
-                            ArtFilterParam::Text(ref s) => Some(s),
+                            ArtFilterParam::Text(s) => Some(s),
                         }
                     }
                 }

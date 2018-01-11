@@ -147,20 +147,15 @@ type ProductionDependenciesSpecs = BTreeSet<ProductionDependencySpec>;
 
 /// Specifies sets of dependencies for new producer version, mapped to the
 /// parent producer versions for each.
+#[derive(Default)]
 pub struct ProductionVersionSpecs {
     specs: HashMap<ProductionDependenciesSpecs, BTreeSet<Option<VersionGraphIndex>>>,
 }
 
 impl ProductionVersionSpecs {
-    pub fn new() -> Self {
-        ProductionVersionSpecs {
-            specs: HashMap::new(),
-        }
-    }
-
     pub fn insert(&mut self, spec: ProductionDependenciesSpecs, parent: Option<VersionGraphIndex>) {
         self.specs.entry(spec)
-            .or_insert_with(|| BTreeSet::new())
+            .or_insert_with(BTreeSet::new)
             .insert(parent);
     }
 
@@ -219,7 +214,7 @@ impl ProductionPolicy for ExtantProductionPolicy {
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
     ) -> ProductionVersionSpecs {
-        let mut specs = ProductionVersionSpecs::new();
+        let mut specs = ProductionVersionSpecs::default();
 
         // The dependency version must have parents, and all its parents must
         // have related dependent versions of this producer.
@@ -251,10 +246,11 @@ impl ProductionPolicy for ExtantProductionPolicy {
                     let mut dependencies = ProductionDependenciesSpecs::new();
 
                     for (e_idx, d_idx) in ver_graph.versions.parents(*prod_ver).iter(&ver_graph.versions) {
-                        if let VersionRelation::Dependence(ref art_rel) = ver_graph[e_idx] {
-                            let new_dep_vers = match v_parents.contains(&d_idx) {
-                                true => v_idx,
-                                false => d_idx,
+                        if let VersionRelation::Dependence(art_rel) = ver_graph[e_idx] {
+                            let new_dep_vers = if v_parents.contains(&d_idx) {
+                                v_idx
+                            } else {
+                                d_idx
                             };
 
                             // TODO: stupid. stupid. stupid.
@@ -262,7 +258,7 @@ impl ProductionPolicy for ExtantProductionPolicy {
                                 .edges_directed(
                                     p_art_idx,
                                     petgraph::Direction::Incoming)
-                                .filter(|e| e.weight() == *art_rel)
+                                .filter(|e| e.weight() == art_rel)
                                 .map(|e| e.id())
                                 .nth(0).expect("TODO");
 
@@ -302,7 +298,7 @@ impl ProductionPolicy for LeafBootstrapProductionPolicy {
         _: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
     ) -> ProductionVersionSpecs {
-        let mut specs = ProductionVersionSpecs::new();
+        let mut specs = ProductionVersionSpecs::default();
         let prod_art = art_graph.artifacts.node_weight(p_art_idx).expect("Non-existent producer");
 
         // Any version of this producer already exists.
@@ -396,7 +392,7 @@ impl ProductionStrategyPolicy for ParsimoniousRepresentationProductionStrategyPo
                 }
                 VersionRelation::Parent => None,
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         strategies.iter()
             // Filter strategies by those applicable to current version inputs.
@@ -494,8 +490,8 @@ pub trait ModelController {
             ver_graph,
             seed_v_idx)?;
 
-        for (_, output) in &outputs {
-            if let &ProductionOutput::Synchronous(ref v_idxs) = output {
+        for output in outputs.values() {
+            if let ProductionOutput::Synchronous(ref v_idxs) = *output {
                 for v_idx in v_idxs {
                     self.commit_version(
                         dtypes_registry,
@@ -571,7 +567,7 @@ pub trait ModelController {
                                     custom_policy_interface.into();
                                 Some(custom_policy_controller.get_custom_production_policy(
                                     repo_control,
-                                    &art_graph,
+                                    art_graph,
                                     dep_art_idx).expect("TODO"))
                             } else {
                                 None // TODO: custom policy for non-interface producer.
@@ -610,14 +606,14 @@ pub trait ModelController {
                         v_idx,
                         dep_art_idx))
                     .fold(
-                        ProductionVersionSpecs::new(),
+                        ProductionVersionSpecs::default(),
                         |mut specs, x| {specs.merge(x); specs});
 
                 let production_strategies = producer_controller.production_strategies();
 
                 for (specs, parent_prod_vers) in &prod_specs.specs {
                     let new_prod_ver = Version::new(dependent, RepresentationKind::State);
-                    let new_prod_ver_id = new_prod_ver.id.clone();
+                    let new_prod_ver_id = new_prod_ver.id;
                     let new_prod_ver_idx = ver_graph.versions.add_node(new_prod_ver);
 
                     for spec in specs {
@@ -630,7 +626,7 @@ pub trait ModelController {
                     }
 
                     for parent_ver in parent_prod_vers {
-                        if let &Some(ref idx) = parent_ver {
+                        if let Some(ref idx) = *parent_ver {
                             ver_graph.versions.add_edge(
                                 *idx,
                                 new_prod_ver_idx,
@@ -641,7 +637,7 @@ pub trait ModelController {
                     let strategy_specs = ProductionStrategySpecs {
                         representation: production_strategy_policy.select_representation(
                             ver_graph,
-                            new_prod_ver_idx.clone(),
+                            new_prod_ver_idx,
                             &production_strategies)
                                 .expect("TODO: producer is incompatible with input versions"),
                     };
@@ -649,7 +645,7 @@ pub trait ModelController {
                     self.create_staging_version(
                         repo_control,
                         ver_graph,
-                        new_prod_ver_idx.clone())?;
+                        new_prod_ver_idx)?;
 
                     self.write_production_specs(
                         repo_control,
@@ -660,7 +656,7 @@ pub trait ModelController {
                         repo_control,
                         art_graph,
                         ver_graph,
-                        new_prod_ver_idx.clone())?;
+                        new_prod_ver_idx)?;
 
                     new_prod_vers.insert(new_prod_ver_id, output);
                 }
@@ -779,8 +775,7 @@ impl ArtifactGraphDescription {
     pub fn add_uniform_partitioning(&mut self, partitioning: ArtifactDescription) {
         let part_idx = self.artifacts.add_node(partitioning);
         for node_idx in daggy::petgraph::algo::toposort(self.artifacts.graph(), None)
-                .expect("TODO: not a DAG")
-                .into_iter() {
+                .expect("TODO: not a DAG") {
             if node_idx == part_idx {
                 continue;
             }
@@ -1400,7 +1395,7 @@ mod tests {
           relation: ArtifactGraphEdgeIndex::new(0)
       };
 
-      let mut specs_a = ProductionVersionSpecs::new();
+      let mut specs_a = ProductionVersionSpecs::default();
       specs_a.insert(vec![a.clone(), b.clone()].into_iter().collect(),
                      Some(VersionGraphIndex::new(0)));
       specs_a.insert(vec![a.clone(), b.clone()].into_iter().collect(), None);
@@ -1412,7 +1407,7 @@ mod tests {
       assert!(specs_a.specs.get(&vec![a.clone(), b.clone()].into_iter().collect())
          .unwrap().contains(&Some(VersionGraphIndex::new(0))));
 
-      let mut specs_b = ProductionVersionSpecs::new();
+      let mut specs_b = ProductionVersionSpecs::default();
       specs_b.insert(vec![c.clone(), b.clone()].into_iter().collect(),
          Some(VersionGraphIndex::new(2)));
 

@@ -706,7 +706,7 @@ impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
         (match self.version.representation {
             RepresentationKind::State => self.representation == RepresentationKind::State,
             RepresentationKind::CumulativeDelta => match self.representation {
-                RepresentationKind::State => true,
+                RepresentationKind::State |
                 RepresentationKind::CumulativeDelta => true,
                 RepresentationKind::Delta => false,
             },

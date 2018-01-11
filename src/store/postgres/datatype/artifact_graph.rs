@@ -119,7 +119,7 @@ impl PostgresStore {
         trans: &Transaction,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
-        v_db_ids: &Vec<i64>,
+        v_db_ids: &[i64],
         idx_map: &mut BTreeMap<i64, VersionGraphIndex>,
         ancestry_direction: Option<petgraph::Direction>,
         dependence_direction: Option<petgraph::Direction>,
@@ -155,7 +155,7 @@ impl PostgresStore {
                   ON ({})
                 JOIN artifact a ON a.id = v.artifact_id;
             "#, ancestry_join),
-            &[v_db_ids])?;
+            &[&v_db_ids])?;
         for row in &ancestry_node_rows {
             let db_id = row.get::<_, i64>(AncNodeRow::ID as usize);
             let an_id = Identity {
@@ -163,23 +163,21 @@ impl PostgresStore {
                 hash: row.get::<_, i64>(AncNodeRow::ArtifactHash as usize) as HashType,
             };
 
-            if !idx_map.contains_key(&db_id) {
+            idx_map.entry(db_id).or_insert_with(|| {
                 let v_id = Identity {
                     uuid: row.get(AncNodeRow::UUID as usize),
                     hash: row.get::<_, i64>(AncNodeRow::Hash as usize) as HashType,
                 };
 
-                let v_idx = ver_graph.emplace(
+                ver_graph.emplace(
                     &v_id,
                     || Version {
                         id: v_id,
                         artifact: art_graph.get_by_id(&an_id).expect("Version references unkown artifact").1,
                         status: row.get(AncNodeRow::Status as usize),
                         representation: row.get(AncNodeRow::Representation as usize),
-                    });
-
-                idx_map.insert(db_id, v_idx);
-            }
+                    })
+            });
 
             let edge = VersionRelation::Parent;
             let parent_idx = idx_map.get(&row.get(AncNodeRow::ParentID as usize)).expect("Graph is malformed.");
@@ -218,7 +216,7 @@ impl PostgresStore {
                   ON ({})
                 JOIN artifact a ON a.id = v.artifact_id;
             "#, dependence_join),
-            &[v_db_ids])?;
+            &[&v_db_ids])?;
         for row in &dependence_node_rows {
             let db_id = row.get::<_, i64>(DepNodeRow::ID as usize);
             let an_id = Identity {
@@ -360,10 +358,10 @@ impl ModelController for PostgresStore {
         for e in art_graph.artifacts.graph().edge_references() {
             let source_id = id_map.get(&e.source()).expect("Graph is malformed.");
             let dependent_id = id_map.get(&e.target()).expect("Graph is malformed.");
-            match e.weight() {
-                &ArtifactRelation::DtypeDepends(ref dtype_rel) =>
+            match *e.weight() {
+                ArtifactRelation::DtypeDepends(ref dtype_rel) =>
                     art_dtype_edge.execute(&[&source_id, &dependent_id, &dtype_rel.name])?,
-                &ArtifactRelation::ProducedFrom(ref name) =>
+                ArtifactRelation::ProducedFrom(ref name) =>
                     art_prod_edge.execute(&[&source_id, &dependent_id, name])?,
             };
         }
@@ -593,12 +591,12 @@ impl ModelController for PostgresStore {
             .filter_map(|(e_idx, parent_idx)| {
                 let relation = ver_graph.versions.edge_weight(e_idx)
                     .expect("Impossible: indices from this graph");
-                match relation {
-                    &VersionRelation::Dependence(_) => None,
-                    &VersionRelation::Parent => {
+                match *relation {
+                    VersionRelation::Dependence(_) => None,
+                    VersionRelation::Parent => {
                         let parent = ver_graph.versions.node_weight(parent_idx)
                             .expect("Impossible: indices from this graph");
-                        Some(parent.id.uuid.clone())
+                        Some(parent.id.uuid)
                     },
                 }
             })
@@ -640,7 +638,7 @@ impl ModelController for PostgresStore {
 
                 self.get_version_relations(
                     &trans,
-                    &art_graph,
+                    art_graph,
                     ver_graph,
                     &prod_ver_db_ids,
                     &mut idx_map,
@@ -676,7 +674,7 @@ impl ModelController for PostgresStore {
                                 // distinct after changing producers to datatypes.
                                 let dependency = art_graph.artifacts.node_weight(dependency_idx)
                                     .expect("Impossible: indices from this graph");
-                                Some(dependency.id.uuid.clone())
+                                Some(dependency.id.uuid)
                             })
                             .collect();
 
@@ -694,12 +692,12 @@ impl ModelController for PostgresStore {
                     ver_graph,
                     &ver_rows,
                 )?;
-                let dep_ver_db_ids = dep_ver_idx_map.keys().cloned().collect();
+                let dep_ver_db_ids = dep_ver_idx_map.keys().cloned().collect::<Vec<_>>();
                 idx_map.extend(dep_ver_idx_map.into_iter());
 
                 self.get_version_relations(
                     &trans,
-                    &art_graph,
+                    art_graph,
                     ver_graph,
                     &dep_ver_db_ids,
                     &mut idx_map,
@@ -748,9 +746,9 @@ impl ModelController for PostgresStore {
 
         self.get_version_relations(
             &trans,
-            &art_graph,
+            art_graph,
             &mut ver_graph,
-            &vec![ver_node_id],
+            &[ver_node_id],
             &mut idx_map,
             None,
             None)?;
@@ -790,9 +788,9 @@ impl ModelController for PostgresStore {
 
         self.get_version_relations(
             &trans,
-            &art_graph,
+            art_graph,
             &mut ver_graph,
-            &idx_map.keys().cloned().collect(),
+            &idx_map.keys().cloned().collect::<Vec<_>>(),
             &mut idx_map,
             // Can use incoming edges only since all nodes are fetched.
             Some(petgraph::Direction::Incoming),
@@ -882,7 +880,7 @@ impl ModelController for PostgresStore {
                 LEFT JOIN version hpv ON (hp.precedent_version_id = v.id)
                 WHERE v.uuid_ = $1::uuid AND v.hash = $2::bigint"#;
         let hunk_rows = match partitions {
-            Some(ref part_idxs) => {
+            Some(part_idxs) => {
                 // TODO: annoying vec cast
                 let part_idxs_db = part_idxs.iter().map(|i| *i as i64).collect::<Vec<i64>>();
                 trans.query(
@@ -942,7 +940,7 @@ impl ModelController for PostgresStore {
         // they have received a hunk from an unreached version.
         let mut locked: BTreeMap<Uuid, BTreeSet<PartitionIndex>> = BTreeMap::new();
 
-        for n_idx in ancestors.into_iter() {
+        for n_idx in ancestors {
             let version = &ver_graph[n_idx];
 
             if let Some(mut part_idxs) = locked.remove(&version.id.uuid) {
@@ -956,7 +954,7 @@ impl ModelController for PostgresStore {
                 // ver_graph.get_partitioning(n_idx).unwrap().1,
                 Some(&unresolved))?;
 
-            for hunk in hunks.into_iter() {
+            for hunk in hunks {
                 let part_idx = hunk.partition.index;
 
                 if hunk.representation == RepresentationKind::State {
@@ -965,7 +963,7 @@ impl ModelController for PostgresStore {
 
                 if let Some(ver_uuid) = hunk.precedence {
                     locked.entry(ver_uuid)
-                        .or_insert_with(|| BTreeSet::new())
+                        .or_insert_with(BTreeSet::new)
                         .insert(hunk.partition.index);
                     unresolved.remove(&hunk.partition.index);
                 }

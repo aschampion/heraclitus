@@ -67,10 +67,10 @@ impl ProductionRepresentationCapability {
 
     pub fn matches_inputs(
         &self,
-        inputs: &Vec<(&str, RepresentationKind)>
+        inputs: &[(&str, RepresentationKind)]
     ) -> bool {
         for &(input, rep) in inputs {
-            if let Some(ref representations) = self.inputs.get(input) {
+            if let Some(representations) = self.inputs.get(input) {
                 if !representations.contains(&rep) {
                     return false;
                 }

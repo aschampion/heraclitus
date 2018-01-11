@@ -65,9 +65,9 @@ impl FromStr for RevisionPath {
 
 impl fmt::Display for RevisionPath {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            &RevisionPath::Head => "HEAD",
-            &RevisionPath::Named(ref s) => s,
+        write!(f, "{}", match *self {
+            RevisionPath::Head => "HEAD",
+            RevisionPath::Named(ref s) => s,
         })
     }
 }
@@ -191,7 +191,7 @@ impl FromStr for ArtifactSpecifier {
     type Err = !;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with("#") {
+        if s.starts_with('#') {
             Ok(ArtifactSpecifier::Uuid(UuidSpecifier::from_str(&s[1..])?))
         } else {
             Ok(ArtifactSpecifier::Name(s.to_string()))
