@@ -308,8 +308,7 @@ impl ProductionPolicy for LeafBootstrapProductionPolicy {
 
         let mut dependencies = ProductionDependenciesSpecs::new();
         for (e_idx, d_idx) in art_graph.artifacts.parents(p_art_idx).iter(&art_graph.artifacts) {
-            let dependency = art_graph.artifacts.node_weight(d_idx)
-                .expect("Impossible: indices from this graph");
+            let dependency = &art_graph[d_idx];
             let dep_vers = ver_graph.artifact_versions(dependency);
 
             if dep_vers.len() != 1 {
@@ -539,9 +538,9 @@ pub trait ModelController {
         let mut new_prod_vers = HashMap::new();
 
         for (_e_idx, dep_art_idx) in dependent_arts {
-            let dependent = art_graph.artifacts.node_weight(dep_art_idx)
-                                               .expect("Impossible: indices from this graph");
+            let dependent = &art_graph[dep_art_idx];
             let dtype = dependent.dtype;
+
             if let Some(producer_interface) = dtypes_registry.models
                     .get(&dtype.name)
                     .expect("Datatype must be known")
@@ -952,10 +951,7 @@ mod tests {
         let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
         let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
 
-        let mut context = Context {
-            dtypes_registry: dtypes_registry,
-            repo_control: repo_control,
-        };
+        let mut context = Context {dtypes_registry, repo_control};
 
         let (ag, _) = simple_blob_prod_ag_fixture(&context.dtypes_registry, None);
 
@@ -978,10 +974,7 @@ mod tests {
         let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
         let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
 
-        let mut context = Context {
-            dtypes_registry: dtypes_registry,
-            repo_control: repo_control,
-        };
+        let mut context = Context {dtypes_registry, repo_control};
 
         let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry, None);
 
@@ -1029,7 +1022,7 @@ mod tests {
                                       .into();
 
         let mut blob_control = ::datatype::blob::model_controller(store);
-        let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
+        let ver_blob_real = &ver_graph[blob1_ver_idx];
         let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
         let ver_hunks = ver_part_control
                 .get_partition_ids(&mut context.repo_control, ver_partitioning)
@@ -1085,10 +1078,7 @@ mod tests {
         let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
         let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
 
-        let mut context = Context {
-            dtypes_registry: dtypes_registry,
-            repo_control: repo_control,
-        };
+        let mut context = Context {dtypes_registry, repo_control};
 
         let partitioning = ArtifactDescription {
             name: Some("Arbitrary Partitioning".into()),
@@ -1114,7 +1104,6 @@ mod tests {
         // Create arbitrary partitions.
         {
             let mut part_control = ::datatype::partitioning::arbitrary::model_controller(store);
-
 
             model_ctrl.create_staging_version(
                 &mut context.repo_control,
@@ -1157,7 +1146,7 @@ mod tests {
                                           .into();
 
             let mut blob_control = ::datatype::blob::model_controller(store);
-            let ver_blob_real = ver_graph.versions.node_weight(blob1_ver_idx).unwrap();
+            let ver_blob_real = &ver_graph[blob1_ver_idx];
             let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
             let ver_hunks = ver_part_control
                     // Note that this is in ascending order, so version hash
@@ -1213,17 +1202,11 @@ mod tests {
 
         println!("{:?}", petgraph::dot::Dot::new(&vg2.versions.graph()));
 
-        let blob1_vg2_idxs = vg2.artifact_versions(
-            &ag[idxs[0]]);
-
-        let blob2_vg2_idxs = vg2.artifact_versions(
-            &ag[idxs[2]]);
+        let blob1_vg2_idxs = vg2.artifact_versions(&ag[idxs[0]]);
+        let blob2_vg2_idxs = vg2.artifact_versions(&ag[idxs[2]]);
+        let blob3_vg2_idxs = vg2.artifact_versions(&ag[idxs[4]]);
 
         assert_eq!(blob2_vg2_idxs.len(), 1);
-
-        let blob3_vg2_idxs = vg2.artifact_versions(
-            &ag[idxs[4]]);
-
         assert_eq!(blob3_vg2_idxs.len(), 1);
 
         assert_eq!(
@@ -1257,7 +1240,7 @@ mod tests {
                                           .into();
 
             let mut blob_control = ::datatype::blob::model_controller(store);
-            let ver_blob_real = ver_graph.versions.node_weight(blob1_ver2_idx).unwrap();
+            let ver_blob_real = &ver_graph[blob1_ver2_idx];
             let fake_blob = ::datatype::Payload::Delta((vec![1, 6], vec![7, 8]));
             let ver_hunks = ver_part_control
                     // Note that this is in ascending order, so version hash
@@ -1313,17 +1296,11 @@ mod tests {
 
         println!("{:?}", petgraph::dot::Dot::new(&vg3.versions.graph()));
 
-        let blob1_vg3_idxs = vg3.artifact_versions(
-            &ag[idxs[0]]);
-
-        let blob2_vg3_idxs = vg3.artifact_versions(
-            &ag[idxs[2]]);
+        let blob1_vg3_idxs = vg3.artifact_versions(&ag[idxs[0]]);
+        let blob2_vg3_idxs = vg3.artifact_versions(&ag[idxs[2]]);
+        let blob3_vg3_idxs = vg3.artifact_versions(&ag[idxs[4]]);
 
         assert_eq!(blob2_vg3_idxs.len(), 2);
-
-        let blob3_vg3_idxs = vg3.artifact_versions(
-            &ag[idxs[4]]);
-
         assert_eq!(blob3_vg3_idxs.len(), 2);
 
         assert_eq!(
@@ -1396,20 +1373,16 @@ mod tests {
       };
 
       let mut specs_a = ProductionVersionSpecs::default();
-      specs_a.insert(btreeset![a.clone(), b.clone()],
-                     Some(VersionGraphIndex::new(0)));
+      specs_a.insert(btreeset![a.clone(), b.clone()], Some(VersionGraphIndex::new(0)));
       specs_a.insert(btreeset![a.clone(), b.clone()], None);
-      specs_a.insert(btreeset![c.clone(), b.clone()],
-                     Some(VersionGraphIndex::new(1)));
+      specs_a.insert(btreeset![c.clone(), b.clone()], Some(VersionGraphIndex::new(1)));
 
-      assert!(specs_a.specs[&btreeset![a.clone(), b.clone()]]
-        .contains(&None));
+      assert!(specs_a.specs[&btreeset![a.clone(), b.clone()]].contains(&None));
       assert!(specs_a.specs[&btreeset![a.clone(), b.clone()]]
         .contains(&Some(VersionGraphIndex::new(0))));
 
       let mut specs_b = ProductionVersionSpecs::default();
-      specs_b.insert(btreeset![c.clone(), b.clone()],
-         Some(VersionGraphIndex::new(2)));
+      specs_b.insert(btreeset![c.clone(), b.clone()], Some(VersionGraphIndex::new(2)));
 
       specs_a.merge(specs_b);
 

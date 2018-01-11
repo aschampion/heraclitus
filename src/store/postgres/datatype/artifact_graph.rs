@@ -247,7 +247,7 @@ impl PostgresStore {
                 {row.get(DepNodeRow::DependentID as usize)}
                 else {row.get(DepNodeRow::SourceID as usize)};
             let other_v_idx = *idx_map.get(&other_v_db_id).expect("Relation with version not in graph");
-            let other_art = ver_graph.versions.node_weight(other_v_idx).expect("Impossible").artifact;
+            let other_art = ver_graph[other_v_idx].artifact;
             let other_art_idx = art_graph.get_by_id(&other_art.id)
                 .expect("Unknown artifact").0;
 
@@ -337,7 +337,7 @@ impl ModelController for PostgresStore {
             "#)?;
 
         for idx in art_graph.artifacts.graph().node_indices() {
-            let art = art_graph.artifacts.node_weight(idx).unwrap();
+            let art = &art_graph[idx];
             let node_id_row = insert_artifact.query(&[
                         &art.id.uuid, &(art.id.hash as i64), &ag_id,
                         &art.name, &art.dtype.name])?;
@@ -515,8 +515,8 @@ impl ModelController for PostgresStore {
             "#)?;
 
         for (e_idx, p_idx) in ver_graph.versions.parents(v_idx).iter(&ver_graph.versions) {
-            let edge = ver_graph.versions.edge_weight(e_idx).expect("Graph is malformed.");
-            let parent = ver_graph.versions.node_weight(p_idx).expect("Graph is malformed");
+            let edge = &ver_graph[e_idx];
+            let parent = &ver_graph[p_idx];
             match *edge {
                 VersionRelation::Dependence(_) => &insert_relation,
                 VersionRelation::Parent => &insert_parent,
@@ -593,11 +593,7 @@ impl ModelController for PostgresStore {
                     .expect("Impossible: indices from this graph");
                 match *relation {
                     VersionRelation::Dependence(_) => None,
-                    VersionRelation::Parent => {
-                        let parent = ver_graph.versions.node_weight(parent_idx)
-                            .expect("Impossible: indices from this graph");
-                        Some(parent.id.uuid)
-                    },
+                    VersionRelation::Parent => Some(ver_graph[parent_idx].id.uuid),
                 }
             })
             .collect();
@@ -669,13 +665,11 @@ impl ModelController for PostgresStore {
                         let dep_art_uuids: Vec<Uuid> =
                             art_graph.artifacts.parents(v_idx)
                             .iter(&art_graph.artifacts)
-                            .filter_map(|(_, dependency_idx)| {
+                            .filter_map(|(_, dependency_idx)|
                                 // TODO: Not using relation because not clear variants are
                                 // distinct after changing producers to datatypes.
-                                let dependency = art_graph.artifacts.node_weight(dependency_idx)
-                                    .expect("Impossible: indices from this graph");
-                                Some(dependency.id.uuid)
-                            })
+                                Some(art_graph[dependency_idx].id.uuid)
+                            )
                             .collect();
 
                         trans.query(r#"
