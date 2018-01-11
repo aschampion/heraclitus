@@ -91,7 +91,7 @@ fn get_repo_controller(repo: &super::Repository) -> StoreRepoController {
 pub struct FakeRepoController {}
 
 impl RepoController for FakeRepoController {
-    fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
+    fn init<T: DatatypeEnum>(&mut self, _dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         Ok(())
     }
 }

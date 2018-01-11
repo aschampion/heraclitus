@@ -212,8 +212,6 @@ impl ProductionPolicy for ExtantProductionPolicy {
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
     ) -> ProductionVersionSpecs {
-        let new_ver_node = ver_graph.versions.node_weight(v_idx)
-                                             .expect("Non-existent version");
         let mut specs = ProductionVersionSpecs::new();
 
         // The dependency version must have parents, and all its parents must
@@ -395,7 +393,7 @@ impl ProductionStrategyPolicy for ParsimoniousRepresentationProductionStrategyPo
 
         strategies.iter()
             // Filter strategies by those applicable to current version inputs.
-            .filter(|&(id, capability)| capability.matches_inputs(&inputs))
+            .filter(|&(_, capability)| capability.matches_inputs(&inputs))
             // From remaining strategies, select that with minimal sum minimum
             // representation kind weighting.
             .map(|(id, capability)|
@@ -411,8 +409,8 @@ impl ProductionStrategyPolicy for ParsimoniousRepresentationProductionStrategyPo
                     })
                     .sum::<usize>()
             ))
-            .min_by_key(|&(id, score)| score)
-            .map(|(id, score)| id.clone())
+            .min_by_key(|&(_, score)| score)
+            .map(|(id, _)| id.clone())
     }
 }
 
@@ -537,7 +535,7 @@ pub trait ModelController {
 
         let mut new_prod_vers = HashMap::new();
 
-        for (e_idx, dep_art_idx) in dependent_arts {
+        for (_e_idx, dep_art_idx) in dependent_arts {
             let dependent = art_graph.artifacts.node_weight(dep_art_idx)
                                                .expect("Impossible: indices from this graph");
             let dtype = dependent.dtype;
@@ -780,7 +778,7 @@ impl ArtifactGraphDescription {
                 continue;
             }
             let has_partitioning = self.artifacts.parents(node_idx).iter(&self.artifacts)
-                .fold(false, |hp, (e_idx, p_idx)| {
+                .fold(false, |hp, (e_idx, _p_idx)| {
                     hp || match self.artifacts[e_idx] {
                         ArtifactRelation::DtypeDepends(ref rel) => rel.name == "Partitioning",
                         _ => false,
@@ -830,7 +828,7 @@ impl PostgresStore {
                 uuid: ver_node_row.get(VerNodeRow::ArtifactUUID as usize),
                 hash: ver_node_row.get::<_, i64>(VerNodeRow::ArtifactHash as usize) as HashType,
             };
-            let (art_idx, art) = art_graph.get_by_id(&an_id).expect("Version references unkown artifact");
+            let (_, art) = art_graph.get_by_id(&an_id).expect("Version references unkown artifact");
 
             let ver_id = Identity {
                 uuid: ver_node_row.get(VerNodeRow::UUID as usize),
@@ -1259,7 +1257,7 @@ impl ModelController for PostgresStore {
             let edge = ver_graph.versions.edge_weight(e_idx).expect("Graph is malformed.");
             let parent = ver_graph.versions.node_weight(p_idx).expect("Graph is malformed");
             match *edge {
-                VersionRelation::Dependence(ref art_rel) => &insert_relation,
+                VersionRelation::Dependence(_) => &insert_relation,
                 VersionRelation::Parent => &insert_parent,
             }.execute(&[&parent.id.uuid, &ver_id])?;
         }
@@ -1410,7 +1408,7 @@ impl ModelController for PostgresStore {
                         let dep_art_uuids: Vec<Uuid> =
                             art_graph.artifacts.parents(v_idx)
                             .iter(&art_graph.artifacts)
-                            .filter_map(|(e_idx, dependency_idx)| {
+                            .filter_map(|(_, dependency_idx)| {
                                 // TODO: Not using relation because not clear variants are
                                 // distinct after changing producers to datatypes.
                                 let dependency = art_graph.artifacts.node_weight(dependency_idx)
@@ -1975,7 +1973,7 @@ mod tests {
             repo_control: repo_control,
         };
 
-        let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry, None);
+        let (ag, _) = simple_blob_prod_ag_fixture(&context.dtypes_registry, None);
 
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
         let mut model_ctrl = model_controller(store);
@@ -2020,7 +2018,7 @@ mod tests {
         }
 
         let up_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (up_art_idx, up_art) = ag.get_by_id(&ver_graph[up_idx].artifact.id).unwrap();
+        let (up_art_idx, _) = ag.get_by_id(&ver_graph[up_idx].artifact.id).unwrap();
 
         let blob1_art_idx = idxs[0];
         let blob1_art = &ag[blob1_art_idx];
@@ -2083,7 +2081,7 @@ mod tests {
             assert_eq!(blob, fake_blob);
         }
 
-        let (ver_blob_idx2, ver_graph2) = model_ctrl.get_version(
+        let (_, ver_graph2) = model_ctrl.get_version(
             &mut context.repo_control,
             &ag,
             &ver_blob_real.id).unwrap();
@@ -2127,7 +2125,7 @@ mod tests {
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
         let part_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (part_art_idx, part_art) = ag.get_by_id(&ver_graph[part_idx].artifact.id).unwrap();
+        let (part_art_idx, _) = ag.get_by_id(&ver_graph[part_idx].artifact.id).unwrap();
 
         // Create arbitrary partitions.
         {
@@ -2256,7 +2254,7 @@ mod tests {
         ver_graph.versions.add_edge(part_idx, blob1_ver2_idx,
             VersionRelation::Dependence(
                 &ag[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()])).unwrap();
-        ver_graph.versions.add_edge(blob1_ver_idx, blob1_ver2_idx, VersionRelation::Parent);
+        ver_graph.versions.add_edge(blob1_ver_idx, blob1_ver2_idx, VersionRelation::Parent).unwrap();
 
         model_ctrl.create_staging_version(
             &mut context.repo_control,
@@ -2352,7 +2350,7 @@ mod tests {
 
         {
             use datatype::interface::PartitioningController;
-            let mut part_control = ::datatype::partitioning::arbitrary::model_controller(store);
+            let part_control = ::datatype::partitioning::arbitrary::model_controller(store);
             let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
             let part_ids = part_control.get_partition_ids(&mut context.repo_control, ver_partitioning);
 
@@ -2368,7 +2366,7 @@ mod tests {
                 blob3_vg3_idxs[1],
                 part_ids,
             ).unwrap();
-            let mut blob_control = ::datatype::blob::model_controller(store);
+            let blob_control = ::datatype::blob::model_controller(store);
 
             for (p_id, blob1_comp) in &map1 {
                 let blob3_comp = &map3[p_id];

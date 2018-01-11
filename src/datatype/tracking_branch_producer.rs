@@ -8,7 +8,6 @@ use ::{
     ArtifactGraph,
     ArtifactGraphIndex,
     ArtifactRelation,
-    DatatypeRelation,
     Error,
     Identity,
     IdentifiableGraph,
@@ -175,7 +174,7 @@ impl CustomProductionPolicyController for TrackingBranchProducerController {
         let ref_art = &art_graph[ref_art_idx];
 
         // Get ref model controller.
-        let mut ref_control = ::datatype::reference::model_controller(repo_control.store());
+        let ref_control = ::datatype::reference::model_controller(repo_control.store());
 
         // Get branch heads from model controller.
         let tips = ref_control.get_branch_revision_tips(repo_control, ref_art)?.values().cloned().collect();
@@ -256,9 +255,6 @@ impl ProducerController for TrackingBranchProducerController {
 
         // Add dependence relation to all tracked versions.
         let tracked_art_relation_needle = ArtifactRelation::ProducedFrom("tracked".into());
-        let ref_track_relation_needle = ArtifactRelation::DtypeDepends(DatatypeRelation {
-            name: "ref".into()
-        });
         let tracked_vers = ver_graph.get_related_versions(
             v_idx,
             &VersionRelation::Dependence(&tracked_art_relation_needle),

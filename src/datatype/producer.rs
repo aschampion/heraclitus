@@ -217,7 +217,7 @@ pub(crate) mod tests {
             // TODO: not yet clear what producer version hash should be.
             ver_graph[v_idx].id.hash = ver_graph[input_ver].id.hash;
 
-            let (art_idx, art) = art_graph.get_by_id(&ver_graph[v_idx].artifact.id)
+            let (art_idx, _) = art_graph.get_by_id(&ver_graph[v_idx].artifact.id)
                 .expect("TODO2");
 
             // Find output relation and artifact.

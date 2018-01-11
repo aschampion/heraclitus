@@ -50,7 +50,7 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
 
     fn interface_controller(
         &self,
-        store: Store,
+        _store: Store,
         name: &str
     ) -> Option<T> {
         match name {
@@ -219,7 +219,7 @@ pub mod arbitrary {
             // TODO: Have to construct new array to get Rust to allow this cast.
             let db_partition_ids = partition_ids.iter().map(|p| *p as i64).collect::<Vec<i64>>();
 
-            let nrows = trans.execute(r#"
+            trans.execute(r#"
                     INSERT INTO arbitrary_partitioning (version_id, partition_ids)
                     SELECT v.id, r.partitioning_ids
                     FROM (VALUES ($2::bigint[]))
