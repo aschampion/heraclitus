@@ -18,6 +18,14 @@ pub enum StoreRepoController {
 }
 
 impl StoreRepoController {
+    fn new(repo: &super::Repository) -> StoreRepoController {
+        use self::StoreRepoController::*;
+        match repo.url.scheme() {
+            "postgres" | "postgresql" => Postgres(PostgresRepoController::new(repo)),
+            _ => unimplemented!()
+        }
+    }
+
     pub fn store(&self) -> Store {
         match *self {
             StoreRepoController::Postgres(_) => Store::Postgres,
@@ -37,14 +45,6 @@ impl RepoController for StoreRepoController {
 
 pub trait RepoController {
     fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error>;
-}
-
-fn get_repo_controller(repo: &super::Repository) -> StoreRepoController {
-    use self::StoreRepoController::*;
-    match repo.url.scheme() {
-        "postgres" | "postgresql" => Postgres(PostgresRepoController::new(repo)),
-        _ => unimplemented!()
-    }
 }
 
 
@@ -75,7 +75,7 @@ pub(crate) mod tests {
             name: "Test repo".into(),
             url: url,
         };
-        let mut repo_control = get_repo_controller(&repo);
+        let mut repo_control = StoreRepoController::new(&repo);
         repo_control.init(&dtypes_registry).unwrap();
 
         repo_control
