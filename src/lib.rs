@@ -46,6 +46,7 @@ use datatype::{DatatypeEnum, DatatypesRegistry};
 use datatype::artifact_graph::{ArtifactGraphDescription};
 
 
+#[macro_use]
 pub mod datatype;
 pub mod repo;
 pub mod store;

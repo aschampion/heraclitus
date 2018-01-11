@@ -10,6 +10,7 @@ use enum_set::EnumSet;
 
 use ::{Composition, Datatype, Error, Hunk};
 use ::store::Store;
+use ::store::postgres::datatype::PostgresMetaController;
 use self::interface::{
     PartitioningController,
     ProducerController,
@@ -20,6 +21,7 @@ use self::interface::{
 #[macro_use]
 pub mod macros;
 pub mod artifact_graph;
+#[macro_use]
 pub mod blob;
 pub mod interface;
 pub mod partitioning;
@@ -209,19 +211,9 @@ pub trait ModelController {
 // - Sync/compare datatype defs with store
 //    - Fresh init vs diff update
 
-pub trait PostgresMetaController: MetaController + ::repo::PostgresMigratable {}
 
 pub enum StoreMetaController {
     Postgres(Box<PostgresMetaController>),
-}
-
-impl Into<Box<PostgresMetaController>> for StoreMetaController {
-    fn into(self) -> Box<PostgresMetaController> {
-        match self {
-            StoreMetaController::Postgres(smc) => smc,
-            _ => panic!("Wrong store type."),
-        }
-    }
 }
 
 pub trait InterfaceController<T: ?Sized> : From<Box<T>>

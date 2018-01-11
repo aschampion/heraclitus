@@ -129,7 +129,7 @@ Milestone Goals
         - Producers should provide sets of representation capabilities for different internal production paths, identified somehow (names or ids, etc.)
         - Like with ProductionPolicies, AG selects from among these by some manager, selected policy is stored w/ production version
           - Could be partition-local or something, but really down the rabbit hole with that. For now uniform.
-- [ ] Goal: organize, e.g., postgres stores out of datatypes
+- [x] Goal: organize, e.g., postgres stores out of datatypes
 - [x] Goal: branches/tags/reflog
   - Tags: (semi)-immutable VG states
   - Branches: tracking VGs for AG subsets

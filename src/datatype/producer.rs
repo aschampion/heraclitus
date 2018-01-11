@@ -1,22 +1,29 @@
-extern crate postgres;
-extern crate schemer;
-
-
 use std::collections::HashMap;
 
 use ::{
     ArtifactGraph,
-    RepresentationKind, Error,
-    VersionGraph, VersionGraphIndex,};
+    RepresentationKind,
+    Error,
+    VersionGraph,
+    VersionGraphIndex,
+};
 use ::datatype::{
-    Description, DependencyDescription, DependencyTypeRestriction,
-    DependencyCardinalityRestriction, DependencyStoreRestriction,
-    InterfaceController, MetaController,
-    Model, PostgresMetaController, StoreMetaController};
+    Description,
+    DependencyDescription,
+    DependencyTypeRestriction,
+    DependencyCardinalityRestriction,
+    DependencyStoreRestriction,
+    InterfaceController,
+    MetaController,
+    Model,
+    StoreMetaController,
+};
 use ::datatype::interface::{
-    ProducerController, ProductionOutput,
-    ProductionRepresentationCapability, ProductionStrategies};
-use ::repo::{PostgresMigratable};
+    ProducerController,
+    ProductionOutput,
+    ProductionRepresentationCapability,
+    ProductionStrategies,
+};
 use ::store::Store;
 
 
@@ -70,10 +77,6 @@ pub struct NoopProducerController;
 
 impl MetaController for NoopProducerController {}
 
-impl PostgresMigratable for NoopProducerController {}
-
-impl PostgresMetaController for NoopProducerController {}
-
 impl ProducerController for NoopProducerController {
     fn production_strategies(&self) -> ProductionStrategies {
     // fn representation_capabilities(&self) -> Vec<ProductionRepresentationCapability> {
@@ -99,6 +102,7 @@ impl ProducerController for NoopProducerController {
         Ok(ProductionOutput::Synchronous(vec![v_idx]))
     }
 }
+
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -168,10 +172,6 @@ pub(crate) mod tests {
     pub struct NegateBlobProducerController;
 
     impl MetaController for NegateBlobProducerController {}
-
-    impl PostgresMigratable for NegateBlobProducerController {}
-
-    impl PostgresMetaController for NegateBlobProducerController {}
 
     impl ProducerController for NegateBlobProducerController {
         fn production_strategies(&self) -> ProductionStrategies {

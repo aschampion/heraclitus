@@ -26,7 +26,6 @@ use ::datatype::{
     InterfaceController,
     MetaController,
     Model,
-    PostgresMetaController,
     Store,
     StoreMetaController,
 };
@@ -47,7 +46,6 @@ use ::datatype::interface::{
     ProductionStrategies,
 };
 use ::datatype::reference::ModelController as ReferenceModelController;
-use ::repo::{PostgresMigratable};
 
 
 #[derive(Default)]
@@ -106,10 +104,6 @@ impl<T> Model<T> for TrackingBranchProducer
 pub struct TrackingBranchProducerController;
 
 impl MetaController for TrackingBranchProducerController {}
-
-impl PostgresMigratable for TrackingBranchProducerController {}
-
-impl PostgresMetaController for TrackingBranchProducerController {}
 
 
 struct TrackingBranchProductionPolicy {

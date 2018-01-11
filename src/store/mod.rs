@@ -2,7 +2,7 @@ use std::mem;
 
 use enum_set;
 
-//pub mod postgres;
+pub mod postgres;
 
 #[derive(Clone, Copy)]
 #[repr(u32)]
