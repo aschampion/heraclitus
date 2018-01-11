@@ -2,13 +2,15 @@ extern crate schemer;
 extern crate uuid;
 
 
+use std::borrow::BorrowMut;
+
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
 use ::{RepresentationKind, Error, Hunk};
 use super::{Description, Payload, Store};
-use ::repo::{PostgresMigratable};
+use ::repo::{PostgresMigratable, PostgresRepoController};
 
 
 #[derive(Default)]
@@ -148,10 +150,7 @@ impl super::ModelController for PostgresStore {
         hunk: &Hunk,
         payload: &Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -199,10 +198,7 @@ impl super::ModelController for PostgresStore {
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
     ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;

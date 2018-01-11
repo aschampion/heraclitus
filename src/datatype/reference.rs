@@ -1,6 +1,7 @@
 extern crate schemer;
 
 
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::convert::From;
 use std::fmt;
@@ -18,7 +19,7 @@ use ::datatype::{
     DependencyCardinalityRestriction, DependencyStoreRestriction,
     MetaController,
     Model, PostgresMetaController, StoreMetaController};
-use ::repo::{PostgresMigratable};
+use ::repo::{PostgresMigratable, PostgresRepoController};
 use ::store::Store;
 
 
@@ -435,10 +436,7 @@ impl ModelController for PostgresStore {
         repo_control: &mut ::repo::StoreRepoController,
         artifact: &Artifact,
     ) -> Result<HashMap<BranchRevisionTip, Identity>, Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -480,10 +478,7 @@ impl ModelController for PostgresStore {
         artifact: &Artifact,
         tip_versions: &HashMap<BranchRevisionTip, Identity>,
     ) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -529,10 +524,7 @@ impl ModelController for PostgresStore {
         version: &Version,
         message: &Option<String>,
     ) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         match *message {
             Some(ref t) => {
@@ -560,10 +552,7 @@ impl ModelController for PostgresStore {
         repo_control: &mut ::repo::StoreRepoController,
         version: &Version,
     ) -> Result<Option<String>, Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -583,10 +572,7 @@ impl ModelController for PostgresStore {
         ref_version: &Version,
         name: &str,
     ) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -617,10 +603,7 @@ impl ModelController for PostgresStore {
         repo_control: &mut ::repo::StoreRepoController,
         specifier: &VersionSpecifier,
     ) -> Result<Identity, Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;

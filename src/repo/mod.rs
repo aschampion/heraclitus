@@ -3,6 +3,7 @@ extern crate postgres;
 extern crate schemer;
 
 
+use std::borrow::{Borrow, BorrowMut};
 use std::convert::From;
 use std::fmt::Debug;
 use std::option::Option;
@@ -38,6 +39,24 @@ impl RepoController for StoreRepoController {
 
         match *self {
             Postgres(ref mut rc) => rc.init(dtypes_registry)
+        }
+    }
+}
+
+impl Borrow<PostgresRepoController> for StoreRepoController {
+    fn borrow(&self) -> &PostgresRepoController {
+        match *self {
+            StoreRepoController::Postgres(ref rc) => rc,
+            _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
+        }
+    }
+}
+
+impl BorrowMut<PostgresRepoController> for StoreRepoController {
+    fn borrow_mut(&mut self) -> &mut PostgresRepoController {
+        match *self {
+            StoreRepoController::Postgres(ref mut rc) => rc,
+            _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
         }
     }
 }

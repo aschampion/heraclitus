@@ -8,6 +8,7 @@ extern crate uuid;
 extern crate postgres;
 
 
+use std::borrow::BorrowMut;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
 use std::mem;
@@ -38,7 +39,7 @@ use ::datatype::interface::{
     ProductionStrategies,
     ProductionStrategyID,
 };
-use ::repo::{PostgresMigratable};
+use ::repo::{PostgresMigratable, PostgresRepoController};
 
 
 #[derive(Default)]
@@ -1054,10 +1055,7 @@ impl ModelController for PostgresStore {
             &mut self,
             repo_control: &mut ::repo::StoreRepoController,
             art_graph: &ArtifactGraph) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1118,10 +1116,7 @@ impl ModelController for PostgresStore {
             repo_control: &mut ::repo::StoreRepoController,
             dtypes_registry: &'a DatatypesRegistry<T>,
             id: &Identity) -> Result<ArtifactGraph<'a>, Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1222,10 +1217,7 @@ impl ModelController for PostgresStore {
         ver_graph: &VersionGraph,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1289,10 +1281,7 @@ impl ModelController for PostgresStore {
             Box<CustomProductionPolicyController>:
             From<<T as DatatypeEnum>::InterfaceControllerType> {
         {
-            let rc = match *repo_control {
-                ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-                _ => panic!("PostgresStore received a non-Postgres context")
-            };
+            let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
             let conn = rc.conn()?;
             let trans = conn.transaction()?;
@@ -1329,10 +1318,7 @@ impl ModelController for PostgresStore {
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
     ) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1474,10 +1460,7 @@ impl ModelController for PostgresStore {
         art_graph: &'b ArtifactGraph<'a>,
         id: &Identity,
     ) -> Result<(VersionGraphIndex, VersionGraph<'a, 'b>), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1519,10 +1502,7 @@ impl ModelController for PostgresStore {
         repo_control: &mut ::repo::StoreRepoController,
         art_graph: &'b ArtifactGraph<'a>,
     ) -> Result<VersionGraph<'a, 'b>, Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1565,10 +1545,7 @@ impl ModelController for PostgresStore {
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
     ) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         if !hunk.is_valid() {
             return Err(Error::Model("Hunk is invalid.".into()));
@@ -1620,10 +1597,7 @@ impl ModelController for PostgresStore {
         partitioning: &'c Version<'a, 'b>,
         partitions: Option<&BTreeSet<PartitionIndex>>,
     ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1758,10 +1732,7 @@ impl ModelController for PostgresStore {
         artifact: &Artifact<'a>,
         policies: EnumSet<ProductionPolicies>,
     ) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1787,10 +1758,7 @@ impl ModelController for PostgresStore {
         repo_control: &mut ::repo::StoreRepoController,
         artifact: &Artifact<'a>,
     ) -> Result<Option<EnumSet<ProductionPolicies>>, Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1813,10 +1781,7 @@ impl ModelController for PostgresStore {
         version: &Version<'a, 'b>,
         specs: ProductionStrategySpecs,
     ) -> Result<(), Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -1841,10 +1806,7 @@ impl ModelController for PostgresStore {
         repo_control: &mut ::repo::StoreRepoController,
         version: &Version<'a, 'b>,
     ) -> Result<ProductionStrategySpecs, Error> {
-        let rc = match *repo_control {
-            ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("PostgresStore received a non-Postgres context")
-        };
+        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;

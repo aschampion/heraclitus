@@ -90,7 +90,9 @@ impl super::PostgresMetaController for UnaryPartitioningController {}
 pub mod arbitrary {
     use super::*;
 
-    // use std::collections::Vec;
+    use std::borrow::BorrowMut;
+
+    use ::repo::PostgresRepoController;
 
 
     #[derive(Default)]
@@ -209,10 +211,7 @@ pub mod arbitrary {
             version: &Version,
             partition_ids: &[PartitionIndex],
         ) -> Result<(), Error> {
-            let rc = match *repo_control {
-                ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-                _ => panic!("PostgresStore received a non-Postgres context")
-            };
+            let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
             let conn = rc.conn()?;
             let trans = conn.transaction()?;
@@ -238,10 +237,7 @@ pub mod arbitrary {
             repo_control: &mut ::repo::StoreRepoController,
             version: &Version
         ) -> Result<BTreeSet<PartitionIndex>, Error> {
-            let rc = match *repo_control {
-                ::repo::StoreRepoController::Postgres(ref mut rc) => rc,
-                _ => panic!("PostgresStore received a non-Postgres context")
-            };
+            let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 
             let conn = rc.conn()?;
             let trans = conn.transaction()?;
