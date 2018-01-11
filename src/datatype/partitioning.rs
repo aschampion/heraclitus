@@ -72,7 +72,7 @@ impl PartitioningController for UnaryPartitioningController {
         _repo_control: &mut ::repo::StoreRepoController,
         _partitioning: &Version,
     ) -> BTreeSet<PartitionIndex> {
-        BTreeSet::from_iter(vec![UNARY_PARTITION_INDEX])
+        btreeset![UNARY_PARTITION_INDEX]
     }
 }
 

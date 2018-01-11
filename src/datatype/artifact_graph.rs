@@ -1396,26 +1396,26 @@ mod tests {
       };
 
       let mut specs_a = ProductionVersionSpecs::default();
-      specs_a.insert(vec![a.clone(), b.clone()].into_iter().collect(),
+      specs_a.insert(btreeset![a.clone(), b.clone()],
                      Some(VersionGraphIndex::new(0)));
-      specs_a.insert(vec![a.clone(), b.clone()].into_iter().collect(), None);
-      specs_a.insert(vec![c.clone(), b.clone()].into_iter().collect(),
+      specs_a.insert(btreeset![a.clone(), b.clone()], None);
+      specs_a.insert(btreeset![c.clone(), b.clone()],
                      Some(VersionGraphIndex::new(1)));
 
-      assert!(specs_a.specs.get(&vec![a.clone(), b.clone()].into_iter().collect())
-         .unwrap().contains(&None));
-      assert!(specs_a.specs.get(&vec![a.clone(), b.clone()].into_iter().collect())
-         .unwrap().contains(&Some(VersionGraphIndex::new(0))));
+      assert!(specs_a.specs[&btreeset![a.clone(), b.clone()]]
+        .contains(&None));
+      assert!(specs_a.specs[&btreeset![a.clone(), b.clone()]]
+        .contains(&Some(VersionGraphIndex::new(0))));
 
       let mut specs_b = ProductionVersionSpecs::default();
-      specs_b.insert(vec![c.clone(), b.clone()].into_iter().collect(),
+      specs_b.insert(btreeset![c.clone(), b.clone()],
          Some(VersionGraphIndex::new(2)));
 
       specs_a.merge(specs_b);
 
-      assert!(specs_a.specs.get(&vec![c.clone(), b.clone()].into_iter().collect())
-         .unwrap().contains(&Some(VersionGraphIndex::new(1))));
-      assert!(specs_a.specs.get(&vec![c.clone(), b.clone()].into_iter().collect())
-         .unwrap().contains(&Some(VersionGraphIndex::new(2))));
+      assert!(specs_a.specs[&btreeset![c.clone(), b.clone()]]
+        .contains(&Some(VersionGraphIndex::new(1))));
+      assert!(specs_a.specs[&btreeset![c.clone(), b.clone()]]
+        .contains(&Some(VersionGraphIndex::new(2))));
     }
 }
