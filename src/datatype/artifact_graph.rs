@@ -707,7 +707,7 @@ pub trait ModelController {
     /// - `partitions` - Partitions indices for which to return hunks. If
     ///                  `None`, return hunks for all partitions.
     fn get_hunks<'a, 'b, 'c, 'd>(
-        &mut self,
+        &self,
         repo_control: &mut ::repo::StoreRepoController,
         version: &'d Version<'a, 'b>,
         partitioning: &'c Version<'a, 'b>,
@@ -717,7 +717,7 @@ pub trait ModelController {
     /// Get hunk sets sufficient to reconstruct composite states for a set of
     /// partitions.
     fn get_composition_map<'a: 'b, 'b: 'r, 'c, 'd, 'r: 'c + 'd>(
-        &mut self,
+        &self,
         repo_control: &mut ::repo::StoreRepoController,
         ver_graph: &'r VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -732,7 +732,7 @@ pub trait ModelController {
     ) -> Result<(), Error>;
 
     fn get_production_policies<'a>(
-        &mut self,
+        &self,
         repo_control: &mut ::repo::StoreRepoController,
         artifact: &Artifact<'a>,
     ) -> Result<Option<EnumSet<ProductionPolicies>>, Error>;
@@ -745,7 +745,7 @@ pub trait ModelController {
     ) -> Result<(), Error>;
 
     fn get_production_specs<'a, 'b>(
-        &mut self,
+        &self,
         repo_control: &mut ::repo::StoreRepoController,
         version: &Version<'a, 'b>,
     ) -> Result<ProductionStrategySpecs, Error>;
