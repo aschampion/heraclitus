@@ -705,11 +705,8 @@ impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
     fn is_valid(&self) -> bool {
         (match self.version.representation {
             RepresentationKind::State => self.representation == RepresentationKind::State,
-            RepresentationKind::CumulativeDelta => match self.representation {
-                RepresentationKind::State |
-                RepresentationKind::CumulativeDelta => true,
-                RepresentationKind::Delta => false,
-            },
+            RepresentationKind::CumulativeDelta =>
+                self.representation != RepresentationKind::Delta,
             RepresentationKind::Delta => true,
         })
         &&
