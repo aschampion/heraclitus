@@ -945,7 +945,6 @@ impl ModelController for PostgresStore {
                 repo_control,
                 version,
                 &ver_graph[ver_graph.get_partitioning(n_idx).expect("TODO: comp map part").0],
-                // ver_graph.get_partitioning(n_idx).unwrap().1,
                 Some(&unresolved))?;
 
             for hunk in hunks {
@@ -963,7 +962,7 @@ impl ModelController for PostgresStore {
                 }
 
                 map.entry(part_idx)
-                    .or_insert_with(|| vec![])
+                    .or_insert_with(Vec::new)
                     .push(hunk);
             }
 

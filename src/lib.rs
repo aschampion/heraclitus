@@ -141,7 +141,8 @@ impl enum_set::CLike for RepresentationKind {
 }
 
 lazy_static! {
-    static ref DATATYPES_UUID_NAMESPACE: Uuid = Uuid::parse_str("a95d827d-3a11-405e-b9e0-e43ffa620d33").unwrap();
+    static ref DATATYPES_UUID_NAMESPACE: Uuid =
+        Uuid::parse_str("a95d827d-3a11-405e-b9e0-e43ffa620d33").unwrap();
 }
 
 #[derive(Debug)]
