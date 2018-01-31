@@ -135,6 +135,36 @@ Milestone Goals
   - Branches: tracking VGs for AG subsets
     - What about branch managers, e.g., squashing policies?
   - A reflog is not necessary as it's persisted in the VG itself.
+- [ ] Goal: version merging
+  - Can only be done to committed versions w/ identical dependency versions
+  - [ ] Partition-wise LCtipA for n versions (lowest common ancestor, but not considering representation sufficiency)
+    - Note that this can be descendent or ancestral to each version's sufficient ancestor.
+    - How does this deal with partitioning changes?
+      - Doesn't have to -- if version dependencies differ, versions are unmergeable?
+      - But then have to have needless re- and de-partitioning. Pseudo-cyclic dependence between partitioning and dtypes strikes again.
+  - [ ] If partition's compositions differ AND more than one composition's tip is not the LCA hunk, conflict exists.
+    - [ ] TODO: prove this.
+    - Not actually clear this is the case. If V1P1 has hunk A and V2P1 has hunk C merging A,B with precedence on B, this should not actually be a conflict because a successful merge over A has been made, but A is *not* the LCSA. So can't assume LSCAs per partition, because it would mark this as a conflict.
+      - This is a **major** problem, but maybe one that should be ignored for now.
+        - If collect all ancestors, conflict free (for n=2 **only**) would be either:
+          - Composition map completes ancestral (inclusive to LCA, comp map tip) to *all* LCAs
+          - At most one composition map contains *any* descendents to *all* LCAs (messy)
+            - Becomes much more complex for n-way merge base, not as simple as git octopus
+            - https://www.kernel.org/pub/software/scm/git/docs/git-merge.html#_merge_strategies
+              - Git is combining several things hera is factoring: conflict-free merging, generic conflict resolution, dtype-specific conflict resolution, and manual conflict resolution. Further, notion of what is being merged is different because of partitioning and precedence. Finally, git seems to assume single root (uncertain of this), where as nothing in hera yet does (precedence results in single per-partition roots, but could belong to different root versions).
+              - Should also refresh memory of DARCS.
+      - Should this just be considered a non-dtype-specific resolvable conflict, rather than conflict-free? E.g., `ExtantPrecedenceResolver`?
+        - Even if so, still need to detect this common ancestry.
+  - [ ] Conflict resolution strategies:
+    - Yield precedence maps
+    - Don't have to resolve all conflicts, to allow layering and manual resolution
+    - Need some way to persist for staging/conflict versions?
+    - [ ] Non-dtype specific: last-hunk-mtime-wins. But does require knowledge of partition dependence relationships.
+      - [ ] Need to add ctime, mtime to versions
+    - [ ] Dtypes must be able to declare custom resolution strategies. May also want policies for strategy selection per-artifact, but not immediately necessary.
+- [ ] Goal: branch merging
+  - Zipper up toposort artifact merge
+    - Includes arts not tracked by branch ref?
 - [ ] Goal: artifact graph with producer: test fake dtypes `nodes` and `components`, with a producer that computes CCs of node arborescences
   - Demonstrates:
     - Registration of custom dtypes
@@ -358,6 +388,10 @@ Model for squashing head versions:
 - Once a delta version has been propagated to all dependent nodes in AG, gets squashed/appended into squashing version
 - APIControllers act directly on squashing versions/pending delta versions
 - ModelController clients must attempt to work on the squashing version and rebase on proximal parent if squashing version has changed
+
+Alternatively:
+[History] -> [Prox. parent] -> [Delta versions being propagated]
+                 \\-> [Squashing version]
 
 
 CATMAID Emulation Naming
