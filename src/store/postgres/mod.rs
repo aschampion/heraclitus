@@ -136,9 +136,8 @@ impl RepoController for PostgresRepoController {
 
         let migrations = dtypes_registry.iter_dtypes()
             .flat_map(|dtype| {
-                let model = dtypes_registry.models.get(&dtype.name)
-                    .expect("Impossible: datatype name from registry");
-                let smc: Box<PostgresMetaController> = model.as_model()
+                let model = dtypes_registry.get_model(&dtype.name);
+                let smc: Box<PostgresMetaController> = model
                     .meta_controller(::store::Store::Postgres)
                     .expect("Model does not have a Postgres controller.")
                     .into();

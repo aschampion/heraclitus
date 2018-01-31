@@ -294,7 +294,7 @@ impl InterfaceRegistry {
 pub struct DatatypesRegistry<T: DatatypeEnum> {
     interfaces: InterfaceRegistry,
     dtypes: HashMap<String, Datatype>,
-    pub models: HashMap<String, T>,
+    models: HashMap<String, T>,
 }
 
 impl<T: DatatypeEnum> DatatypesRegistry<T> {
@@ -308,6 +308,12 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
 
     pub fn get_datatype(&self, name: &str) -> Option<&Datatype> {
         self.dtypes.get(name)
+    }
+
+    // TODO: Kludge around Model/Interface controller mess
+    // TODO: Unable to implement as Index trait because of trait obj lifetime?
+    pub fn get_model(&self, name: &str) -> &Model<T::InterfaceControllerType> {
+        self.models.get(name).expect("Datatype must be known").as_model()
     }
 
     /// Iterate over datatypes.

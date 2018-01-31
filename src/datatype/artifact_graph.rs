@@ -546,10 +546,7 @@ pub trait ModelController {
             let dependent = &art_graph[dep_art_idx];
             let dtype = dependent.dtype;
 
-            if let Some(producer_interface) = dtypes_registry.models
-                    .get(&dtype.name)
-                    .expect("Datatype must be known")
-                    .as_model()
+            if let Some(producer_interface) = dtypes_registry.get_model(&dtype.name)
                     .interface_controller(repo_control.store(), "Producer") {
                 let producer_controller: Box<::datatype::interface::ProducerController> =
                     producer_interface.into();
@@ -562,10 +559,7 @@ pub trait ModelController {
                         ProductionPolicies::LeafBootstrap =>
                             Some(Box::new(LeafBootstrapProductionPolicy) as Box<ProductionPolicy>),
                         ProductionPolicies::Custom => {
-                            if let Some(custom_policy_interface) = dtypes_registry.models
-                                    .get(&dtype.name)
-                                    .expect("Datatype must be known")
-                                    .as_model()
+                            if let Some(custom_policy_interface) = dtypes_registry.get_model(&dtype.name)
                                     .interface_controller(repo_control.store(), "CustomProductionPolicy") {
                                 let custom_policy_controller: Box<CustomProductionPolicyController> =
                                     custom_policy_interface.into();
@@ -1079,10 +1073,8 @@ mod tests {
         let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
             .expect("Partitioning version missing");
         let ver_part_control: Box<::datatype::interface::PartitioningController> =
-                context.dtypes_registry.models
-                                      .get(&ver_partitioning.artifact.dtype.name)
-                                      .expect("Datatype must be known")
-                                      .as_model()
+                context.dtypes_registry
+                                      .get_model(&ver_partitioning.artifact.dtype.name)
                                       .interface_controller(store, "Partitioning")
                                       .expect("Partitioning must have controller for store")
                                       .into();
@@ -1203,10 +1195,8 @@ mod tests {
         let ver_hash = {
             let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
             let ver_part_control: Box<::datatype::interface::PartitioningController> =
-                    context.dtypes_registry.models
-                                          .get(&ver_partitioning.artifact.dtype.name)
-                                          .expect("Datatype must be known")
-                                          .as_model()
+                    context.dtypes_registry
+                                          .get_model(&ver_partitioning.artifact.dtype.name)
                                           .interface_controller(store, "Partitioning")
                                           .expect("Partitioning must have controller for store")
                                           .into();
@@ -1297,10 +1287,8 @@ mod tests {
         let ver2_hash = {
             let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver2_idx).unwrap();
             let ver_part_control: Box<::datatype::interface::PartitioningController> =
-                    context.dtypes_registry.models
-                                          .get(&ver_partitioning.artifact.dtype.name)
-                                          .expect("Datatype must be known")
-                                          .as_model()
+                    context.dtypes_registry
+                                          .get_model(&ver_partitioning.artifact.dtype.name)
                                           .interface_controller(store, "Partitioning")
                                           .expect("Partitioning must have controller for store")
                                           .into();
