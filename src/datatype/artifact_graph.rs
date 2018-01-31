@@ -728,10 +728,7 @@ pub trait ModelController {
             ver_graph.versions.graph(),
             &[v_idx],
             petgraph::Direction::Incoming,
-            |e: &VersionRelation| match *e {
-                VersionRelation::Parent => true,
-                _ => false
-            })?;
+            |e: &VersionRelation| *e == VersionRelation::Parent)?;
 
         let mut map = CompositionMap::new();
         // Partition indices that have not yet been resolved.
