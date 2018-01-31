@@ -33,6 +33,7 @@ use ::{
     Hunk,
     Identity,
     IdentifiableGraph,
+    LowestCommonSingleAncestors,
     PartitionIndex,
     Version,
     VersionGraph,
@@ -779,6 +780,86 @@ pub trait ModelController {
             unresolved.is_empty() && locked.is_empty(),
             "Composition map was unfulfilled!");
         Ok(map)
+    }
+
+    /// Get the lowest common single ancestor for each specified partition for
+    /// a set of versions.
+    ///
+    /// Roughly equivalent to octopus merge-base in git.
+    fn get_lowest_common_single_ancestors<'a: 'b, 'b: 'r, 'c, 'd, 'r: 'c + 'd>(
+        &self,
+        repo_control: &mut ::repo::StoreRepoController,
+        ver_graph: &'r VersionGraph<'a, 'b>,
+        v_idxs: &[VersionGraphIndex; 2],
+        partitions: BTreeSet<PartitionIndex>,
+    ) -> Result<LowestCommonSingleAncestors<'a, 'b, 'c, 'd>, Error> {
+        // TODO: assumes whole version graph is loaded.
+        // TODO: nearly complete duplication of `get_composition_map`
+        // TODO: naive O(N*T) alg that could easily be improved.
+        // TODO: not store-specific, but could be optimized to be so.
+        let mut maps: BTreeMap<VersionGraphIndex, CompositionMap> = BTreeMap::new();
+
+        for tip_idx in v_idxs {
+            let ancestors = ::util::petgraph::induced_stream_toposort(
+                ver_graph.versions.graph(),
+                &[*tip_idx],
+                petgraph::Direction::Incoming,
+                |e: &VersionRelation| *e == VersionRelation::Parent)?;
+
+            let mut map = CompositionMap::new();
+            // Partition indices that have not yet been resolved.
+            let mut unresolved: BTreeSet<PartitionIndex> = partitions.clone();
+            // Partition indices that are locked from composition changes because
+            // they have received a hunk from an unreached version.
+            let mut locked: BTreeMap<Uuid, BTreeSet<PartitionIndex>> = BTreeMap::new();
+
+            for n_idx in ancestors {
+                let version = &ver_graph[n_idx];
+
+                if let Some(mut part_idxs) = locked.remove(&version.id.uuid) {
+                    unresolved.append(&mut part_idxs);
+                }
+
+                let hunks = self.get_hunks(
+                    repo_control,
+                    version,
+                    &ver_graph[ver_graph.get_partitioning(n_idx).expect("TODO: comp map part").0],
+                    Some(&unresolved))?;
+
+                for hunk in hunks {
+                    let part_idx = hunk.partition.index;
+
+                    if let Some(ver_uuid) = hunk.precedence {
+                        locked.entry(ver_uuid)
+                            .or_insert_with(BTreeSet::new)
+                            .insert(hunk.partition.index);
+                        unresolved.remove(&hunk.partition.index);
+                    }
+
+                    map.entry(part_idx)
+                        .or_insert_with(Vec::new)
+                        .push(hunk);
+                }
+            }
+
+            maps.insert(*tip_idx, map);
+        }
+
+        let mut lscas = LowestCommonSingleAncestors::new();
+
+        // Find LSCA
+        // - How to do this efficienty for arbitrary n-way merge?
+        // - First: naive method
+        //   - For first tip, initialize composition map with its own
+        //   - For each remaining tip
+        //     - For each partition
+        //       - For each version DESCENDING from root
+        //         - If version is not next version in existing comp map, truncate comp map after prev ver
+        //   - For each partition
+        //     - Tail of remaining comp map is LCSA
+        // If using this alg, why build comp maps in the first place?
+
+        Ok(lscas)
     }
 
     fn write_production_policies<'a>(

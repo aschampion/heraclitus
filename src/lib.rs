@@ -719,16 +719,14 @@ impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
     }
 }
 
-// /// Indicates for a merge version which ancestral hunk takes precedence.
-// pub struct HunkPrecedence<'a: 'b, 'b: 'c + 'd + 'e, 'c, 'd, 'e> {
-//     merge_version: &'e Version<'a, 'b>,
-//     preceding_version: &'d Version<'a, 'b>,
-//     partition: Partition<'a, 'b, 'c>,
-// }
+/// Utility type for common concrete map structure for partitioned data.
+pub type PartitionMap<T> = BTreeMap<PartitionIndex, T>;
 
 /// A sequence of hunks for a partition sufficient to compose state for that
 /// partition's data.
 pub type Composition<'a, 'b, 'c, 'd> = Vec<Hunk<'a, 'b, 'c, 'd>>;
 
 /// A mapping of compositions for a set of partitions.
-pub type CompositionMap<'a, 'b, 'c, 'd> = BTreeMap<PartitionIndex, Composition<'a, 'b, 'c, 'd>>;
+pub type CompositionMap<'a, 'b, 'c, 'd> = PartitionMap<Composition<'a, 'b, 'c, 'd>>;
+
+pub type LowestCommonSingleAncestors<'a, 'b, 'c, 'd> = PartitionMap<Option<Hunk<'a, 'b, 'c, 'd>>>;
