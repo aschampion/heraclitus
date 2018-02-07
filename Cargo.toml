@@ -23,8 +23,8 @@ petgraph = { version = "*", features = ["serde-1"] }
 postgres = { version = "0.15", features = ["with-uuid"] }
 postgres_array = "0.9"
 postgres-derive = "0.3"
-schemer = "0.1.1"
-schemer-postgres = "*"
+schemer = "0.1.2"
+schemer-postgres = "0.1.1"
 serde = "*"
 serde_derive = "*"
 serde_json = "*"
