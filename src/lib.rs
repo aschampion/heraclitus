@@ -408,11 +408,11 @@ impl<'a> IdentifiableGraph for ArtifactGraph<'a> {
     type E = ArtifactRelation;
     type IT = ArtifactGraphIndexType;
 
-    fn graph(&self) -> &daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
+    fn graph(&self) -> &daggy::Dag<Self::N, Self::E, Self::IT> {
         &self.artifacts
     }
 
-    fn graph_mut(&mut self) -> &mut daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType> {
+    fn graph_mut(&mut self) -> &mut daggy::Dag<Self::N, Self::E, Self::IT> {
         &mut self.artifacts
     }
 }
@@ -568,11 +568,11 @@ impl<'a: 'b, 'b> IdentifiableGraph for VersionGraph<'a, 'b> {
     type E = VersionRelation<'b>;
     type IT = VersionGraphIndexType;
 
-    fn graph(&self) -> &daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType> {
+    fn graph(&self) -> &daggy::Dag<Self::N, Self::E, Self::IT> {
         &self.versions
     }
 
-    fn graph_mut(&mut self) -> &mut daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType> {
+    fn graph_mut(&mut self) -> &mut daggy::Dag<Self::N, Self::E, Self::IT> {
         &mut self.versions
     }
 }
