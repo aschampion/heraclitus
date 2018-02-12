@@ -61,14 +61,13 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
     fn interface_controller(
         &self,
         _store: Store,
-        name: &str,
+        iface: T,
     ) -> Option<T> {
-        match name {
-            "Producer" => {
-                let control: Box<ProducerController> = Box::new(NoopProducerController {});
-                Some(T::from(control))
-            },
-            _ => None,
+        if iface == <T as InterfaceController<ProducerController>>::VARIANT {
+            let control: Box<ProducerController> = Box::new(NoopProducerController {});
+            Some(T::from(control))
+        } else {
+            None
         }
     }
 }
@@ -157,14 +156,13 @@ pub(crate) mod tests {
         fn interface_controller(
             &self,
             _store: Store,
-            name: &str,
+            iface: T,
         ) -> Option<T> {
-            match name {
-                "Producer" => {
-                    let control: Box<ProducerController> = Box::new(NegateBlobProducerController {});
-                    Some(T::from(control))
-                },
-                _ => None,
+            if iface == <T as InterfaceController<ProducerController>>::VARIANT {
+                let control: Box<ProducerController> = Box::new(NegateBlobProducerController {});
+                Some(T::from(control))
+            } else {
+                None
             }
         }
     }

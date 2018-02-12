@@ -44,6 +44,7 @@ use ::{
 use ::datatype::{
     DatatypeEnum,
     DatatypesRegistry,
+    InterfaceController,
 };
 use ::datatype::artifact_graph::{
     ModelController,
@@ -55,6 +56,7 @@ use ::datatype::artifact_graph::{
 };
 use ::datatype::interface::{
     CustomProductionPolicyController,
+    ProducerController,
 };
 use ::store::postgres::{
     PostgresMigratable,
@@ -535,10 +537,10 @@ impl ModelController for PostgresStore {
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
-            where Box<::datatype::interface::ProducerController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType>,
-            Box<CustomProductionPolicyController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType> {
+            where
+                <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<ProducerController> +
+                    InterfaceController<CustomProductionPolicyController> {
         {
             let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 

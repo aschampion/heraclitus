@@ -84,19 +84,17 @@ impl<T> Model<T> for TrackingBranchProducer
     fn interface_controller(
         &self,
         _store: Store,
-        name: &str,
+        iface: T,
     ) -> Option<T> {
-        match name {
-            "Producer" => {
-                let control: Box<ProducerController> = Box::new(TrackingBranchProducerController {});
-                Some(T::from(control))
-            },
-            "CustomProductionPolicy" => {
-                let control: Box<CustomProductionPolicyController> =
-                    Box::new(TrackingBranchProducerController {});
-                Some(T::from(control))
-            },
-            _ => None,
+        if iface == <T as InterfaceController<ProducerController>>::VARIANT {
+            let control: Box<ProducerController> = Box::new(TrackingBranchProducerController {});
+            Some(T::from(control))
+        } else if iface == <T as InterfaceController<CustomProductionPolicyController>>::VARIANT {
+            let control: Box<CustomProductionPolicyController> =
+                Box::new(TrackingBranchProducerController {});
+            Some(T::from(control))
+        } else {
+            None
         }
     }
 }

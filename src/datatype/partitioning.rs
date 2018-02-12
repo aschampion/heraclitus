@@ -49,14 +49,13 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
     fn interface_controller(
         &self,
         _store: Store,
-        name: &str
+        iface: T
     ) -> Option<T> {
-        match name {
-            "Partitioning" => {
-                let control: Box<PartitioningController> = Box::new(UnaryPartitioningController {});
-                Some(T::from(control))
-            },
-            _ => None,
+        if iface == <T as InterfaceController<PartitioningController>>::VARIANT {
+            let control: Box<PartitioningController> = Box::new(UnaryPartitioningController {});
+            Some(T::from(control))
+        } else {
+            None
         }
     }
 }
@@ -112,19 +111,18 @@ pub mod arbitrary {
         fn interface_controller(
             &self,
             store: Store,
-            name: &str
+            iface: T,
         ) -> Option<T> {
-            match name {
-                "Partitioning" => {
-                    match store {
-                        Store::Postgres => {
-                            let control: Box<PartitioningController> = Box::new(PostgresStore {});
-                            Some(T::from(control))
-                        }
-                        _ => unimplemented!()
+            if iface == <T as InterfaceController<PartitioningController>>::VARIANT {
+                match store {
+                    Store::Postgres => {
+                        let control: Box<PartitioningController> = Box::new(PostgresStore {});
+                        Some(T::from(control))
                     }
-                },
-                _ => None,
+                    _ => unimplemented!()
+                }
+            } else {
+                None
             }
         }
     }

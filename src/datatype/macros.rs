@@ -8,8 +8,19 @@ macro_rules! interface_controller_enum {
     ( $enum_name:ident, ( $( ( $i_name:ident, $i_control:ident, $i_desc:expr ) ),*  $(,)* ) ) => {
         pub enum $enum_name {
             $(
-                $i_name(Box<$i_control>),
+                $i_name(Option<Box<$i_control>>),
             )*
+        }
+
+        impl std::cmp::PartialEq for $enum_name {
+            fn eq(&self, other: &$enum_name) -> bool {
+                match (self, other) {
+                    $(
+                        (&$enum_name::$i_name(None), &$enum_name::$i_name(None)) => true,
+                    )*
+                    _ => false,
+                }
+            }
         }
 
         impl InterfaceControllerEnum for $enum_name {
@@ -21,18 +32,20 @@ macro_rules! interface_controller_enum {
         }
 
         $(
-            impl $crate::datatype::InterfaceController<$i_control> for $enum_name {}
+            impl $crate::datatype::InterfaceController<$i_control> for $enum_name {
+                const VARIANT: $enum_name = $enum_name::$i_name(None);
+            }
 
             impl std::convert::From<Box<$i_control>> for $enum_name {
                 fn from(inner: Box<$i_control>) -> $enum_name {
-                    $enum_name::$i_name(inner)
+                    $enum_name::$i_name(Some(inner))
                 }
             }
 
             impl std::convert::From<$enum_name> for Box<$i_control> {
                 fn from(iface_control: $enum_name) -> Box<$i_control> {
                     match iface_control {
-                        $enum_name::$i_name(inner) => inner,
+                        $enum_name::$i_name(Some(inner)) => inner,
                         _ => panic!("Attempt to unwrap interface controller into wrong type!"),
                     }
                 }

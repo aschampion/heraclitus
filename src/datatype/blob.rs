@@ -4,6 +4,7 @@ extern crate uuid;
 use ::RepresentationKind;
 use super::{
     Description,
+    InterfaceControllerEnum,
     Store,
 };
 use ::store::postgres::datatype::blob::PostgresStore;
@@ -12,7 +13,7 @@ use ::store::postgres::datatype::blob::PostgresStore;
 #[derive(Default)]
 pub struct Blob;
 
-impl<T> super::Model<T> for Blob {
+impl<T: InterfaceControllerEnum> super::Model<T> for Blob {
     fn info(&self) -> Description {
         Description {
             name: "Blob".into(),
@@ -38,7 +39,7 @@ impl<T> super::Model<T> for Blob {
     fn interface_controller(
         &self,
         _store: Store,
-        _name: &str,
+        _iface: T,
     ) -> Option<T> {
         None
     }

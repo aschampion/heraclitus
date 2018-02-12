@@ -127,7 +127,7 @@ pub struct InterfaceDescription {
 pub trait MetaController {
 }
 
-pub trait Model<T> {
+pub trait Model<T: InterfaceControllerEnum> {
     // Necessary to be able to create this as a trait object. See:
     // https://www.reddit.com/r/rust/comments/620m1v//dfirs5s/
     //fn clone(&self) -> Self where Self: Sized;
@@ -137,7 +137,21 @@ pub trait Model<T> {
     fn meta_controller(&self, Store) -> Option<StoreMetaController>;
 
     /// If this datatype acts as a partitioning controller, construct one.
-    fn interface_controller(&self, store: Store, name: &str) -> Option<T>;
+    fn interface_controller(&self, store: Store, iface: T) -> Option<T>;
+}
+
+pub trait GetInterfaceController<T: ?Sized> {
+    fn get_controller(&self, store: Store) -> Option<Box<T>>;
+}
+
+impl<'a, T, IC> GetInterfaceController<T> for Model<IC> + 'a
+        where
+            T: ?Sized,
+            IC: InterfaceController<T> {
+    fn get_controller(&self, store: Store) -> Option<Box<T>> {
+        self.interface_controller(store, IC::VARIANT)
+            .map(|ic| ic.into())
+    }
 }
 
 #[derive(Debug, Hash, PartialEq)]
@@ -216,11 +230,11 @@ pub enum StoreMetaController {
     Postgres(Box<PostgresMetaController>),
 }
 
-pub trait InterfaceController<T: ?Sized> : From<Box<T>>
-        //where Box<T>: From<Self>
-        {}
+pub trait InterfaceController<T: ?Sized> : From<Box<T>> + Into<Box<T>> + InterfaceControllerEnum {
+    const VARIANT : Self;
+}
 
-pub trait InterfaceControllerEnum {
+pub trait InterfaceControllerEnum : PartialEq {
     fn all_descriptions() -> Vec<&'static InterfaceDescription>;
 }
 

@@ -43,10 +43,14 @@ use super::{
     DatatypeEnum,
     DatatypesRegistry,
     Description,
+    GetInterfaceController,
+    InterfaceController,
+    InterfaceControllerEnum,
     Store,
 };
 use ::datatype::interface::{
     CustomProductionPolicyController,
+    ProducerController,
     ProductionOutput,
     ProductionStrategies,
     ProductionStrategyID,
@@ -57,7 +61,7 @@ use ::store::postgres::datatype::artifact_graph::PostgresStore;
 #[derive(Default)]
 pub struct ArtifactGraphDtype;
 
-impl<T> super::Model<T> for ArtifactGraphDtype {
+impl<T: InterfaceControllerEnum> super::Model<T> for ArtifactGraphDtype {
     fn info(&self) -> Description {
         Description {
             name: "ArtifactGraph".into(),
@@ -80,7 +84,7 @@ impl<T> super::Model<T> for ArtifactGraphDtype {
     fn interface_controller(
         &self,
         _store: Store,
-        _name: &str,
+        _iface: T,
     ) -> Option<T> {
         None
     }
@@ -469,10 +473,10 @@ pub trait ModelController {
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
-        where Box<::datatype::interface::ProducerController>:
-        From<<T as DatatypeEnum>::InterfaceControllerType>,
-        Box<CustomProductionPolicyController>:
-        From<<T as DatatypeEnum>::InterfaceControllerType>;
+            where
+                <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<ProducerController> +
+                    InterfaceController<CustomProductionPolicyController>;
     // TODO: many args to avoid reloading state. A 2nd-level API should just take an ID.
 
     fn cascade_notify_producers<'a, 'b, T:DatatypeEnum> (
@@ -483,10 +487,11 @@ pub trait ModelController {
         ver_graph: &mut VersionGraph<'a, 'b>,
         seed_v_idx: VersionGraphIndex,
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
-            where Box<::datatype::interface::ProducerController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType>,
-            Box<CustomProductionPolicyController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType> {
+            where
+                <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<ProducerController> +
+                    InterfaceController<CustomProductionPolicyController>
+            {
         let outputs = self.notify_producers(
             dtypes_registry,
             repo_control,
@@ -518,10 +523,11 @@ pub trait ModelController {
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
-            where Box<::datatype::interface::ProducerController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType>,
-            Box<CustomProductionPolicyController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType> {
+            where
+                <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<ProducerController> +
+                    InterfaceController<CustomProductionPolicyController>
+            {
 
         let default_production_policies: Vec<Box<ProductionPolicy>> = vec![
             Box::new(ExtantProductionPolicy),
@@ -546,10 +552,10 @@ pub trait ModelController {
             let dependent = &art_graph[dep_art_idx];
             let dtype = dependent.dtype;
 
-            if let Some(producer_interface) = dtypes_registry.get_model(&dtype.name)
-                    .interface_controller(repo_control.store(), "Producer") {
-                let producer_controller: Box<::datatype::interface::ProducerController> =
-                    producer_interface.into();
+            let producer_interface: Option<Box<ProducerController>> = dtypes_registry
+                .get_model(&dtype.name)
+                .get_controller(repo_control.store());
+            if let Some(producer_controller) = producer_interface {
 
                 let production_policies: Option<Vec<Box<ProductionPolicy>>> =
                     self.get_production_policies(repo_control, dependent)?
@@ -559,10 +565,11 @@ pub trait ModelController {
                         ProductionPolicies::LeafBootstrap =>
                             Some(Box::new(LeafBootstrapProductionPolicy) as Box<ProductionPolicy>),
                         ProductionPolicies::Custom => {
-                            if let Some(custom_policy_interface) = dtypes_registry.get_model(&dtype.name)
-                                    .interface_controller(repo_control.store(), "CustomProductionPolicy") {
-                                let custom_policy_controller: Box<CustomProductionPolicyController> =
-                                    custom_policy_interface.into();
+                            let custom_policy_interface: Option<Box<CustomProductionPolicyController>> = dtypes_registry
+                                .get_model(&dtype.name)
+                                .get_controller(repo_control.store());
+                            if let Some(custom_policy_controller) = custom_policy_interface {
+
                                 Some(custom_policy_controller.get_custom_production_policy(
                                     repo_control,
                                     art_graph,
@@ -1072,9 +1079,8 @@ mod tests {
         let ver_part_control: Box<::datatype::interface::PartitioningController> =
                 context.dtypes_registry
                                       .get_model(&ver_partitioning.artifact.dtype.name)
-                                      .interface_controller(store, "Partitioning")
-                                      .expect("Partitioning must have controller for store")
-                                      .into();
+                                      .get_controller(store)
+                                      .expect("Partitioning must have controller for store");
 
         let mut blob_control = ::datatype::blob::model_controller(store);
         let ver_blob_real = &ver_graph[blob1_ver_idx];
@@ -1194,9 +1200,8 @@ mod tests {
             let ver_part_control: Box<::datatype::interface::PartitioningController> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
-                                          .interface_controller(store, "Partitioning")
-                                          .expect("Partitioning must have controller for store")
-                                          .into();
+                                          .get_controller(store)
+                                          .expect("Partitioning must have controller for store");
 
             let mut blob_control = ::datatype::blob::model_controller(store);
             let ver_blob_real = &ver_graph[blob1_ver_idx];
@@ -1286,9 +1291,8 @@ mod tests {
             let ver_part_control: Box<::datatype::interface::PartitioningController> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
-                                          .interface_controller(store, "Partitioning")
-                                          .expect("Partitioning must have controller for store")
-                                          .into();
+                                          .get_controller(store)
+                                          .expect("Partitioning must have controller for store");
 
             let mut blob_control = ::datatype::blob::model_controller(store);
             let ver_blob_real = &ver_graph[blob1_ver2_idx];
