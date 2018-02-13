@@ -40,7 +40,7 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
         }
     }
 
-    fn meta_controller(&self, store: Store) -> Option<super::StoreMetaController> {
+    fn meta_controller(&self, store: Store) -> Option<StoreMetaController> {
         match store {
             Store::Postgres => Some(StoreMetaController::Postgres(
                 Box::new(UnaryPartitioningController {}))),
