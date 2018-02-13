@@ -26,14 +26,16 @@ use ::datatype::interface::PartitioningController;
 pub struct UnaryPartitioning;
 
 impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartitioning {
-    fn info(&self) -> Description {
+    fn info(&self) -> Description<T> {
         Description {
             name: "UnaryPartitioning".into(),
             version: 1,
             representations: vec![RepresentationKind::State]
                     .into_iter()
                     .collect(),
-            implements: vec!["Partitioning"],
+            implements: vec![
+                <T as InterfaceController<PartitioningController>>::VARIANT,
+            ],
             dependencies: vec![],
         }
     }
@@ -88,14 +90,16 @@ pub mod arbitrary {
     pub struct ArbitraryPartitioning;
 
     impl<T: InterfaceController<PartitioningController>> Model<T> for ArbitraryPartitioning {
-        fn info(&self) -> Description {
+        fn info(&self) -> Description<T> {
             Description {
                 name: "ArbitraryPartitioning".into(),
                 version: 1,
                 representations: vec![RepresentationKind::State]
                         .into_iter()
                         .collect(),
-                implements: vec!["Partitioning"],
+                implements: vec![
+                    <T as InterfaceController<PartitioningController>>::VARIANT,
+                ],
                 dependencies: vec![],
             }
         }

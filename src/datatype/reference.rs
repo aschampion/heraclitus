@@ -317,7 +317,7 @@ impl FromStr for VersionSpecifier {
 pub struct Ref;
 
 impl<T: InterfaceControllerEnum> Model<T> for Ref {
-    fn info(&self) -> Description {
+    fn info(&self) -> Description<T> {
         Description {
             name: "Ref".into(),
             version: 1,

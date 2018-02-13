@@ -14,7 +14,7 @@ use ::store::postgres::datatype::blob::PostgresStore;
 pub struct Blob;
 
 impl<T: InterfaceControllerEnum> super::Model<T> for Blob {
-    fn info(&self) -> Description {
+    fn info(&self) -> Description<T> {
         Description {
             name: "Blob".into(),
             version: 1,

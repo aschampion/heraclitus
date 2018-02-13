@@ -62,7 +62,7 @@ use ::store::postgres::datatype::artifact_graph::PostgresStore;
 pub struct ArtifactGraphDtype;
 
 impl<T: InterfaceControllerEnum> super::Model<T> for ArtifactGraphDtype {
-    fn info(&self) -> Description {
+    fn info(&self) -> Description<T> {
         Description {
             name: "ArtifactGraph".into(),
             version: 1,

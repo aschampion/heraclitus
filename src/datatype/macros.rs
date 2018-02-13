@@ -23,6 +23,29 @@ macro_rules! interface_controller_enum {
             }
         }
 
+        impl std::str::FromStr for $enum_name {
+            type Err = ();
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    $(
+                        stringify!($i_name) => Ok($enum_name::$i_name(None)),
+                    )*
+                    _ => Err(())
+                }
+            }
+        }
+
+        impl std::fmt::Display for $enum_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}", match self {
+                    $(
+                        &$enum_name::$i_name(_) => stringify!($i_name),
+                    )*
+                })
+            }
+        }
+
         impl InterfaceControllerEnum for $enum_name {
             fn all_descriptions() -> Vec<&'static $crate::datatype::InterfaceDescription> {
                 vec![

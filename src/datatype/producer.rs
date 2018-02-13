@@ -31,14 +31,16 @@ use ::store::Store;
 pub struct NoopProducer;
 
 impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
-    fn info(&self) -> Description {
+    fn info(&self) -> Description<T> {
         Description {
             name: "NoopProducer".into(),
             version: 1,
             representations: vec![RepresentationKind::State]
                     .into_iter()
                     .collect(),
-            implements: vec!["Producer"],
+            implements: vec![
+                <T as InterfaceController<ProducerController>>::VARIANT,
+            ],
             dependencies: vec![
                 DependencyDescription::new(
                     "input",
@@ -126,14 +128,16 @@ pub(crate) mod tests {
     pub struct NegateBlobProducer;
 
     impl<T: InterfaceController<ProducerController>> Model<T> for NegateBlobProducer {
-        fn info(&self) -> Description {
+        fn info(&self) -> Description<T> {
             Description {
                 name: "NegateBlobProducer".into(),
                 version: 1,
                 representations: vec![RepresentationKind::State]
                         .into_iter()
                         .collect(),
-                implements: vec!["Producer"],
+                implements: vec![
+                    <T as InterfaceController<ProducerController>>::VARIANT,
+                ],
                 dependencies: vec![
                     DependencyDescription::new(
                         "input",

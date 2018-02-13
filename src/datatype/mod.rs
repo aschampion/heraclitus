@@ -29,21 +29,23 @@ pub mod producer;
 pub mod reference;
 pub mod tracking_branch_producer;
 
-pub struct Description {
+pub struct Description<T: InterfaceControllerEnum> {
     name: String,
     version: u64,
     representations: EnumSet<::RepresentationKind>,
-    implements: Vec<&'static str>,
+    // TODO: Not yet clear that this reflection of interfaces is useful.
+    implements: Vec<T>,
     dependencies: Vec<DependencyDescription>,
 }
 
-impl Description {
+impl<T: InterfaceControllerEnum> Description<T> {
     fn into_datatype(self, interfaces: &InterfaceRegistry) -> Datatype {
+        use std::string::ToString;
         Datatype::new(
             self.name,
             self.version,
             self.representations,
-            self.implements.iter().map(|name| interfaces.get_index(name)).collect(),
+            self.implements.iter().map(|iface| interfaces.get_index(&iface.to_string())).collect(),
         )
     }
 }
@@ -132,7 +134,7 @@ pub trait Model<T: InterfaceControllerEnum> {
     // https://www.reddit.com/r/rust/comments/620m1v//dfirs5s/
     //fn clone(&self) -> Self where Self: Sized;
 
-    fn info(&self) -> Description;
+    fn info(&self) -> Description<T>;
 
     fn meta_controller(&self, Store) -> Option<StoreMetaController>;
 
@@ -234,7 +236,7 @@ pub trait InterfaceController<T: ?Sized> : From<Box<T>> + Into<Box<T>> + Interfa
     const VARIANT : Self;
 }
 
-pub trait InterfaceControllerEnum : PartialEq {
+pub trait InterfaceControllerEnum : PartialEq + std::fmt::Display {
     fn all_descriptions() -> Vec<&'static InterfaceDescription>;
 }
 

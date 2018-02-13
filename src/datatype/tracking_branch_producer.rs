@@ -54,14 +54,17 @@ pub struct TrackingBranchProducer;
 impl<T> Model<T> for TrackingBranchProducer
         where T: InterfaceController<ProducerController> +
                  InterfaceController<CustomProductionPolicyController> {
-    fn info(&self) -> Description {
+    fn info(&self) -> Description<T> {
         Description {
             name: "TrackingBranchProducer".into(),
             version: 1,
             representations: vec![RepresentationKind::State]
                     .into_iter()
                     .collect(),
-            implements: vec!["Producer", "CustomProductionPolicy"],
+            implements: vec![
+                <T as InterfaceController<ProducerController>>::VARIANT,
+                <T as InterfaceController<CustomProductionPolicyController>>::VARIANT,
+            ],
             dependencies: vec![
                 DependencyDescription::new(
                     "tracked",
