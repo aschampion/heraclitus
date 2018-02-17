@@ -11,6 +11,7 @@ Ignoring
 - AG versioning
 - AG/VG caching
 - Grouped update of multiple artifacts/versions
+- Partition/dtype coupling problem
 
 
 Guidelines
@@ -251,6 +252,44 @@ Fixing the Trait Object/Dtype Madness [DONE]
       - For (a nonsensical) example, <T: PartitioniningInterfaceController + ProducerInterfaceController>
         - Need to check if this works when a trait is a subtrait, e.g., SpatialPartitioningControler : PartitioningController
 
+Uniform Grid Partitioning
+-------------------------
+Must either:
+- Have bounds
+- Be sparse or lazy (and append-only)
+  - Either way, artifact co-dependence issues
+- Deterministically create IDs from grid coordinates, persist nothing but parameterization (z-order)
+  - Can't `get_partition_ids` -- could change partition interfaces into enumerable/unenumerable
+    - Currently only used for convenience in AG test cases
+    - How would unenumerable partitions work for hunk resolution? Nothing to pass into `get_composition_map`
+
+Artifact co-dependence resolution options
+-----------------------------------------
+- Don't, and let dtypes call methods on their partitions against the dependence flow, trust to not produce endless cycles
+- Define disjoint, DAG-preserving atomic subgraphs which are internally not necessary DAG
+  - Note for any reasonable use case this would likely have same constraints as below
+- Roll partitioning *into* datatypes (essentially a tuple version of above subgraph w/o exposure to hera), other dtypes can depend on partitioning from another dtype but cannot affect it
+  - I.e., a product type like `ProductDtype<A: Model, B: Model>`, can impl Model using union of A, B, but A, B implements must be disjoint
+    - Representations are intersection of representations?
+    - Dependencies could be more involved
+  - How would update resolution actually work? Product type would need to know which relationships are exposed and which are internal, coordinate versioning schemas, etc. A mess.
+- Version of above, but make the tupled datatype a producer on which both partitioning and paired dtype are dependent, so that the producer can manage the synced dependence update. Again effective limits coupling to be between partitioning and a single dtype
+- [More specific than above] Dtypes can only successfully apply changes to existing parts; part mutating changes must go through ancestral producer.
+  - A way to combine this with special interfaces on dep dtypes to avoid creating custom prods for each case like this? E.g., prod proxies changes to dtype, which lets it know if change requires co-dependent changes with partitioning?
+    - E.g., `CoupledProducer<D: Model<T1>, P: Model<T2>> where T1: InterfaceController<PartitioningCouplingController>, T2: InterfaceController<PartitioningController>` (or do it through reflection in `Description.implements`)
+      - Still have staging version problem, to even check this dtype has to have staging version, which then has to be changed.
+    - Would this still limit to single mutating dep dtype per partitioning?
+      - Doesn't seem so, since DAG doesn't interfere. Converging cascading changes would have to be thought through.
+
+- Independent of choice of solution, still have problem that for (dtype, part) (A, B), a change in (staging?) version A2 (dep. B1) triggers mutation of B1->B2, which must change dep from B1->B2
+  - Can deps change after creation? (def. not after commit)
+    - At present, no: `create_staging_version` sets up relations, `commit_version` only changes status and hash.
+      - Why even persist volatile versions? (obv. want to keep ability for staging state, but can do so when temporarily disowned, e.g., async processing)
+      - OTOH, having deps fixed at staging creation is a useful strict simplifier.
+  - In any case, if A has a prod dep on B have the problem of not generating an A3 following commit of B2.
+    - Can set up atomic "closures" over commit cascading, but would be more or less a dynamics version of the atomic subgraph solution.
+    - Can return to producers as hypergraph DAG instead of in artifact DAG, which would effectively group production outputs into atomic subgraphs in artifact graph DAG. (So dtype would be dep on partitioning, but producer would handle all muts to dtype?)
+
 
 Solution Sketches
 =================
@@ -413,3 +452,27 @@ Misc. Cleanup
 - [ ] Model controllers should have a verify_hunk_hash method, e.g., if in trait Foo would impl<T: DatatypesModelController> Foo<T>. Not clear if these sorts of methods should be on datatype::MetaController or datatype::ModelController.
 - [ ] Refactoring attempt: Since models no longer need to be boxable, could make controllers an assoc type, which would finally remove need to box them?!
   - Would allow model controllers to specify their payload types
+
+
+Cons to Hera & VISAG
+====================
+
+Architecture
+------------
+- Complexity
+- No good Rust-native image processing yet
+- Cyclic dependence between partitioning and datatypes
+- [List of relaxing assumptions from notes]
+
+Implementation
+--------------
+- Reflection of interfaces/datatypes/dependencies into store is a mess
+  - E.g., interfaces like traits, prevents generics
+- Volatile datatypes like caches are a mess
+- No well-defined caching yet
+- Stateless vs. stateful design
+- Often requires whole graphs loaded
+
+Current Impl
+------------
+- Production only works from parent hunks
