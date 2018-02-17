@@ -46,6 +46,7 @@ use super::{
     GetInterfaceController,
     InterfaceController,
     InterfaceControllerEnum,
+    MetaController,
     Store,
 };
 use ::datatype::interface::{
@@ -437,7 +438,27 @@ pub struct ProductionStrategySpecs {
 pub trait ModelController {
     fn list_graphs(&self) -> Vec<Identity>;
 
-    fn create_artifact_graph(
+    fn create_artifact_graph<'a, T: DatatypeEnum>(
+        &mut self,
+        dtypes_registry: &'a DatatypesRegistry<T>,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &ArtifactGraph,
+    ) -> Result<(), Error> {
+        self.write_artifact_graph(repo_control, art_graph)?;
+
+        for idx in art_graph.artifacts.graph().node_indices() {
+            let art = &art_graph[idx];
+            let mut meta_controller = dtypes_registry
+                .get_model(&art.dtype.name)
+                .meta_controller(repo_control.store())
+                .expect("TODO: model has no controller for store");
+            meta_controller.init_artifact(repo_control, art)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_artifact_graph(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
         art_graph: &ArtifactGraph,
@@ -1022,7 +1043,10 @@ mod tests {
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
         let mut model_ctrl = model_controller(store);
 
-        model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
+        model_ctrl.create_artifact_graph(
+            &context.dtypes_registry,
+            &mut context.repo_control,
+            &ag).unwrap();
 
         let ag2 = model_ctrl.get_artifact_graph(&mut context.repo_control, &context.dtypes_registry, &ag.id)
                             .unwrap();
@@ -1045,7 +1069,10 @@ mod tests {
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
         let mut model_ctrl = model_controller(store);
 
-        model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
+        model_ctrl.create_artifact_graph(
+            &context.dtypes_registry,
+            &mut context.repo_control,
+            &ag).unwrap();
 
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
@@ -1149,7 +1176,11 @@ mod tests {
 
         let mut model_ctrl = model_controller(store);
 
-        model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
+
+        model_ctrl.create_artifact_graph(
+            &context.dtypes_registry,
+            &mut context.repo_control,
+            &ag).unwrap();
         model_ctrl.write_production_policies(
             &mut context.repo_control,
             &ag[idxs[5]],

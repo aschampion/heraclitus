@@ -8,7 +8,7 @@ use std::hash::{Hash, Hasher};
 
 use enum_set::EnumSet;
 
-use ::{Composition, Datatype, Error, Hunk};
+use ::{Artifact, Composition, Datatype, Error, Hunk};
 use ::store::Store;
 use ::store::postgres::datatype::PostgresMetaController;
 use self::interface::{
@@ -127,6 +127,15 @@ pub struct InterfaceDescription {
 /// Common interface to all datatypes that does not involve their state or
 /// types associated with their state.
 pub trait MetaController {
+    /// This allows the model controller to initialize any structures necessary
+    /// for a new version (without involving state for that version).
+    fn init_artifact(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        artifact: &Artifact,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 pub trait Model<T: InterfaceControllerEnum> {
@@ -230,6 +239,19 @@ pub trait ModelController {
 
 pub enum StoreMetaController {
     Postgres(Box<PostgresMetaController>),
+}
+
+// TODO: ugly kludge, but getting deref/borrow to work for variants is fraught.
+impl MetaController for StoreMetaController {
+    fn init_artifact(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        artifact: &Artifact,
+    ) -> Result<(), Error> {
+        match *self {
+            StoreMetaController::Postgres(ref mut pmc) => pmc.init_artifact(repo_control, artifact),
+        }
+    }
 }
 
 pub trait InterfaceController<T: ?Sized> : From<Box<T>> + Into<Box<T>> + InterfaceControllerEnum {

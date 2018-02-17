@@ -312,7 +312,7 @@ impl ModelController for PostgresStore {
         unimplemented!()
     }
 
-    fn create_artifact_graph(
+    fn write_artifact_graph(
             &mut self,
             repo_control: &mut ::repo::StoreRepoController,
             art_graph: &ArtifactGraph) -> Result<(), Error> {
