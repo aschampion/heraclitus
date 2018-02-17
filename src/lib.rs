@@ -76,8 +76,8 @@ pub type HashType = u64;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Identity {
-    uuid: Uuid,
-    hash: HashType,
+    pub uuid: Uuid,
+    pub hash: HashType,
     // TODO: does, e.g., a delta version hash its whole state or the delta state?
     // could be multiple hashes for these.
     // For now say that verions hash state/delta of hunks they own. A complete
@@ -449,10 +449,10 @@ impl<'a> Index<ArtifactGraphEdgeIndex> for ArtifactGraph<'a>
 /// exist in dependent relationships with other artifacts and producers.
 #[derive(Debug)]
 pub struct Artifact<'a> {
-    id: Identity,
+    pub id: Identity,
     /// Name identifier for this artifact. Can not start with '@'.
     name: Option<String>,
-    dtype: &'a Datatype,
+    pub dtype: &'a Datatype,
 }
 
 impl<'a> Identifiable for Artifact<'a> {
@@ -634,7 +634,7 @@ pub enum VersionNode<'a: 'b, 'b> {
 #[derive(Debug)]
 pub struct Version<'a: 'b, 'b> {
     id: Identity,
-    artifact: &'b Artifact<'a>,
+    pub artifact: &'b Artifact<'a>,
     status: VersionStatus,
     representation: RepresentationKind,
 }
@@ -684,14 +684,14 @@ pub enum PartCompletion {
 #[derive(Debug)]
 pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
     // Is this a Hunk or a Patch (in which case changeset items would be hunks)?
-    id: Identity, // TODO: Not clear hunk needs a UUID.
-    version: &'d Version<'a, 'b>,
+    pub id: Identity, // TODO: Not clear hunk needs a UUID.
+    pub version: &'d Version<'a, 'b>,
     partition: Partition<'a, 'b, 'c>,
     /// Representation kind of this hunk's contents. `State` versions may
     /// contains only `State` hunks, `CumulativeDelta` versions may contain either
     /// `State` or `CumulativeDelta` hunks, and 'Delta' versions may contain
     /// combinations of any hunk representations.
-    representation: RepresentationKind,
+    pub representation: RepresentationKind,
     completion: PartCompletion,
     /// Indicates for a merge version which ancestral version's hunk takes
     /// precedence.

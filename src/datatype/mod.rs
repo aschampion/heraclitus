@@ -104,7 +104,7 @@ pub struct DependencyDescription {
 }
 
 impl DependencyDescription {
-    fn new(
+    pub fn new(
         name: &'static str,
         datatype_restriction: DependencyTypeRestriction,
         cardinality_restriction: DependencyCardinalityRestriction,
