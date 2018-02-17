@@ -1101,7 +1101,7 @@ mod tests {
             &ver_graph,
             blob1_ver_idx.clone()).unwrap();
 
-        let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
+        let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
             .expect("Partitioning version missing");
         let ver_part_control: Box<::datatype::interface::PartitioningController> =
                 context.dtypes_registry
@@ -1113,7 +1113,7 @@ mod tests {
         let ver_blob_real = &ver_graph[blob1_ver_idx];
         let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
         let ver_hunks = ver_part_control
-                .get_partition_ids(&mut context.repo_control, ver_partitioning)
+                .get_partition_ids(&mut context.repo_control, &ver_graph, ver_part_idx)
                 .iter()
                 .map(|partition_id| Hunk {
                     id: Identity {
@@ -1227,7 +1227,7 @@ mod tests {
             blob1_ver_idx.clone()).unwrap();
 
         let ver_hash = {
-            let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
+            let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
             let ver_part_control: Box<::datatype::interface::PartitioningController> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
@@ -1240,7 +1240,7 @@ mod tests {
             let ver_hunks = ver_part_control
                     // Note that this is in ascending order, so version hash
                     // is correct.
-                    .get_partition_ids(&mut context.repo_control, ver_partitioning)
+                    .get_partition_ids(&mut context.repo_control, &ver_graph, ver_part_idx)
                     .iter()
                     .map(|partition_id| Hunk {
                         id: Identity {
@@ -1318,7 +1318,7 @@ mod tests {
             blob1_ver2_idx.clone()).unwrap();
 
         let ver2_hash = {
-            let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver2_idx).unwrap();
+            let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver2_idx).unwrap();
             let ver_part_control: Box<::datatype::interface::PartitioningController> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
@@ -1331,7 +1331,7 @@ mod tests {
             let ver_hunks = ver_part_control
                     // Note that this is in ascending order, so version hash
                     // is correct.
-                    .get_partition_ids(&mut context.repo_control, ver_partitioning)
+                    .get_partition_ids(&mut context.repo_control, &ver_graph, ver_part_idx)
                     .iter()
                     .take(1)
                     .map(|partition_id| Hunk {
@@ -1398,8 +1398,11 @@ mod tests {
         {
             use datatype::interface::PartitioningController;
             let part_control = ::datatype::partitioning::arbitrary::model_controller(store);
-            let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
-            let part_ids = part_control.get_partition_ids(&mut context.repo_control, ver_partitioning);
+            let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
+            let part_ids = part_control.get_partition_ids(
+                    &mut context.repo_control,
+                    &ver_graph,
+                    ver_part_idx);
 
             let map1 = model_ctrl.get_composition_map(
                 &mut context.repo_control,

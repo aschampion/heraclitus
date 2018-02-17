@@ -15,7 +15,10 @@ use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use ::{
     Error,
     PartitionIndex,
-    Version};
+    Version,
+    VersionGraph,
+    VersionGraphIndex,
+};
 use ::datatype::{
     MetaController,
 };
@@ -62,9 +65,10 @@ pub mod arbitrary {
         fn get_partition_ids(
             &self,
             repo_control: &mut ::repo::StoreRepoController,
-            partitioning: &Version,
+            ver_graph: &VersionGraph,
+            v_idx: VersionGraphIndex,
         ) -> BTreeSet<PartitionIndex> {
-            self.read(repo_control, partitioning).expect("TODO")
+            self.read(repo_control, &ver_graph[v_idx]).expect("TODO")
         }
     }
 

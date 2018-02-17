@@ -11,7 +11,10 @@ use ::{
     RepresentationKind,
     Error,
     PartitionIndex,
-    Version};
+    Version,
+    VersionGraph,
+    VersionGraphIndex,
+};
 use super::{
     Description,
     InterfaceController,
@@ -70,7 +73,8 @@ impl PartitioningController for UnaryPartitioningController {
     fn get_partition_ids(
         &self,
         _repo_control: &mut ::repo::StoreRepoController,
-        _partitioning: &Version,
+        _ver_graph: &VersionGraph,
+        _v_idx: VersionGraphIndex,
     ) -> BTreeSet<PartitionIndex> {
         btreeset![UNARY_PARTITION_INDEX]
     }

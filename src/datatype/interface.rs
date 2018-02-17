@@ -39,7 +39,8 @@ pub trait PartitioningController {
     fn get_partition_ids(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
-        partitioning: &Version,
+        ver_graph: &VersionGraph,
+        v_idx: VersionGraphIndex,
     ) -> BTreeSet<PartitionIndex>;
 }
 
