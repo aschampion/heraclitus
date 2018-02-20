@@ -232,6 +232,20 @@ pub trait ModelController {
     );
 }
 
+/// A type for a representation kind that is not supported by a model. This
+/// allows, for example, models to implement `ModelController` if they do not
+/// support deltas.
+///
+/// The type is uninstantiable.
+#[derive(Debug, PartialEq)]
+pub struct UnrepresentableType (!);
+
+impl Hash for UnrepresentableType {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        unreachable!()
+    }
+}
+
 // TODO:
 // - Sync/compare datatype defs with store
 //    - Fresh init vs diff update
