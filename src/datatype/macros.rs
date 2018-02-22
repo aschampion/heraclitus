@@ -5,7 +5,7 @@
 
 #[macro_export]
 macro_rules! interface_controller_enum {
-    ( $enum_name:ident, ( $( ( $i_name:ident, $i_control:ident, $i_desc:expr ) ),*  $(,)* ) ) => {
+    ( $enum_name:ident, ( $( ( $i_name:ident, $i_control:ty, $i_desc:expr ) ),*  $(,)* ) ) => {
         pub enum $enum_name {
             $(
                 $i_name(Option<Box<$i_control>>),
@@ -46,7 +46,7 @@ macro_rules! interface_controller_enum {
             }
         }
 
-        impl InterfaceControllerEnum for $enum_name {
+        impl $crate::datatype::InterfaceControllerEnum for $enum_name {
             fn all_descriptions() -> Vec<&'static $crate::datatype::InterfaceDescription> {
                 vec![
                     $($i_desc,)*
@@ -86,7 +86,7 @@ macro_rules! datatype_enum {
             )*
         }
 
-        impl DatatypeEnum for $enum_name {
+        impl $crate::datatype::DatatypeEnum for $enum_name {
             type InterfaceControllerType = $iface_enum;
 
             fn variant_names() -> Vec<&'static str> {
