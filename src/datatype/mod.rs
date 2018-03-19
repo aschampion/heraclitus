@@ -1,5 +1,3 @@
-extern crate daggy;
-
 use std;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;

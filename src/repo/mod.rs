@@ -1,8 +1,3 @@
-extern crate daggy;
-extern crate postgres;
-extern crate schemer;
-
-
 use ::Error;
 use ::datatype::{
     DatatypeEnum,

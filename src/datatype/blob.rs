@@ -1,6 +1,3 @@
-extern crate uuid;
-
-
 use ::RepresentationKind;
 use super::{
     Description,

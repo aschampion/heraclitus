@@ -1,13 +1,3 @@
-extern crate daggy;
-extern crate enum_set;
-extern crate petgraph;
-extern crate schemer;
-extern crate serde;
-extern crate serde_json;
-extern crate uuid;
-extern crate postgres;
-
-
 use std::borrow::BorrowMut;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
@@ -15,8 +5,11 @@ use std::iter::FromIterator;
 use daggy::petgraph::visit::EdgeRef;
 use daggy::Walker;
 use enum_set::EnumSet;
+use petgraph;
+use postgres;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
+use schemer;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
 
@@ -25,9 +18,7 @@ use ::{
     ArtifactGraph,
     ArtifactGraphIndex,
     ArtifactRelation,
-    CompositionMap,
     DatatypeRelation,
-    RepresentationKind,
     Error,
     HashType,
     Hunk,

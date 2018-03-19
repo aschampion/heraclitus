@@ -7,7 +7,6 @@ pub mod petgraph {
         GraphRef,
         IntoEdgesDirected,
         IntoNeighborsDirected,
-        Reversed,
         Visitable,
         VisitMap,
     };

@@ -1,11 +1,8 @@
-extern crate schemer;
-extern crate uuid;
-
-
 use std::borrow::BorrowMut;
 
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
+use schemer;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
 use ::{

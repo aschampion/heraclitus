@@ -1,13 +1,3 @@
-extern crate daggy;
-extern crate enum_set;
-extern crate petgraph;
-extern crate schemer;
-extern crate serde;
-extern crate serde_json;
-extern crate uuid;
-extern crate postgres;
-
-
 use std::collections::{
     BTreeSet,
     BTreeMap,
@@ -15,10 +5,19 @@ use std::collections::{
 };
 use std::mem;
 
+use daggy::{
+    self,
+    Walker,
+};
 use daggy::petgraph::visit::EdgeRef;
-use daggy::Walker;
-use enum_set::EnumSet;
-use uuid::Uuid;
+use enum_set::{
+    self,
+    EnumSet,
+};
+use petgraph;
+use uuid::{
+    Uuid,
+};
 
 use ::{
     Artifact,

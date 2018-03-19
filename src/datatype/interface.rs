@@ -3,8 +3,15 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use enum_set::EnumSet;
 
 use ::{
-    ArtifactGraph, ArtifactGraphIndex, Error, Interface, PartitionIndex,
-    RepresentationKind, Version, VersionGraph, VersionGraphIndex};
+    ArtifactGraph,
+    ArtifactGraphIndex,
+    Error,
+    Interface,
+    PartitionIndex,
+    RepresentationKind,
+    VersionGraph,
+    VersionGraphIndex,
+};
 use ::datatype::{DependencyDescription, InterfaceDescription};
 use ::datatype::artifact_graph::ProductionPolicy;
 
