@@ -129,8 +129,8 @@ pub trait MetaController {
     /// for a new version (without involving state for that version).
     fn init_artifact(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
-        artifact: &Artifact,
+        _repo_control: &mut ::repo::StoreRepoController,
+        _artifact: &Artifact,
     ) -> Result<(), Error> {
         Ok(())
     }
@@ -235,11 +235,12 @@ pub trait ModelController {
 /// support deltas.
 ///
 /// The type is uninstantiable.
+#[allow(unreachable_code, unreachable_patterns)]
 #[derive(Debug, PartialEq)]
 pub struct UnrepresentableType (!);
 
 impl Hash for UnrepresentableType {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, _state: &mut H) {
         unreachable!()
     }
 }
