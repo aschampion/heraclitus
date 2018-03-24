@@ -742,6 +742,9 @@ pub trait ModelController {
 
     /// Get hunk sets sufficient to reconstruct composite states for a set of
     /// partitions.
+    ///
+    /// Note that partition indices in `partitions` may be abset from the
+    /// returned `CompositionMap` if they have never been populated.
     fn get_composition_map<'a: 'b, 'b: 'r, 'c, 'd, 'r: 'c + 'd>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
@@ -760,6 +763,10 @@ pub trait ModelController {
         let mut map = CompositionMap::new();
         // Partition indices that have not yet been resolved.
         let mut unresolved: BTreeSet<PartitionIndex> = partitions.clone();
+        // Partition indices that have not yet been seen.
+        // TODO: could be more efficient by instead asserting unresolved and
+        // domain of map are disjoint.
+        let mut unseen: BTreeSet<PartitionIndex> = partitions.clone();
         // Partition indices that are locked from composition changes because
         // they have received a hunk from an unreached version.
         let mut locked: BTreeMap<Uuid, BTreeSet<PartitionIndex>> = BTreeMap::new();
@@ -779,6 +786,7 @@ pub trait ModelController {
 
             for hunk in hunks {
                 let part_idx = hunk.partition.index;
+                unseen.remove(&part_idx);
 
                 if hunk.representation == RepresentationKind::State {
                     unresolved.remove(&part_idx);
@@ -802,9 +810,7 @@ pub trait ModelController {
             }
         }
 
-        assert!(
-            unresolved.is_empty() && locked.is_empty(),
-            "Composition map was unfulfilled!");
+        assert!(unresolved == unseen && locked.is_empty(), "Composition map was unfulfilled!");
         Ok(map)
     }
 
