@@ -104,7 +104,7 @@ macro_rules! datatype_enum {
                 }
             }
 
-            fn as_model(&self) -> &$crate::datatype::Model<Self::InterfaceControllerType> {
+            fn as_model<'a>(&self) -> &($crate::datatype::Model<Self::InterfaceControllerType> + 'a) {
                 match *self {
                     $(
                         $enum_name::$d_name(ref d) => d,

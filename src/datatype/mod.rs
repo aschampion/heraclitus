@@ -282,7 +282,7 @@ pub trait DatatypeEnum: Sized {
 
     fn from_name(name: &str) -> Option<Self>;
 
-    fn as_model(&self) -> &Model<Self::InterfaceControllerType>;
+    fn as_model<'a>(&self) -> &(Model<Self::InterfaceControllerType> + 'a);
 
     fn all_variants() -> Vec<Self> {
         Self::variant_names()
@@ -363,7 +363,7 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
 
     // TODO: Kludge around Model/Interface controller mess
     // TODO: Unable to implement as Index trait because of trait obj lifetime?
-    pub fn get_model(&self, name: &str) -> &Model<T::InterfaceControllerType> {
+    pub fn get_model<'a>(&self, name: &str) -> &(Model<T::InterfaceControllerType> + 'a) {
         self.models.get(name).expect("Datatype must be known").as_model()
     }
 
