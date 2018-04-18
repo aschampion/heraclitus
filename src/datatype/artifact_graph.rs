@@ -1038,8 +1038,8 @@ mod tests {
 
         let store = Store::Postgres;
 
-        let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
-        let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
+        let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
+        let repo_control = ::repo::testing::init_repo(store, &dtypes_registry);
 
         let mut context = Context {dtypes_registry, repo_control};
 
@@ -1064,8 +1064,8 @@ mod tests {
 
         let store = Store::Postgres;
 
-        let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
-        let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
+        let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
+        let repo_control = ::repo::testing::init_repo(store, &dtypes_registry);
 
         let mut context = Context {dtypes_registry, repo_control};
 
@@ -1168,8 +1168,8 @@ mod tests {
 
         let store = Store::Postgres;
 
-        let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
-        let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
+        let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
+        let repo_control = ::repo::testing::init_repo(store, &dtypes_registry);
 
         let mut context = Context {dtypes_registry, repo_control};
 

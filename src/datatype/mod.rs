@@ -386,8 +386,11 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
 }
 
 
-#[cfg(test)]
-pub(crate) mod tests {
+/// Testing utilities.
+///
+/// This module is public so dependent libraries can reuse these utilities to
+/// test custom datatypes.
+pub mod testing {
     use super::*;
 
     pub fn init_default_dtypes_registry() -> DatatypesRegistry<DefaultDatatypes> {

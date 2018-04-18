@@ -43,8 +43,11 @@ pub trait RepoController {
 }
 
 
-#[cfg(test)]
-pub(crate) mod tests {
+/// Testing utilities.
+///
+/// This module is public so dependent libraries can reuse these utilities to
+/// test custom datatypes.
+pub mod testing {
     use super::*;
 
     use url::Url;
@@ -77,7 +80,7 @@ pub(crate) mod tests {
     }
 
     pub fn init_default_context(store: Store) -> Context<::datatype::DefaultDatatypes> {
-        let dtypes_registry = ::datatype::tests::init_default_dtypes_registry();
+        let dtypes_registry = ::datatype::testing::init_default_dtypes_registry();
         let repo_control = init_repo(store, &dtypes_registry);
 
         Context {
@@ -88,7 +91,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_postgres_repo_init() {
-        let dtypes_registry = ::datatype::tests::init_default_dtypes_registry();
+        let dtypes_registry = ::datatype::testing::init_default_dtypes_registry();
         init_repo(Store::Postgres, &dtypes_registry);
     }
 }
