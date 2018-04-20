@@ -92,7 +92,7 @@ pub trait Identifiable {
 
 #[derive(Clone, Debug, Hash)]
 pub struct Interface {
-    name: &'static str,
+    pub name: &'static str,
 }
 
 type InterfaceIndexType = petgraph::graph::DefaultIx;
@@ -150,7 +150,7 @@ pub struct Datatype {
     // TODO: Not clear that identity is needed as canonical resolution is
     // through name, but here for consistency with other data structures.
     id: Identity,
-    name: String,
+    pub name: String,
     version: u64,
     representations: EnumSet<RepresentationKind>,
     implements: HashSet<InterfaceIndex>,
@@ -195,7 +195,7 @@ impl Hash for Datatype {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct DatatypeRelation {
-    name: String,
+    pub name: String,
 }
 
 struct Repository {
@@ -205,8 +205,8 @@ struct Repository {
 }
 
 pub struct Context<T: DatatypeEnum> {
-    dtypes_registry: datatype::DatatypesRegistry<T>,
-    repo_control: repo::StoreRepoController,
+    pub dtypes_registry: datatype::DatatypesRegistry<T>,
+    pub repo_control: repo::StoreRepoController,
 }
 
 pub trait IdentifiableGraph {
@@ -270,7 +270,7 @@ pub(crate) type ArtifactGraphType<'a> = daggy::Dag<Artifact<'a>, ArtifactRelatio
 /// A graph expressing the dependence structure between sets of data artifacts.
 pub struct ArtifactGraph<'a> {
     id: Identity,
-    artifacts: ArtifactGraphType<'a>,
+    pub artifacts: ArtifactGraphType<'a>,
 }
 
 impl<'a> ArtifactGraph<'a> {
@@ -479,19 +479,19 @@ type VersionGraphIndexType = petgraph::graph::DefaultIx;
 pub type VersionGraphIndex = petgraph::graph::NodeIndex<VersionGraphIndexType>;
 pub type VersionGraphEdgeIndex = petgraph::graph::EdgeIndex<VersionGraphIndexType>;
 pub struct VersionGraph<'a: 'b, 'b> {
-    versions: daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType>,
+    pub versions: daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType>,
 }
 // TODO: should either use the below in most interfaces or make the above also have pruning.
 pub type VersionSubgraph<'a, 'b> = daggy::Dag<VersionNode<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType>;
 
 impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
-    fn new() -> VersionGraph<'a, 'b> {
+    pub fn new() -> VersionGraph<'a, 'b> {
         VersionGraph {
             versions: daggy::Dag::new()
         }
     }
 
-    fn new_from_source_artifacts(
+    pub fn new_from_source_artifacts(
         art_graph: &'b ArtifactGraph<'a>,
     ) -> VersionGraph<'a, 'b> {
         let mut versions = daggy::Dag::new();
@@ -640,7 +640,7 @@ pub struct Version<'a: 'b, 'b> {
 }
 
 impl<'a: 'b, 'b> Version<'a, 'b> {
-    fn new(
+    pub fn new(
         artifact: &'b Artifact<'a>,
         representation: RepresentationKind,
     ) -> Self {
@@ -663,8 +663,8 @@ pub type PartitionIndex = u64;
 
 #[derive(Clone, Debug)]
 pub struct Partition<'a: 'b, 'b: 'c, 'c> {
-    partitioning: &'c Version<'a, 'b>,
-    index: PartitionIndex,
+    pub partitioning: &'c Version<'a, 'b>,
+    pub index: PartitionIndex,
     // TODO: also need to be able to handle partition types (leaf v. neighborhood, level, arbitrary)
 }
 
@@ -686,16 +686,16 @@ pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
     // Is this a Hunk or a Patch (in which case changeset items would be hunks)?
     pub id: Identity, // TODO: Not clear hunk needs a UUID.
     pub version: &'d Version<'a, 'b>,
-    partition: Partition<'a, 'b, 'c>,
+    pub partition: Partition<'a, 'b, 'c>,
     /// Representation kind of this hunk's contents. `State` versions may
     /// contains only `State` hunks, `CumulativeDelta` versions may contain either
     /// `State` or `CumulativeDelta` hunks, and 'Delta' versions may contain
     /// combinations of any hunk representations.
     pub representation: RepresentationKind,
-    completion: PartCompletion,
+    pub completion: PartCompletion,
     /// Indicates for a merge version which ancestral version's hunk takes
     /// precedence.
-    precedence: Option<Uuid>,
+    pub precedence: Option<Uuid>,
 }
 
 impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {

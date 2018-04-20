@@ -28,12 +28,12 @@ pub mod reference;
 pub mod tracking_branch_producer;
 
 pub struct Description<T: InterfaceControllerEnum> {
-    name: String,
-    version: u64,
-    representations: EnumSet<::RepresentationKind>,
+    pub name: String,
+    pub version: u64,
+    pub representations: EnumSet<::RepresentationKind>,
     // TODO: Not yet clear that this reflection of interfaces is useful.
-    implements: Vec<T>,
-    dependencies: Vec<DependencyDescription>,
+    pub implements: Vec<T>,
+    pub dependencies: Vec<DependencyDescription>,
 }
 
 impl<T: InterfaceControllerEnum> Description<T> {
@@ -118,8 +118,8 @@ impl DependencyDescription {
 }
 
 pub struct InterfaceDescription {
-    interface: ::Interface,
-    extends: HashSet<&'static str>,
+    pub interface: ::Interface,
+    pub extends: HashSet<&'static str>,
 }
 
 /// Common interface to all datatypes that does not involve their state or

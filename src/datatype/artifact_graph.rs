@@ -842,7 +842,7 @@ pub trait ModelController {
 }
 
 
-type ArtifactGraphDescriptionType =  daggy::Dag<ArtifactDescription, ArtifactRelation>;
+pub type ArtifactGraphDescriptionType =  daggy::Dag<ArtifactDescription, ArtifactRelation>;
 pub struct ArtifactGraphDescription {
     pub artifacts: ArtifactGraphDescriptionType,
 }
