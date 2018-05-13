@@ -854,14 +854,15 @@ impl ArtifactGraphDescription {
         }
     }
 
-    pub fn add_unary_partitioning(&mut self) {
+    pub fn add_unary_partitioning(&mut self) -> daggy::NodeIndex {
         self.add_uniform_partitioning(ArtifactDescription{
                     name: Some("Unary Partitioning Singleton".into()),
                     dtype: "UnaryPartitioning".into(),
-                });
+                    self_partitioning: true,
+                })
     }
 
-    pub fn add_uniform_partitioning(&mut self, partitioning: ArtifactDescription) {
+    pub fn add_uniform_partitioning(&mut self, partitioning: ArtifactDescription) -> daggy::NodeIndex {
         let part_idx = self.artifacts.add_node(partitioning);
         for node_idx in daggy::petgraph::algo::toposort(self.artifacts.graph(), None)
                 .expect("TODO: not a DAG") {
@@ -880,6 +881,8 @@ impl ArtifactGraphDescription {
                 self.artifacts.add_edge(part_idx, node_idx, edge).expect("Graph is malformed.");
             }
         }
+
+        part_idx
     }
 }
 
@@ -887,6 +890,7 @@ impl ArtifactGraphDescription {
 pub struct ArtifactDescription {
     pub name: Option<String>,
     pub dtype: String,
+    pub self_partitioning: bool,
 }
 
 
@@ -905,8 +909,18 @@ mod tests {
         Partition,
         PartCompletion,
     };
+    use ::datatype::{
+        StateInterface,
+    };
+    use ::datatype::partitioning::{
+        Partitioning,
+        UNARY_PARTITION_INDEX,
+    };
     use ::datatype::ModelController as DatatypeModelController;
-    use datatype::partitioning::arbitrary::ModelController as ArbitraryPartitioningModelController;
+    use ::datatype::partitioning::arbitrary::{
+        ArbitraryPartitioningState,
+        ModelController as ArbitraryPartitioningModelController,
+    };
     use ::datatype::producer::tests::NegateBlobProducer;
 
 
@@ -926,19 +940,21 @@ mod tests {
     fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         dtypes_registry: &'a DatatypesRegistry<T>,
         partitioning: Option<ArtifactDescription>,
-    ) -> (ArtifactGraph<'a>, [ArtifactGraphIndex; 7]) {
+    ) -> (ArtifactGraph<'a>, HashMap<&str, ArtifactGraphIndex>) {
         let mut artifacts = ArtifactGraphDescriptionType::new();
 
         // Blob 1
         let blob1_node = ArtifactDescription {
             name: Some("Test Blob 1".into()),
-            dtype: "Blob".into()
+            dtype: "Blob".into(),
+            self_partitioning: false,
         };
         let blob1_node_idx = artifacts.add_node(blob1_node);
         // Prod 1
         let prod1_node = ArtifactDescription {
             name: Some("Test Producer 1".into()),
             dtype: "NegateBlobProducer".into(),
+            self_partitioning: false,
         };
         let prod1_node_idx = artifacts.add_node(prod1_node);
         artifacts.add_edge(
@@ -948,7 +964,8 @@ mod tests {
         // Blob 2
         let blob2_node = ArtifactDescription {
             name: Some("Test Blob 2".into()),
-            dtype: "Blob".into()
+            dtype: "Blob".into(),
+            self_partitioning: false,
         };
         let blob2_node_idx = artifacts.add_node(blob2_node);
         artifacts.add_edge(
@@ -959,6 +976,7 @@ mod tests {
         let prod2_node = ArtifactDescription {
             name: Some("Test Producer 2".into()),
             dtype: "NegateBlobProducer".into(),
+            self_partitioning: false,
         };
         let prod2_node_idx = artifacts.add_node(prod2_node);
         artifacts.add_edge(
@@ -968,7 +986,8 @@ mod tests {
         // Blob 3
         let blob3_node = ArtifactDescription {
             name: Some("Test Blob 3".into()),
-            dtype: "Blob".into()
+            dtype: "Blob".into(),
+            self_partitioning: false,
         };
         let blob3_node_idx = artifacts.add_node(blob3_node);
         artifacts.add_edge(
@@ -980,16 +999,15 @@ mod tests {
             artifacts: artifacts,
         };
 
-        match partitioning {
-            Some(part_desc) => ag_desc.add_uniform_partitioning(part_desc),
-            None => ag_desc.add_unary_partitioning(),
-        }
+        let part_idx = partitioning.map(|part_desc| ag_desc.add_uniform_partitioning(part_desc));
+        let up_idx = ag_desc.add_unary_partitioning();
 
         // Do not set up partitioning for these.
         // Tracking Branch Producer
         let tbp_node = ArtifactDescription {
             name: Some("TBP".into()),
             dtype: "TrackingBranchProducer".into(),
+            self_partitioning: false,
         };
         let tbp_node_idx = ag_desc.artifacts.add_node(tbp_node);
         let tracked_arts = [blob1_node_idx, blob2_node_idx, blob3_node_idx];
@@ -1003,6 +1021,7 @@ mod tests {
         let ref_node = ArtifactDescription {
             name: Some("blobs".into()),
             dtype: "Ref".into(),
+            self_partitioning: false,
         };
         let ref_node_idx = ag_desc.artifacts.add_node(ref_node);
         ag_desc.artifacts.add_edge(
@@ -1020,15 +1039,19 @@ mod tests {
 
         let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry);
 
-        let idxs = [
-            *idx_map.get(&blob1_node_idx).unwrap(),
-            *idx_map.get(&prod1_node_idx).unwrap(),
-            *idx_map.get(&blob2_node_idx).unwrap(),
-            *idx_map.get(&prod2_node_idx).unwrap(),
-            *idx_map.get(&blob3_node_idx).unwrap(),
-            *idx_map.get(&tbp_node_idx).unwrap(),
-            *idx_map.get(&ref_node_idx).unwrap(),
+        let mut idxs = hashmap![
+            "UP" => *idx_map.get(&up_idx).unwrap(),
+            "Test Blob 1" => *idx_map.get(&blob1_node_idx).unwrap(),
+            "Test Producer 1" => *idx_map.get(&prod1_node_idx).unwrap(),
+            "Test Blob 2" => *idx_map.get(&blob2_node_idx).unwrap(),
+            "Test Producer 2" => *idx_map.get(&prod2_node_idx).unwrap(),
+            "Test Blob 3" => *idx_map.get(&blob3_node_idx).unwrap(),
+            "TBP" => *idx_map.get(&tbp_node_idx).unwrap(),
+            "blobs" => *idx_map.get(&ref_node_idx).unwrap(),
         ];
+        if let Some(ref idx) = part_idx {
+            idxs.insert("Partitioning", *idx_map.get(idx).unwrap());
+        }
 
         (ag, idxs)
     }
@@ -1090,10 +1113,31 @@ mod tests {
                 node_idx.clone()).unwrap();
         }
 
-        let up_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (up_art_idx, _) = ag.get_by_id(&ver_graph[up_idx].artifact.id).unwrap();
+        let up_art_idx = idxs["UP"];
+        let up_idx = ver_graph.artifact_versions(&ag[up_art_idx])[0];
+        // Create meaningless unary partitioning hunk (necessary for getting its
+        // composition map).
+        for part_id in ::datatype::partitioning::UnaryPartitioningState.get_partition_ids() {
+            let hunk = Hunk {
+                id: Identity {
+                    uuid: Uuid::new_v4(),
+                    hash: 0,
+                },
+                version: &ver_graph[up_idx],
+                partition: Partition {
+                    partitioning: &ver_graph[up_idx],
+                    index: part_id,
+                },
+                representation: RepresentationKind::State,
+                completion: PartCompletion::Complete,
+                precedence: None,
+            };
+            model_ctrl.create_hunk(
+                &mut context.repo_control,
+                &hunk).unwrap();
+        }
 
-        let blob1_art_idx = idxs[0];
+        let blob1_art_idx = idxs["Test Blob 1"];
         let blob1_art = &ag[blob1_art_idx];
         let blob1_ver = Version::new(blob1_art, RepresentationKind::State);
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
@@ -1108,7 +1152,13 @@ mod tests {
 
         let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
             .expect("Partitioning version missing");
-        let ver_part_control: Box<::datatype::interface::PartitioningController> =
+        let ver_part_comp = model_ctrl.get_composition_map(
+            &mut context.repo_control,
+            &ver_graph,
+            ver_part_idx,
+            ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
+            .expect("UP comp map").into_iter().last().expect("UP state hunk").1;
+        let ver_part_control: Box<::datatype::StateInterface<::datatype::partitioning::Partitioning>> =
                 context.dtypes_registry
                                       .get_model(&ver_partitioning.artifact.dtype.name)
                                       .get_controller(store)
@@ -1118,7 +1168,8 @@ mod tests {
         let ver_blob_real = &ver_graph[blob1_ver_idx];
         let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
         let ver_hunks = ver_part_control
-                .get_partition_ids(&mut context.repo_control, &ver_graph, ver_part_idx)
+                .get_composite_interface(&mut context.repo_control, &ver_part_comp).unwrap()
+                .get_partition_ids()
                 .iter()
                 .map(|partition_id| Hunk {
                     id: Identity {
@@ -1176,6 +1227,7 @@ mod tests {
         let partitioning = ArtifactDescription {
             name: Some("Arbitrary Partitioning".into()),
             dtype: "ArbitraryPartitioning".into(),
+            self_partitioning: false,
         };
         let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry, Some(partitioning));
 
@@ -1188,15 +1240,22 @@ mod tests {
             &ag).unwrap();
         model_ctrl.write_production_policies(
             &mut context.repo_control,
-            &ag[idxs[5]],
+            &ag[idxs["TBP"]],
             EnumSet::from_iter(
                 vec![ProductionPolicies::LeafBootstrap, ProductionPolicies::Custom]
                 .into_iter())).unwrap();
 
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
-        let part_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (part_art_idx, _) = ag.get_by_id(&ver_graph[part_idx].artifact.id).unwrap();
+        let up_idx = ver_graph.artifact_versions(&ag[idxs["UP"]])[0];
+        let part_art_idx = idxs["Partitioning"];
+        let part_idx = ver_graph.versions.add_node(
+            Version::new(&ag[part_art_idx], RepresentationKind::State));
+        let up_part_rel = ag.artifacts.find_edge(idxs["UP"], part_art_idx).unwrap();
+        ver_graph.versions.add_edge(
+            up_idx,
+            part_idx,
+            VersionRelation::Dependence(&ag[up_part_rel])).unwrap();
 
         // Create arbitrary partitions.
         {
@@ -1206,19 +1265,38 @@ mod tests {
                 &mut context.repo_control,
                 &ver_graph,
                 part_idx).expect("TODO");
-            part_control.write(
+            let part_state = ::datatype::Payload::State(
+                ArbitraryPartitioningState { partition_ids: btreeset![0, 1] });
+            let hunk = Hunk {
+                id: Identity {
+                    uuid: Uuid::new_v4(),
+                    hash: part_control.hash_payload(&part_state),
+                },
+                version: &ver_graph[part_idx],
+                partition: Partition {
+                    partitioning: &ver_graph[up_idx],
+                    index: UNARY_PARTITION_INDEX,
+                },
+                representation: RepresentationKind::State,
+                completion: PartCompletion::Complete,
+                precedence: None,
+            };
+            model_ctrl.create_hunk(
                 &mut context.repo_control,
-                &ver_graph[part_idx],
-                &[0, 1]).expect("TODO");
-            model_ctrl.commit_version(
-                &context.dtypes_registry,
+                &hunk).unwrap();
+            part_control.write_hunk(
                 &mut context.repo_control,
-                &ag,
-                &mut ver_graph,
-                part_idx).expect("TODO");
+                &hunk,
+                &part_state).expect("TODO");
         }
+        model_ctrl.commit_version(
+            &context.dtypes_registry,
+            &mut context.repo_control,
+            &ag,
+            &mut ver_graph,
+            part_idx).expect("TODO");
 
-        let blob1_art_idx = idxs[0];
+        let blob1_art_idx = idxs["Test Blob 1"];
         let blob1_art = &ag[blob1_art_idx];
         let blob1_ver = Version::new(blob1_art, RepresentationKind::State);
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
@@ -1233,7 +1311,13 @@ mod tests {
 
         let ver_hash = {
             let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
-            let ver_part_control: Box<::datatype::interface::PartitioningController> =
+            let ver_part_comp = model_ctrl.get_composition_map(
+                &mut context.repo_control,
+                &ver_graph,
+                ver_part_idx,
+                ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
+                .expect("Composition map failed").into_iter().last().expect("No maps").1;
+            let ver_part_control: Box<::datatype::StateInterface<::datatype::partitioning::Partitioning>> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
                                           .get_controller(store)
@@ -1243,9 +1327,10 @@ mod tests {
             let ver_blob_real = &ver_graph[blob1_ver_idx];
             let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
             let ver_hunks = ver_part_control
+                    .get_composite_interface(&mut context.repo_control, &ver_part_comp).unwrap()
                     // Note that this is in ascending order, so version hash
                     // is correct.
-                    .get_partition_ids(&mut context.repo_control, &ver_graph, ver_part_idx)
+                    .get_partition_ids()
                     .iter()
                     .map(|partition_id| Hunk {
                         id: Identity {
@@ -1296,9 +1381,9 @@ mod tests {
 
         println!("{:?}", petgraph::dot::Dot::new(&vg2.versions.graph()));
 
-        let blob1_vg2_idxs = vg2.artifact_versions(&ag[idxs[0]]);
-        let blob2_vg2_idxs = vg2.artifact_versions(&ag[idxs[2]]);
-        let blob3_vg2_idxs = vg2.artifact_versions(&ag[idxs[4]]);
+        let blob1_vg2_idxs = vg2.artifact_versions(&ag[idxs["Test Blob 1"]]);
+        let blob2_vg2_idxs = vg2.artifact_versions(&ag[idxs["Test Blob 2"]]);
+        let blob3_vg2_idxs = vg2.artifact_versions(&ag[idxs["Test Blob 3"]]);
 
         assert_eq!(blob2_vg2_idxs.len(), 1);
         assert_eq!(blob3_vg2_idxs.len(), 1);
@@ -1324,7 +1409,13 @@ mod tests {
 
         let ver2_hash = {
             let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver2_idx).unwrap();
-            let ver_part_control: Box<::datatype::interface::PartitioningController> =
+            let ver_part_comp = model_ctrl.get_composition_map(
+                &mut context.repo_control,
+                &ver_graph,
+                ver_part_idx,
+                ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
+                .unwrap().into_iter().last().unwrap().1;
+            let ver_part_control: Box<::datatype::StateInterface<::datatype::partitioning::Partitioning>> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
                                           .get_controller(store)
@@ -1334,9 +1425,10 @@ mod tests {
             let ver_blob_real = &ver_graph[blob1_ver2_idx];
             let fake_blob = ::datatype::Payload::Delta((vec![1, 6], vec![7, 8]));
             let ver_hunks = ver_part_control
+                    .get_composite_interface(&mut context.repo_control, &ver_part_comp).unwrap()
                     // Note that this is in ascending order, so version hash
                     // is correct.
-                    .get_partition_ids(&mut context.repo_control, &ver_graph, ver_part_idx)
+                    .get_partition_ids()
                     .iter()
                     .take(1)
                     .map(|partition_id| Hunk {
@@ -1387,9 +1479,9 @@ mod tests {
 
         println!("{:?}", petgraph::dot::Dot::new(&vg3.versions.graph()));
 
-        let blob1_vg3_idxs = vg3.artifact_versions(&ag[idxs[0]]);
-        let blob2_vg3_idxs = vg3.artifact_versions(&ag[idxs[2]]);
-        let blob3_vg3_idxs = vg3.artifact_versions(&ag[idxs[4]]);
+        let blob1_vg3_idxs = vg3.artifact_versions(&ag[idxs["Test Blob 1"]]);
+        let blob2_vg3_idxs = vg3.artifact_versions(&ag[idxs["Test Blob 2"]]);
+        let blob3_vg3_idxs = vg3.artifact_versions(&ag[idxs["Test Blob 3"]]);
 
         assert_eq!(blob2_vg3_idxs.len(), 2);
         assert_eq!(blob3_vg3_idxs.len(), 2);
@@ -1401,13 +1493,17 @@ mod tests {
             );
 
         {
-            use datatype::interface::PartitioningController;
             let part_control = ::datatype::partitioning::arbitrary::model_controller(store);
-            let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
-            let part_ids = part_control.get_partition_ids(
-                    &mut context.repo_control,
-                    &ver_graph,
-                    ver_part_idx);
+            let (ver_part_idx, _) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
+            let ver_part_comp = model_ctrl.get_composition_map(
+                &mut context.repo_control,
+                &ver_graph,
+                ver_part_idx,
+                ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
+                .unwrap().into_iter().last().unwrap().1;
+            let part_ids = part_control
+                    .get_composite_interface(&mut context.repo_control, &ver_part_comp).unwrap()
+                    .get_partition_ids();
 
             let map1 = model_ctrl.get_composition_map(
                 &mut context.repo_control,

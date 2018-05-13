@@ -114,3 +114,21 @@ macro_rules! datatype_enum {
         }
     };
 }
+
+#[macro_export]
+macro_rules! state_interface {
+    ( $iface:path ) => {
+        impl<S: 'static, MC> $crate::datatype::StateInterface<$iface> for MC
+                where
+                    S: $iface + ::std::fmt::Debug + ::std::hash::Hash + PartialEq,
+                    MC: $crate::datatype::ModelController<StateType = S> {
+            fn get_composite_interface(
+                &self,
+                repo_control: &mut $crate::repo::StoreRepoController,
+                composition: &$crate::datatype::Composition,
+            ) -> Result<Box<$iface>, Error> {
+                Ok(Box::new(self.get_composite_state(repo_control, composition)?))
+            }
+        }
+    };
+}

@@ -262,6 +262,7 @@ Must either:
   - Can't `get_partition_ids` -- could change partition interfaces into enumerable/unenumerable
     - Currently only used for convenience in AG test cases
     - How would unenumerable partitions work for hunk resolution? Nothing to pass into `get_composition_map`
+    - Make partition population a property of the dependent datatypes instead of the partitioning itself?
 
 Artifact co-dependence resolution options
 -----------------------------------------
@@ -289,6 +290,41 @@ Artifact co-dependence resolution options
   - In any case, if A has a prod dep on B have the problem of not generating an A3 following commit of B2.
     - Can set up atomic "closures" over commit cascading, but would be more or less a dynamics version of the atomic subgraph solution.
     - Can return to producers as hypergraph DAG instead of in artifact DAG, which would effectively group production outputs into atomic subgraphs in artifact graph DAG. (So dtype would be dep on partitioning, but producer would handle all muts to dtype?)
+
+Partitions
+----------
+- Should there be a typed distinction between implicitly populated and explicitly populated partitions. That is, determination of population of the former belongs to the dependent datatype, while for the latter it is explicit in the partitioning datatype.
+- MultiGraphPartitioning trait? Would not be able to be a type-level extension of GraphPartitionin because, again, enum variants are not types.
+
+Stateful ModelControllers (i.e., Models)
+----------------------------------------
+Having model controllers be stateless discourages violation of state integrity and makes store implementation of each MC method isolated. However, it is needlessly slow for most cases, and makes reuse of store-agnostic logic difficult. Creating a stateful model, however, is undesirable because:
+- Risks creating a whole ORM.
+- What state needs to be in the model is not clear. Composite state? Hunk only? All hunks for version? Composite state for single partition?
+Testbed usecases:
+- One extreme: AG MC. Often assumes the whole VG is loaded. Might not be a good development test case because it is special. (Requiring the whole VG to be in memory might be reasonable, at least for a server.)
+- Another extreme: static partitionings. Need to load state for every call, even though state is simple and unary partitioned. May be too simple for solutions to generalize to most other valuable use cases, though.
+
+Types of solutions:
+- Use memory store partial repo mirror as a effectively stateful controller
+  - No good story for mirrors yet, still have to pay lookup costs for every call
+- Add functionality to State payloads
+  - Not clear how this divvies up controller functionality, e.g., for methods that must be called by dependents
+  - Most MCs would then become a simple dtype::MC that yield a particular state type. More difficult is interfaces, that need to yield a state type that impls some traits.
+    - What is actually happening in interfaces? Two things:
+      - Specification of dependencies on these reflected traits (for dtypes)
+        - Now that iface/dtype graph is not externally persisted, is this necessary or can it be checked at runtime?
+          - Currently, nothing actually matches DependencyTypeRestriction::ImplementsInterface.
+          - Enforced by InterfaceControllerEnum, but this is already independent of the reflection.
+      - Explicit reflection of types (via DatatypeRegistry)
+    - Difficulty: would have to get the interface via `interface_controller`, but don't have a concrete trait for the trait object, because need an MC which we then use to get the state for the trait we want.
+      - i.e., `interface_controller` would have to give back a `ModelController<S: IC, _> where IC: InterfaceController<...>` (which it cannot because `S` cannot be erased)
+        - Could introduce a trait, like `StateInterface` that takes a `ModelController` and have a method that wraps `get_composite_state`, boxing result to the target trait type? Then blanket `impl<S> StateInterface<IC> for MC where MC: ModelController<S: IC, _>`
+          - Can't seem to do this, because can't make impls generic over traits, only over types.
+          - Need better naming. Is this naming dependent on refactoring naming of dtype/state/models/controllers/[even version] in general?
+          - In any case, does the interface in the enum now become `StateInterface<IC>` rather than `IC`? Yes -- if in the future we require some way to have transparent controller/state interfaces, can revisit (but seems like that would be a separate mechanism regardless).
+- Have MC methods take state as argument.
+  - MCs are already boxed trait objects, so can be sized as needed. No reason to reinvent the wheel and not contain the state in the MC itself, unless there's a compelling reason to pass state between MCs or call the same MC with multiple states?
 
 
 Solution Sketches

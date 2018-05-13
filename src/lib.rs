@@ -310,6 +310,7 @@ impl<'a> ArtifactGraph<'a> {
                 let mut art = Artifact {
                     id: id,
                     name: a_desc.name.clone(),
+                    self_partitioning: a_desc.self_partitioning,
                     dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
                 };
                 art.hash(&mut s);
@@ -453,6 +454,12 @@ pub struct Artifact<'a> {
     /// Name identifier for this artifact. Can not start with '@'.
     name: Option<String>,
     pub dtype: &'a Datatype,
+    /// Because partitioning is a relationship with special status, it is
+    /// allowed to be self-cyclic for datatype artifacts if appropriate. For
+    /// example, unary partitioning or a self-balancing point octree are both
+    /// structures that may be self-partitioning. Rather than allow cyclic
+    /// edges in the DAG for this special case, make it a property.
+    pub self_partitioning: bool,
 }
 
 impl<'a> Identifiable for Artifact<'a> {
@@ -465,6 +472,7 @@ impl<'a> Hash for Artifact<'a> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.dtype.id.hash.hash(state);
         self.name.hash(state);
+        self.self_partitioning.hash(state);
     }
 }
 
@@ -549,6 +557,10 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
         &self,
         v_idx: VersionGraphIndex
     ) -> Option<(VersionGraphIndex, &Version)> {
+        if self.versions[v_idx].artifact.self_partitioning {
+            return Some((v_idx, &self.versions[v_idx]));
+        }
+
         let partitioning_art_relation = ArtifactRelation::DtypeDepends(DatatypeRelation {
                 name: datatype::interface::PARTITIONING_RELATION_NAME.clone(),
             });
