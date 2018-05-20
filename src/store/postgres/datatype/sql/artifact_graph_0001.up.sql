@@ -11,6 +11,7 @@ CREATE TABLE artifact (
   LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
   artifact_graph_id bigint NOT NULL REFERENCES artifact_graph (id) DEFERRABLE INITIALLY IMMEDIATE,
   datatype_id bigint NOT NULL REFERENCES datatype (id),
+  self_partitioning boolean NOT NULL,
   name text
 ) WITH (
   OIDS=FALSE

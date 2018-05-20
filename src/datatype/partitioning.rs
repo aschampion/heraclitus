@@ -1,17 +1,13 @@
-extern crate daggy;
-extern crate petgraph;
-extern crate serde;
-extern crate serde_json;
-extern crate uuid;
-
-
 use std::collections::{BTreeSet};
 
 use ::{
     RepresentationKind,
     Error,
     PartitionIndex,
-    Version};
+    Version,
+    VersionGraph,
+    VersionGraphIndex,
+};
 use super::{
     Description,
     InterfaceController,
@@ -22,23 +18,33 @@ use super::{
 use ::datatype::interface::PartitioningController;
 
 
+pub trait Partitioning {
+    fn get_partition_ids(
+        &self,
+    ) -> BTreeSet<PartitionIndex>;
+}
+
+state_interface!(PartitioningState, Partitioning);
+
 #[derive(Default)]
 pub struct UnaryPartitioning;
 
-impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartitioning {
-    fn info(&self) -> Description {
+impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
+    fn info(&self) -> Description<T> {
         Description {
             name: "UnaryPartitioning".into(),
             version: 1,
             representations: vec![RepresentationKind::State]
                     .into_iter()
                     .collect(),
-            implements: vec!["Partitioning"],
+            implements: vec![
+                <T as InterfaceController<PartitioningState>>::VARIANT,
+            ],
             dependencies: vec![],
         }
     }
 
-    fn meta_controller(&self, store: Store) -> Option<super::StoreMetaController> {
+    fn meta_controller(&self, store: Store) -> Option<StoreMetaController> {
         match store {
             Store::Postgres => Some(StoreMetaController::Postgres(
                 Box::new(UnaryPartitioningController {}))),
@@ -49,34 +55,76 @@ impl<T: InterfaceController<PartitioningController>> Model<T> for UnaryPartition
     fn interface_controller(
         &self,
         _store: Store,
-        name: &str
+        iface: T
     ) -> Option<T> {
-        match name {
-            "Partitioning" => {
-                let control: Box<PartitioningController> = Box::new(UnaryPartitioningController {});
-                Some(T::from(control))
-            },
-            _ => None,
+        if iface == <T as InterfaceController<PartitioningState>>::VARIANT {
+            let control: Box<PartitioningState> = Box::new(UnaryPartitioningController {});
+            Some(T::from(control))
+        } else {
+            None
         }
     }
 }
 
 
-const UNARY_PARTITION_INDEX: PartitionIndex = 0;
+/// Index of the unary partition. Unary partitioning is special, common
+/// enough case that this is public for convenience.
+pub const UNARY_PARTITION_INDEX: PartitionIndex = 0;
 pub struct UnaryPartitioningController;
 
 impl PartitioningController for UnaryPartitioningController {
     fn get_partition_ids(
         &self,
         _repo_control: &mut ::repo::StoreRepoController,
-        _partitioning: &Version,
+        _ver_graph: &VersionGraph,
+        _v_idx: VersionGraphIndex,
     ) -> BTreeSet<PartitionIndex> {
         btreeset![UNARY_PARTITION_INDEX]
     }
 }
 
+#[derive(Debug, Hash, PartialEq)]
+pub struct UnaryPartitioningState;
+
+impl Partitioning for UnaryPartitioningState {
+    fn get_partition_ids(
+        &self,
+    ) -> BTreeSet<PartitionIndex> {
+        btreeset![UNARY_PARTITION_INDEX]
+    }
+}
 
 impl super::MetaController for UnaryPartitioningController {}
+
+impl super::ModelController for UnaryPartitioningController {
+    type StateType = UnaryPartitioningState;
+    type DeltaType = super::UnrepresentableType;
+
+    fn read_hunk(
+        &self,
+        _repo_control: &mut ::repo::StoreRepoController,
+        _hunk: &::Hunk,
+    ) -> Result<super::Payload<Self::StateType, Self::DeltaType>, Error> {
+        Ok(super::Payload::State(UnaryPartitioningState))
+    }
+
+    fn write_hunk(
+        &mut self,
+        _repo_control: &mut ::repo::StoreRepoController,
+        _hunk: &::Hunk,
+        payload: &super::Payload<Self::StateType, Self::DeltaType>,
+    ) -> Result<(), Error> {
+        unimplemented!()
+    }
+
+    fn compose_state(
+        &self,
+        state: &mut Self::StateType,
+        delta: &Self::DeltaType,
+    ) {
+        unimplemented!()
+    }
+}
 
 
 pub mod arbitrary {
@@ -88,15 +136,17 @@ pub mod arbitrary {
     #[derive(Default)]
     pub struct ArbitraryPartitioning;
 
-    impl<T: InterfaceController<PartitioningController>> Model<T> for ArbitraryPartitioning {
-        fn info(&self) -> Description {
+    impl<T: InterfaceController<PartitioningState>> Model<T> for ArbitraryPartitioning {
+        fn info(&self) -> Description<T> {
             Description {
                 name: "ArbitraryPartitioning".into(),
                 version: 1,
                 representations: vec![RepresentationKind::State]
                         .into_iter()
                         .collect(),
-                implements: vec!["Partitioning"],
+                implements: vec![
+                    <T as InterfaceController<PartitioningState>>::VARIANT,
+                ],
                 dependencies: vec![],
             }
         }
@@ -112,19 +162,18 @@ pub mod arbitrary {
         fn interface_controller(
             &self,
             store: Store,
-            name: &str
+            iface: T,
         ) -> Option<T> {
-            match name {
-                "Partitioning" => {
-                    match store {
-                        Store::Postgres => {
-                            let control: Box<PartitioningController> = Box::new(PostgresStore {});
-                            Some(T::from(control))
-                        }
-                        _ => unimplemented!()
+            if iface == <T as InterfaceController<PartitioningState>>::VARIANT {
+                match store {
+                    Store::Postgres => {
+                        let control: Box<PartitioningState> = Box::new(PostgresStore {});
+                        Some(T::from(control))
                     }
-                },
-                _ => None,
+                    _ => unimplemented!()
+                }
+            } else {
+                None
             }
         }
     }
@@ -136,20 +185,18 @@ pub mod arbitrary {
         }
     }
 
-    pub trait ModelController: PartitioningController {
-        // TODO: this should not allow versions with parents, but no current
-        // mechanism exists to enforce this.
-        fn write(
-            &mut self,
-            repo_control: &mut ::repo::StoreRepoController,
-            version: &Version,
-            partition_ids: &[PartitionIndex],
-        ) -> Result<(), Error>;
-
-        fn read(
-            &self,
-            repo_control: &mut ::repo::StoreRepoController,
-            version: &Version
-        ) -> Result<BTreeSet<PartitionIndex>, Error>;
+    #[derive(Debug, Hash, PartialEq)]
+    pub struct ArbitraryPartitioningState {
+        pub partition_ids: BTreeSet<PartitionIndex>,
     }
+
+    impl Partitioning for ArbitraryPartitioningState {
+        fn get_partition_ids(&self) -> BTreeSet<PartitionIndex> {
+            self.partition_ids.clone()
+        }
+    }
+
+    pub trait ModelController:
+        ::datatype::ModelController<StateType = ArbitraryPartitioningState,
+                                    DeltaType = ::datatype::UnrepresentableType> {}
 }

@@ -1,6 +1,3 @@
-extern crate schemer;
-
-
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -8,6 +5,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
+use schemer;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
 use ::{

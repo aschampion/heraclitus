@@ -1,13 +1,3 @@
-extern crate daggy;
-extern crate enum_set;
-extern crate petgraph;
-extern crate schemer;
-extern crate serde;
-extern crate serde_json;
-extern crate uuid;
-extern crate postgres;
-
-
 use std::collections::{
     BTreeSet,
     BTreeMap,
@@ -15,10 +5,19 @@ use std::collections::{
 };
 use std::mem;
 
+use daggy::{
+    self,
+    Walker,
+};
 use daggy::petgraph::visit::EdgeRef;
-use daggy::Walker;
-use enum_set::EnumSet;
-use uuid::Uuid;
+use enum_set::{
+    self,
+    EnumSet,
+};
+use petgraph;
+use uuid::{
+    Uuid,
+};
 
 use ::{
     Artifact,
@@ -43,10 +42,15 @@ use super::{
     DatatypeEnum,
     DatatypesRegistry,
     Description,
+    GetInterfaceController,
+    InterfaceController,
+    InterfaceControllerEnum,
+    MetaController,
     Store,
 };
 use ::datatype::interface::{
     CustomProductionPolicyController,
+    ProducerController,
     ProductionOutput,
     ProductionStrategies,
     ProductionStrategyID,
@@ -57,8 +61,8 @@ use ::store::postgres::datatype::artifact_graph::PostgresStore;
 #[derive(Default)]
 pub struct ArtifactGraphDtype;
 
-impl<T> super::Model<T> for ArtifactGraphDtype {
-    fn info(&self) -> Description {
+impl<T: InterfaceControllerEnum> super::Model<T> for ArtifactGraphDtype {
+    fn info(&self) -> Description<T> {
         Description {
             name: "ArtifactGraph".into(),
             version: 1,
@@ -80,7 +84,7 @@ impl<T> super::Model<T> for ArtifactGraphDtype {
     fn interface_controller(
         &self,
         _store: Store,
-        _name: &str,
+        _iface: T,
     ) -> Option<T> {
         None
     }
@@ -433,7 +437,27 @@ pub struct ProductionStrategySpecs {
 pub trait ModelController {
     fn list_graphs(&self) -> Vec<Identity>;
 
-    fn create_artifact_graph(
+    fn create_artifact_graph<'a, T: DatatypeEnum>(
+        &mut self,
+        dtypes_registry: &'a DatatypesRegistry<T>,
+        repo_control: &mut ::repo::StoreRepoController,
+        art_graph: &ArtifactGraph,
+    ) -> Result<(), Error> {
+        self.write_artifact_graph(repo_control, art_graph)?;
+
+        for idx in art_graph.artifacts.graph().node_indices() {
+            let art = &art_graph[idx];
+            let mut meta_controller = dtypes_registry
+                .get_model(&art.dtype.name)
+                .meta_controller(repo_control.store())
+                .expect("TODO: model has no controller for store");
+            meta_controller.init_artifact(repo_control, art)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_artifact_graph(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
         art_graph: &ArtifactGraph,
@@ -469,10 +493,10 @@ pub trait ModelController {
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
-        where Box<::datatype::interface::ProducerController>:
-        From<<T as DatatypeEnum>::InterfaceControllerType>,
-        Box<CustomProductionPolicyController>:
-        From<<T as DatatypeEnum>::InterfaceControllerType>;
+            where
+                <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<ProducerController> +
+                    InterfaceController<CustomProductionPolicyController>;
     // TODO: many args to avoid reloading state. A 2nd-level API should just take an ID.
 
     fn cascade_notify_producers<'a, 'b, T:DatatypeEnum> (
@@ -483,10 +507,11 @@ pub trait ModelController {
         ver_graph: &mut VersionGraph<'a, 'b>,
         seed_v_idx: VersionGraphIndex,
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
-            where Box<::datatype::interface::ProducerController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType>,
-            Box<CustomProductionPolicyController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType> {
+            where
+                <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<ProducerController> +
+                    InterfaceController<CustomProductionPolicyController>
+            {
         let outputs = self.notify_producers(
             dtypes_registry,
             repo_control,
@@ -518,10 +543,11 @@ pub trait ModelController {
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
-            where Box<::datatype::interface::ProducerController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType>,
-            Box<CustomProductionPolicyController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType> {
+            where
+                <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<ProducerController> +
+                    InterfaceController<CustomProductionPolicyController>
+            {
 
         let default_production_policies: Vec<Box<ProductionPolicy>> = vec![
             Box::new(ExtantProductionPolicy),
@@ -546,10 +572,10 @@ pub trait ModelController {
             let dependent = &art_graph[dep_art_idx];
             let dtype = dependent.dtype;
 
-            if let Some(producer_interface) = dtypes_registry.get_model(&dtype.name)
-                    .interface_controller(repo_control.store(), "Producer") {
-                let producer_controller: Box<::datatype::interface::ProducerController> =
-                    producer_interface.into();
+            let producer_interface: Option<Box<ProducerController>> = dtypes_registry
+                .get_model(&dtype.name)
+                .get_controller(repo_control.store());
+            if let Some(producer_controller) = producer_interface {
 
                 let production_policies: Option<Vec<Box<ProductionPolicy>>> =
                     self.get_production_policies(repo_control, dependent)?
@@ -559,10 +585,11 @@ pub trait ModelController {
                         ProductionPolicies::LeafBootstrap =>
                             Some(Box::new(LeafBootstrapProductionPolicy) as Box<ProductionPolicy>),
                         ProductionPolicies::Custom => {
-                            if let Some(custom_policy_interface) = dtypes_registry.get_model(&dtype.name)
-                                    .interface_controller(repo_control.store(), "CustomProductionPolicy") {
-                                let custom_policy_controller: Box<CustomProductionPolicyController> =
-                                    custom_policy_interface.into();
+                            let custom_policy_interface: Option<Box<CustomProductionPolicyController>> = dtypes_registry
+                                .get_model(&dtype.name)
+                                .get_controller(repo_control.store());
+                            if let Some(custom_policy_controller) = custom_policy_interface {
+
                                 Some(custom_policy_controller.get_custom_production_policy(
                                     repo_control,
                                     art_graph,
@@ -715,6 +742,9 @@ pub trait ModelController {
 
     /// Get hunk sets sufficient to reconstruct composite states for a set of
     /// partitions.
+    ///
+    /// Note that partition indices in `partitions` may be abset from the
+    /// returned `CompositionMap` if they have never been populated.
     fn get_composition_map<'a: 'b, 'b: 'r, 'c, 'd, 'r: 'c + 'd>(
         &self,
         repo_control: &mut ::repo::StoreRepoController,
@@ -733,6 +763,10 @@ pub trait ModelController {
         let mut map = CompositionMap::new();
         // Partition indices that have not yet been resolved.
         let mut unresolved: BTreeSet<PartitionIndex> = partitions.clone();
+        // Partition indices that have not yet been seen.
+        // TODO: could be more efficient by instead asserting unresolved and
+        // domain of map are disjoint.
+        let mut unseen: BTreeSet<PartitionIndex> = partitions.clone();
         // Partition indices that are locked from composition changes because
         // they have received a hunk from an unreached version.
         let mut locked: BTreeMap<Uuid, BTreeSet<PartitionIndex>> = BTreeMap::new();
@@ -752,6 +786,7 @@ pub trait ModelController {
 
             for hunk in hunks {
                 let part_idx = hunk.partition.index;
+                unseen.remove(&part_idx);
 
                 if hunk.representation == RepresentationKind::State {
                     unresolved.remove(&part_idx);
@@ -775,9 +810,7 @@ pub trait ModelController {
             }
         }
 
-        assert!(
-            unresolved.is_empty() && locked.is_empty(),
-            "Composition map was unfulfilled!");
+        assert!(unresolved == unseen && locked.is_empty(), "Composition map was unfulfilled!");
         Ok(map)
     }
 
@@ -809,7 +842,7 @@ pub trait ModelController {
 }
 
 
-type ArtifactGraphDescriptionType =  daggy::Dag<ArtifactDescription, ArtifactRelation>;
+pub type ArtifactGraphDescriptionType =  daggy::Dag<ArtifactDescription, ArtifactRelation>;
 pub struct ArtifactGraphDescription {
     pub artifacts: ArtifactGraphDescriptionType,
 }
@@ -821,14 +854,15 @@ impl ArtifactGraphDescription {
         }
     }
 
-    pub fn add_unary_partitioning(&mut self) {
+    pub fn add_unary_partitioning(&mut self) -> daggy::NodeIndex {
         self.add_uniform_partitioning(ArtifactDescription{
                     name: Some("Unary Partitioning Singleton".into()),
                     dtype: "UnaryPartitioning".into(),
-                });
+                    self_partitioning: true,
+                })
     }
 
-    pub fn add_uniform_partitioning(&mut self, partitioning: ArtifactDescription) {
+    pub fn add_uniform_partitioning(&mut self, partitioning: ArtifactDescription) -> daggy::NodeIndex {
         let part_idx = self.artifacts.add_node(partitioning);
         for node_idx in daggy::petgraph::algo::toposort(self.artifacts.graph(), None)
                 .expect("TODO: not a DAG") {
@@ -847,6 +881,8 @@ impl ArtifactGraphDescription {
                 self.artifacts.add_edge(part_idx, node_idx, edge).expect("Graph is malformed.");
             }
         }
+
+        part_idx
     }
 }
 
@@ -854,6 +890,7 @@ impl ArtifactGraphDescription {
 pub struct ArtifactDescription {
     pub name: Option<String>,
     pub dtype: String,
+    pub self_partitioning: bool,
 }
 
 
@@ -872,8 +909,16 @@ mod tests {
         Partition,
         PartCompletion,
     };
+    use ::datatype::partitioning::{
+        Partitioning,
+        PartitioningState,
+        UNARY_PARTITION_INDEX,
+    };
     use ::datatype::ModelController as DatatypeModelController;
-    use datatype::partitioning::arbitrary::ModelController as ArbitraryPartitioningModelController;
+    use ::datatype::partitioning::arbitrary::{
+        ArbitraryPartitioningState,
+        ModelController as ArbitraryPartitioningModelController,
+    };
     use ::datatype::producer::tests::NegateBlobProducer;
 
 
@@ -893,19 +938,21 @@ mod tests {
     fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         dtypes_registry: &'a DatatypesRegistry<T>,
         partitioning: Option<ArtifactDescription>,
-    ) -> (ArtifactGraph<'a>, [ArtifactGraphIndex; 7]) {
+    ) -> (ArtifactGraph<'a>, HashMap<&str, ArtifactGraphIndex>) {
         let mut artifacts = ArtifactGraphDescriptionType::new();
 
         // Blob 1
         let blob1_node = ArtifactDescription {
             name: Some("Test Blob 1".into()),
-            dtype: "Blob".into()
+            dtype: "Blob".into(),
+            self_partitioning: false,
         };
         let blob1_node_idx = artifacts.add_node(blob1_node);
         // Prod 1
         let prod1_node = ArtifactDescription {
             name: Some("Test Producer 1".into()),
             dtype: "NegateBlobProducer".into(),
+            self_partitioning: false,
         };
         let prod1_node_idx = artifacts.add_node(prod1_node);
         artifacts.add_edge(
@@ -915,7 +962,8 @@ mod tests {
         // Blob 2
         let blob2_node = ArtifactDescription {
             name: Some("Test Blob 2".into()),
-            dtype: "Blob".into()
+            dtype: "Blob".into(),
+            self_partitioning: false,
         };
         let blob2_node_idx = artifacts.add_node(blob2_node);
         artifacts.add_edge(
@@ -926,6 +974,7 @@ mod tests {
         let prod2_node = ArtifactDescription {
             name: Some("Test Producer 2".into()),
             dtype: "NegateBlobProducer".into(),
+            self_partitioning: false,
         };
         let prod2_node_idx = artifacts.add_node(prod2_node);
         artifacts.add_edge(
@@ -935,7 +984,8 @@ mod tests {
         // Blob 3
         let blob3_node = ArtifactDescription {
             name: Some("Test Blob 3".into()),
-            dtype: "Blob".into()
+            dtype: "Blob".into(),
+            self_partitioning: false,
         };
         let blob3_node_idx = artifacts.add_node(blob3_node);
         artifacts.add_edge(
@@ -947,16 +997,15 @@ mod tests {
             artifacts: artifacts,
         };
 
-        match partitioning {
-            Some(part_desc) => ag_desc.add_uniform_partitioning(part_desc),
-            None => ag_desc.add_unary_partitioning(),
-        }
+        let part_idx = partitioning.map(|part_desc| ag_desc.add_uniform_partitioning(part_desc));
+        let up_idx = ag_desc.add_unary_partitioning();
 
         // Do not set up partitioning for these.
         // Tracking Branch Producer
         let tbp_node = ArtifactDescription {
             name: Some("TBP".into()),
             dtype: "TrackingBranchProducer".into(),
+            self_partitioning: false,
         };
         let tbp_node_idx = ag_desc.artifacts.add_node(tbp_node);
         let tracked_arts = [blob1_node_idx, blob2_node_idx, blob3_node_idx];
@@ -970,6 +1019,7 @@ mod tests {
         let ref_node = ArtifactDescription {
             name: Some("blobs".into()),
             dtype: "Ref".into(),
+            self_partitioning: false,
         };
         let ref_node_idx = ag_desc.artifacts.add_node(ref_node);
         ag_desc.artifacts.add_edge(
@@ -987,15 +1037,19 @@ mod tests {
 
         let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry);
 
-        let idxs = [
-            *idx_map.get(&blob1_node_idx).unwrap(),
-            *idx_map.get(&prod1_node_idx).unwrap(),
-            *idx_map.get(&blob2_node_idx).unwrap(),
-            *idx_map.get(&prod2_node_idx).unwrap(),
-            *idx_map.get(&blob3_node_idx).unwrap(),
-            *idx_map.get(&tbp_node_idx).unwrap(),
-            *idx_map.get(&ref_node_idx).unwrap(),
+        let mut idxs = hashmap![
+            "UP" => *idx_map.get(&up_idx).unwrap(),
+            "Test Blob 1" => *idx_map.get(&blob1_node_idx).unwrap(),
+            "Test Producer 1" => *idx_map.get(&prod1_node_idx).unwrap(),
+            "Test Blob 2" => *idx_map.get(&blob2_node_idx).unwrap(),
+            "Test Producer 2" => *idx_map.get(&prod2_node_idx).unwrap(),
+            "Test Blob 3" => *idx_map.get(&blob3_node_idx).unwrap(),
+            "TBP" => *idx_map.get(&tbp_node_idx).unwrap(),
+            "blobs" => *idx_map.get(&ref_node_idx).unwrap(),
         ];
+        if let Some(ref idx) = part_idx {
+            idxs.insert("Partitioning", *idx_map.get(idx).unwrap());
+        }
 
         (ag, idxs)
     }
@@ -1005,8 +1059,8 @@ mod tests {
 
         let store = Store::Postgres;
 
-        let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
-        let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
+        let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
+        let repo_control = ::repo::testing::init_repo(store, &dtypes_registry);
 
         let mut context = Context {dtypes_registry, repo_control};
 
@@ -1015,7 +1069,10 @@ mod tests {
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
         let mut model_ctrl = model_controller(store);
 
-        model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
+        model_ctrl.create_artifact_graph(
+            &context.dtypes_registry,
+            &mut context.repo_control,
+            &ag).unwrap();
 
         let ag2 = model_ctrl.get_artifact_graph(&mut context.repo_control, &context.dtypes_registry, &ag.id)
                             .unwrap();
@@ -1028,8 +1085,8 @@ mod tests {
 
         let store = Store::Postgres;
 
-        let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
-        let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
+        let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
+        let repo_control = ::repo::testing::init_repo(store, &dtypes_registry);
 
         let mut context = Context {dtypes_registry, repo_control};
 
@@ -1038,7 +1095,10 @@ mod tests {
         // let model = context.dtypes_registry.types.get("ArtifactGraph").expect()
         let mut model_ctrl = model_controller(store);
 
-        model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
+        model_ctrl.create_artifact_graph(
+            &context.dtypes_registry,
+            &mut context.repo_control,
+            &ag).unwrap();
 
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
@@ -1051,10 +1111,31 @@ mod tests {
                 node_idx.clone()).unwrap();
         }
 
-        let up_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (up_art_idx, _) = ag.get_by_id(&ver_graph[up_idx].artifact.id).unwrap();
+        let up_art_idx = idxs["UP"];
+        let up_idx = ver_graph.artifact_versions(&ag[up_art_idx])[0];
+        // Create meaningless unary partitioning hunk (necessary for getting its
+        // composition map).
+        for part_id in ::datatype::partitioning::UnaryPartitioningState.get_partition_ids() {
+            let hunk = Hunk {
+                id: Identity {
+                    uuid: Uuid::new_v4(),
+                    hash: 0,
+                },
+                version: &ver_graph[up_idx],
+                partition: Partition {
+                    partitioning: &ver_graph[up_idx],
+                    index: part_id,
+                },
+                representation: RepresentationKind::State,
+                completion: PartCompletion::Complete,
+                precedence: None,
+            };
+            model_ctrl.create_hunk(
+                &mut context.repo_control,
+                &hunk).unwrap();
+        }
 
-        let blob1_art_idx = idxs[0];
+        let blob1_art_idx = idxs["Test Blob 1"];
         let blob1_art = &ag[blob1_art_idx];
         let blob1_ver = Version::new(blob1_art, RepresentationKind::State);
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
@@ -1067,20 +1148,26 @@ mod tests {
             &ver_graph,
             blob1_ver_idx.clone()).unwrap();
 
-        let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
+        let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
             .expect("Partitioning version missing");
-        let ver_part_control: Box<::datatype::interface::PartitioningController> =
+        let ver_part_comp = model_ctrl.get_composition_map(
+            &mut context.repo_control,
+            &ver_graph,
+            ver_part_idx,
+            ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
+            .expect("UP comp map").into_iter().last().expect("UP state hunk").1;
+        let ver_part_control: Box<::datatype::partitioning::PartitioningState> =
                 context.dtypes_registry
                                       .get_model(&ver_partitioning.artifact.dtype.name)
-                                      .interface_controller(store, "Partitioning")
-                                      .expect("Partitioning must have controller for store")
-                                      .into();
+                                      .get_controller(store)
+                                      .expect("Partitioning must have controller for store");
 
         let mut blob_control = ::datatype::blob::model_controller(store);
         let ver_blob_real = &ver_graph[blob1_ver_idx];
         let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
         let ver_hunks = ver_part_control
-                .get_partition_ids(&mut context.repo_control, ver_partitioning)
+                .get_composite_interface(&mut context.repo_control, &ver_part_comp).unwrap()
+                .get_partition_ids()
                 .iter()
                 .map(|partition_id| Hunk {
                     id: Identity {
@@ -1130,31 +1217,43 @@ mod tests {
 
         let store = Store::Postgres;
 
-        let dtypes_registry = ::datatype::tests::init_dtypes_registry::<TestDatatypes>();
-        let repo_control = ::repo::tests::init_repo(store, &dtypes_registry);
+        let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
+        let repo_control = ::repo::testing::init_repo(store, &dtypes_registry);
 
         let mut context = Context {dtypes_registry, repo_control};
 
         let partitioning = ArtifactDescription {
             name: Some("Arbitrary Partitioning".into()),
             dtype: "ArbitraryPartitioning".into(),
+            self_partitioning: false,
         };
         let (ag, idxs) = simple_blob_prod_ag_fixture(&context.dtypes_registry, Some(partitioning));
 
         let mut model_ctrl = model_controller(store);
 
-        model_ctrl.create_artifact_graph(&mut context.repo_control, &ag).unwrap();
+
+        model_ctrl.create_artifact_graph(
+            &context.dtypes_registry,
+            &mut context.repo_control,
+            &ag).unwrap();
         model_ctrl.write_production_policies(
             &mut context.repo_control,
-            &ag[idxs[5]],
+            &ag[idxs["TBP"]],
             EnumSet::from_iter(
                 vec![ProductionPolicies::LeafBootstrap, ProductionPolicies::Custom]
                 .into_iter())).unwrap();
 
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
-        let part_idx = ver_graph.versions.graph().node_indices().next().unwrap();
-        let (part_art_idx, _) = ag.get_by_id(&ver_graph[part_idx].artifact.id).unwrap();
+        let up_idx = ver_graph.artifact_versions(&ag[idxs["UP"]])[0];
+        let part_art_idx = idxs["Partitioning"];
+        let part_idx = ver_graph.versions.add_node(
+            Version::new(&ag[part_art_idx], RepresentationKind::State));
+        let up_part_rel = ag.artifacts.find_edge(idxs["UP"], part_art_idx).unwrap();
+        ver_graph.versions.add_edge(
+            up_idx,
+            part_idx,
+            VersionRelation::Dependence(&ag[up_part_rel])).unwrap();
 
         // Create arbitrary partitions.
         {
@@ -1164,19 +1263,38 @@ mod tests {
                 &mut context.repo_control,
                 &ver_graph,
                 part_idx).expect("TODO");
-            part_control.write(
+            let part_state = ::datatype::Payload::State(
+                ArbitraryPartitioningState { partition_ids: btreeset![0, 1] });
+            let hunk = Hunk {
+                id: Identity {
+                    uuid: Uuid::new_v4(),
+                    hash: part_control.hash_payload(&part_state),
+                },
+                version: &ver_graph[part_idx],
+                partition: Partition {
+                    partitioning: &ver_graph[up_idx],
+                    index: UNARY_PARTITION_INDEX,
+                },
+                representation: RepresentationKind::State,
+                completion: PartCompletion::Complete,
+                precedence: None,
+            };
+            model_ctrl.create_hunk(
                 &mut context.repo_control,
-                &ver_graph[part_idx],
-                &[0, 1]).expect("TODO");
-            model_ctrl.commit_version(
-                &context.dtypes_registry,
+                &hunk).unwrap();
+            part_control.write_hunk(
                 &mut context.repo_control,
-                &ag,
-                &mut ver_graph,
-                part_idx).expect("TODO");
+                &hunk,
+                &part_state).expect("TODO");
         }
+        model_ctrl.commit_version(
+            &context.dtypes_registry,
+            &mut context.repo_control,
+            &ag,
+            &mut ver_graph,
+            part_idx).expect("TODO");
 
-        let blob1_art_idx = idxs[0];
+        let blob1_art_idx = idxs["Test Blob 1"];
         let blob1_art = &ag[blob1_art_idx];
         let blob1_ver = Version::new(blob1_art, RepresentationKind::State);
         let blob1_ver_idx = ver_graph.versions.add_node(blob1_ver);
@@ -1190,21 +1308,27 @@ mod tests {
             blob1_ver_idx.clone()).unwrap();
 
         let ver_hash = {
-            let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
-            let ver_part_control: Box<::datatype::interface::PartitioningController> =
+            let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
+            let ver_part_comp = model_ctrl.get_composition_map(
+                &mut context.repo_control,
+                &ver_graph,
+                ver_part_idx,
+                ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
+                .expect("Composition map failed").into_iter().last().expect("No maps").1;
+            let ver_part_control: Box<::datatype::partitioning::PartitioningState> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
-                                          .interface_controller(store, "Partitioning")
-                                          .expect("Partitioning must have controller for store")
-                                          .into();
+                                          .get_controller(store)
+                                          .expect("Partitioning must have controller for store");
 
             let mut blob_control = ::datatype::blob::model_controller(store);
             let ver_blob_real = &ver_graph[blob1_ver_idx];
             let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
             let ver_hunks = ver_part_control
+                    .get_composite_interface(&mut context.repo_control, &ver_part_comp).unwrap()
                     // Note that this is in ascending order, so version hash
                     // is correct.
-                    .get_partition_ids(&mut context.repo_control, ver_partitioning)
+                    .get_partition_ids()
                     .iter()
                     .map(|partition_id| Hunk {
                         id: Identity {
@@ -1255,9 +1379,9 @@ mod tests {
 
         println!("{:?}", petgraph::dot::Dot::new(&vg2.versions.graph()));
 
-        let blob1_vg2_idxs = vg2.artifact_versions(&ag[idxs[0]]);
-        let blob2_vg2_idxs = vg2.artifact_versions(&ag[idxs[2]]);
-        let blob3_vg2_idxs = vg2.artifact_versions(&ag[idxs[4]]);
+        let blob1_vg2_idxs = vg2.artifact_versions(&ag[idxs["Test Blob 1"]]);
+        let blob2_vg2_idxs = vg2.artifact_versions(&ag[idxs["Test Blob 2"]]);
+        let blob3_vg2_idxs = vg2.artifact_versions(&ag[idxs["Test Blob 3"]]);
 
         assert_eq!(blob2_vg2_idxs.len(), 1);
         assert_eq!(blob3_vg2_idxs.len(), 1);
@@ -1282,21 +1406,27 @@ mod tests {
             blob1_ver2_idx.clone()).unwrap();
 
         let ver2_hash = {
-            let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver2_idx).unwrap();
-            let ver_part_control: Box<::datatype::interface::PartitioningController> =
+            let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver2_idx).unwrap();
+            let ver_part_comp = model_ctrl.get_composition_map(
+                &mut context.repo_control,
+                &ver_graph,
+                ver_part_idx,
+                ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
+                .unwrap().into_iter().last().unwrap().1;
+            let ver_part_control: Box<::datatype::partitioning::PartitioningState> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
-                                          .interface_controller(store, "Partitioning")
-                                          .expect("Partitioning must have controller for store")
-                                          .into();
+                                          .get_controller(store)
+                                          .expect("Partitioning must have controller for store");
 
             let mut blob_control = ::datatype::blob::model_controller(store);
             let ver_blob_real = &ver_graph[blob1_ver2_idx];
             let fake_blob = ::datatype::Payload::Delta((vec![1, 6], vec![7, 8]));
             let ver_hunks = ver_part_control
+                    .get_composite_interface(&mut context.repo_control, &ver_part_comp).unwrap()
                     // Note that this is in ascending order, so version hash
                     // is correct.
-                    .get_partition_ids(&mut context.repo_control, ver_partitioning)
+                    .get_partition_ids()
                     .iter()
                     .take(1)
                     .map(|partition_id| Hunk {
@@ -1347,9 +1477,9 @@ mod tests {
 
         println!("{:?}", petgraph::dot::Dot::new(&vg3.versions.graph()));
 
-        let blob1_vg3_idxs = vg3.artifact_versions(&ag[idxs[0]]);
-        let blob2_vg3_idxs = vg3.artifact_versions(&ag[idxs[2]]);
-        let blob3_vg3_idxs = vg3.artifact_versions(&ag[idxs[4]]);
+        let blob1_vg3_idxs = vg3.artifact_versions(&ag[idxs["Test Blob 1"]]);
+        let blob2_vg3_idxs = vg3.artifact_versions(&ag[idxs["Test Blob 2"]]);
+        let blob3_vg3_idxs = vg3.artifact_versions(&ag[idxs["Test Blob 3"]]);
 
         assert_eq!(blob2_vg3_idxs.len(), 2);
         assert_eq!(blob3_vg3_idxs.len(), 2);
@@ -1361,10 +1491,17 @@ mod tests {
             );
 
         {
-            use datatype::interface::PartitioningController;
             let part_control = ::datatype::partitioning::arbitrary::model_controller(store);
-            let (_, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
-            let part_ids = part_control.get_partition_ids(&mut context.repo_control, ver_partitioning);
+            let (ver_part_idx, _) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
+            let ver_part_comp = model_ctrl.get_composition_map(
+                &mut context.repo_control,
+                &ver_graph,
+                ver_part_idx,
+                ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
+                .unwrap().into_iter().last().unwrap().1;
+            let part_ids = part_control
+                    .get_composite_interface(&mut context.repo_control, &ver_part_comp).unwrap()
+                    .get_partition_ids();
 
             let map1 = model_ctrl.get_composition_map(
                 &mut context.repo_control,

@@ -1,17 +1,14 @@
-extern crate daggy;
-extern crate postgres;
-extern crate schemer;
-
-
 use std::borrow::{Borrow, BorrowMut};
 use std::convert::From;
 use std::fmt::Debug;
 use std::option::Option;
 
 use failure::Fail;
+use postgres;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemer::{
+    self,
     Migrator,
     MigratorError,
 };

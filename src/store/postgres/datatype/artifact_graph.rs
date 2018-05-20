@@ -1,13 +1,3 @@
-extern crate daggy;
-extern crate enum_set;
-extern crate petgraph;
-extern crate schemer;
-extern crate serde;
-extern crate serde_json;
-extern crate uuid;
-extern crate postgres;
-
-
 use std::borrow::BorrowMut;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
@@ -15,8 +5,11 @@ use std::iter::FromIterator;
 use daggy::petgraph::visit::EdgeRef;
 use daggy::Walker;
 use enum_set::EnumSet;
+use petgraph;
+use postgres;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
+use schemer;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
 
@@ -25,9 +18,7 @@ use ::{
     ArtifactGraph,
     ArtifactGraphIndex,
     ArtifactRelation,
-    CompositionMap,
     DatatypeRelation,
-    RepresentationKind,
     Error,
     HashType,
     Hunk,
@@ -44,6 +35,7 @@ use ::{
 use ::datatype::{
     DatatypeEnum,
     DatatypesRegistry,
+    InterfaceController,
 };
 use ::datatype::artifact_graph::{
     ModelController,
@@ -55,6 +47,7 @@ use ::datatype::artifact_graph::{
 };
 use ::datatype::interface::{
     CustomProductionPolicyController,
+    ProducerController,
 };
 use ::store::postgres::{
     PostgresMigratable,
@@ -310,7 +303,7 @@ impl ModelController for PostgresStore {
         unimplemented!()
     }
 
-    fn create_artifact_graph(
+    fn write_artifact_graph(
             &mut self,
             repo_control: &mut ::repo::StoreRepoController,
             art_graph: &ArtifactGraph) -> Result<(), Error> {
@@ -328,11 +321,11 @@ impl ModelController for PostgresStore {
 
         let mut id_map = HashMap::new();
         let insert_artifact = trans.prepare(r#"
-                INSERT INTO artifact (uuid_, hash, artifact_graph_id, name, datatype_id)
-                SELECT r.uuid_, r.hash, r.ag_id, r.name, d.id
-                FROM (VALUES ($1::uuid, $2::bigint, $3::bigint, $4::text))
-                  AS r (uuid_, hash, ag_id, name)
-                JOIN datatype d ON d.name = $5
+                INSERT INTO artifact (uuid_, hash, artifact_graph_id, self_partitioning, name, datatype_id)
+                SELECT r.uuid_, r.hash, r.ag_id, r.self_partitioning, r.name, d.id
+                FROM (VALUES ($1::uuid, $2::bigint, $3::bigint, $4::boolean, $5::text))
+                  AS r (uuid_, hash, ag_id, self_partitioning, name)
+                JOIN datatype d ON d.name = $6
                 RETURNING id;
             "#)?;
 
@@ -340,7 +333,7 @@ impl ModelController for PostgresStore {
             let art = &art_graph[idx];
             let node_id_row = insert_artifact.query(&[
                         &art.id.uuid, &(art.id.hash as i64), &ag_id,
-                        &art.name, &art.dtype.name])?;
+                        &art.self_partitioning, &art.name, &art.dtype.name])?;
             let node_id: i64 = node_id_row.get(0).get(0);
 
             id_map.insert(idx, node_id);
@@ -397,6 +390,7 @@ impl ModelController for PostgresStore {
             ID = 0,
             UUID,
             Hash,
+            SelfPartitioning,
             ArtifactName,
             DatatypeName,
         };
@@ -405,6 +399,7 @@ impl ModelController for PostgresStore {
                     a.id,
                     a.uuid_,
                     a.hash,
+                    a.self_partitioning,
                     a.name,
                     d.name
                 FROM artifact a
@@ -425,6 +420,7 @@ impl ModelController for PostgresStore {
             let node = Artifact {
                 id: id,
                 name: row.get(NodeRow::ArtifactName as usize),
+                self_partitioning: row.get(NodeRow::SelfPartitioning as usize),
                 dtype: dtypes_registry.get_datatype(dtype_name)
                                       .expect("Unknown datatype."),
             };
@@ -535,10 +531,10 @@ impl ModelController for PostgresStore {
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
-            where Box<::datatype::interface::ProducerController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType>,
-            Box<CustomProductionPolicyController>:
-            From<<T as DatatypeEnum>::InterfaceControllerType> {
+            where
+                <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<ProducerController> +
+                    InterfaceController<CustomProductionPolicyController> {
         {
             let rc: &mut PostgresRepoController = repo_control.borrow_mut();
 

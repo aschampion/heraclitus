@@ -1,5 +1,3 @@
-extern crate daggy;
-
 use std;
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
@@ -8,11 +6,10 @@ use std::hash::{Hash, Hasher};
 
 use enum_set::EnumSet;
 
-use ::{Composition, Datatype, Error, Hunk};
+use ::{Artifact, Composition, Datatype, Error, Hunk};
 use ::store::Store;
 use ::store::postgres::datatype::PostgresMetaController;
 use self::interface::{
-    PartitioningController,
     ProducerController,
     CustomProductionPolicyController,
 };
@@ -29,21 +26,23 @@ pub mod producer;
 pub mod reference;
 pub mod tracking_branch_producer;
 
-pub struct Description {
-    name: String,
-    version: u64,
-    representations: EnumSet<::RepresentationKind>,
-    implements: Vec<&'static str>,
-    dependencies: Vec<DependencyDescription>,
+pub struct Description<T: InterfaceControllerEnum> {
+    pub name: String,
+    pub version: u64,
+    pub representations: EnumSet<::RepresentationKind>,
+    // TODO: Not yet clear that this reflection of interfaces is useful.
+    pub implements: Vec<T>,
+    pub dependencies: Vec<DependencyDescription>,
 }
 
-impl Description {
+impl<T: InterfaceControllerEnum> Description<T> {
     fn into_datatype(self, interfaces: &InterfaceRegistry) -> Datatype {
+        use std::string::ToString;
         Datatype::new(
             self.name,
             self.version,
             self.representations,
-            self.implements.iter().map(|name| interfaces.get_index(name)).collect(),
+            self.implements.iter().map(|iface| interfaces.get_index(&iface.to_string())).collect(),
         )
     }
 }
@@ -102,7 +101,7 @@ pub struct DependencyDescription {
 }
 
 impl DependencyDescription {
-    fn new(
+    pub fn new(
         name: &'static str,
         datatype_restriction: DependencyTypeRestriction,
         cardinality_restriction: DependencyCardinalityRestriction,
@@ -118,26 +117,49 @@ impl DependencyDescription {
 }
 
 pub struct InterfaceDescription {
-    interface: ::Interface,
-    extends: HashSet<&'static str>,
+    pub interface: ::Interface,
+    pub extends: HashSet<&'static str>,
 }
 
 /// Common interface to all datatypes that does not involve their state or
 /// types associated with their state.
 pub trait MetaController {
+    /// This allows the model controller to initialize any structures necessary
+    /// for a new version (without involving state for that version).
+    fn init_artifact(
+        &mut self,
+        _repo_control: &mut ::repo::StoreRepoController,
+        _artifact: &Artifact,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
-pub trait Model<T> {
+pub trait Model<T: InterfaceControllerEnum> {
     // Necessary to be able to create this as a trait object. See:
     // https://www.reddit.com/r/rust/comments/620m1v//dfirs5s/
     //fn clone(&self) -> Self where Self: Sized;
 
-    fn info(&self) -> Description;
+    fn info(&self) -> Description<T>;
 
     fn meta_controller(&self, Store) -> Option<StoreMetaController>;
 
     /// If this datatype acts as a partitioning controller, construct one.
-    fn interface_controller(&self, store: Store, name: &str) -> Option<T>;
+    fn interface_controller(&self, store: Store, iface: T) -> Option<T>;
+}
+
+pub trait GetInterfaceController<T: ?Sized> {
+    fn get_controller(&self, store: Store) -> Option<Box<T>>;
+}
+
+impl<'a, T, IC> GetInterfaceController<T> for Model<IC> + 'a
+        where
+            T: ?Sized,
+            IC: InterfaceController<T> {
+    fn get_controller(&self, store: Store) -> Option<Box<T>> {
+        self.interface_controller(store, IC::VARIANT)
+            .map(|ic| ic.into())
+    }
 }
 
 #[derive(Debug, Hash, PartialEq)]
@@ -207,20 +229,55 @@ pub trait ModelController {
     );
 }
 
-// TODO:
-// - Sync/compare datatype defs with store
-//    - Fresh init vs diff update
+/// A type for a representation kind that is not supported by a model. This
+/// allows, for example, models to implement `ModelController` if they do not
+/// support deltas.
+///
+/// The type is uninstantiable.
+#[allow(unreachable_code, unreachable_patterns)]
+#[derive(Debug, PartialEq)]
+pub struct UnrepresentableType (!);
+
+impl Hash for UnrepresentableType {
+    fn hash<H: Hasher>(&self, _state: &mut H) {
+        unreachable!()
+    }
+}
+
+
+// Previous implementation of state interfaces before moving to macro-generated
+// traits. Left here for reference.
+// pub trait StateInterface<I: ?Sized> {
+//     fn get_composite_interface(
+//         &self,
+//         repo_control: &mut ::repo::StoreRepoController,
+//         composition: &Composition,
+//     ) -> Result<Box<I>, Error>;
+// }
 
 
 pub enum StoreMetaController {
     Postgres(Box<PostgresMetaController>),
 }
 
-pub trait InterfaceController<T: ?Sized> : From<Box<T>>
-        //where Box<T>: From<Self>
-        {}
+// TODO: ugly kludge, but getting deref/borrow to work for variants is fraught.
+impl MetaController for StoreMetaController {
+    fn init_artifact(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        artifact: &Artifact,
+    ) -> Result<(), Error> {
+        match *self {
+            StoreMetaController::Postgres(ref mut pmc) => pmc.init_artifact(repo_control, artifact),
+        }
+    }
+}
 
-pub trait InterfaceControllerEnum {
+pub trait InterfaceController<T: ?Sized> : From<Box<T>> + Into<Box<T>> + InterfaceControllerEnum {
+    const VARIANT : Self;
+}
+
+pub trait InterfaceControllerEnum : PartialEq + std::fmt::Display {
     fn all_descriptions() -> Vec<&'static InterfaceDescription>;
 }
 
@@ -231,7 +288,7 @@ pub trait DatatypeEnum: Sized {
 
     fn from_name(name: &str) -> Option<Self>;
 
-    fn as_model(&self) -> &Model<Self::InterfaceControllerType>;
+    fn as_model<'a>(&self) -> &(Model<Self::InterfaceControllerType> + 'a);
 
     fn all_variants() -> Vec<Self> {
         Self::variant_names()
@@ -242,7 +299,7 @@ pub trait DatatypeEnum: Sized {
 }
 
 interface_controller_enum!(DefaultInterfaceController, (
-        (Partitioning, PartitioningController, &*interface::INTERFACE_PARTITIONING_DESC),
+        (Partitioning, partitioning::PartitioningState, &*interface::INTERFACE_PARTITIONING_DESC),
         (Producer, ProducerController, &*interface::INTERFACE_PRODUCER_DESC),
         (CustomProductionPolicy, CustomProductionPolicyController, &*interface::INTERFACE_CUSTOM_PRODUCTION_POLICY_DESC)
     ));
@@ -312,7 +369,7 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
 
     // TODO: Kludge around Model/Interface controller mess
     // TODO: Unable to implement as Index trait because of trait obj lifetime?
-    pub fn get_model(&self, name: &str) -> &Model<T::InterfaceControllerType> {
+    pub fn get_model<'a>(&self, name: &str) -> &(Model<T::InterfaceControllerType> + 'a) {
         self.models.get(name).expect("Datatype must be known").as_model()
     }
 
@@ -335,8 +392,11 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
 }
 
 
-#[cfg(test)]
-pub(crate) mod tests {
+/// Testing utilities.
+///
+/// This module is public so dependent libraries can reuse these utilities to
+/// test custom datatypes.
+pub mod testing {
     use super::*;
 
     pub fn init_default_dtypes_registry() -> DatatypesRegistry<DefaultDatatypes> {

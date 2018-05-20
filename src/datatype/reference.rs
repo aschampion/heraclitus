@@ -19,6 +19,7 @@ use ::datatype::{
     DependencyTypeRestriction,
     DependencyCardinalityRestriction,
     DependencyStoreRestriction,
+    InterfaceControllerEnum,
     Model,
     StoreMetaController,
 };
@@ -315,8 +316,8 @@ impl FromStr for VersionSpecifier {
 #[derive(Default)]
 pub struct Ref;
 
-impl<T> Model<T> for Ref {
-    fn info(&self) -> Description {
+impl<T: InterfaceControllerEnum> Model<T> for Ref {
+    fn info(&self) -> Description<T> {
         Description {
             name: "Ref".into(),
             version: 1,
@@ -347,7 +348,7 @@ impl<T> Model<T> for Ref {
     fn interface_controller(
         &self,
         _store: Store,
-        _name: &str,
+        _iface: T,
     ) -> Option<T> {
         None
     }
