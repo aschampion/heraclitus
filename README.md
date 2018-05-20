@@ -10,9 +10,9 @@
 >
 > &mdash; <cite>[Daniel W. Graham on Heraclitus, *SEP 2015*][1]</cite>
 
-Heraclitus is a framework for the specification, persistence, and production of dependent, versioned, derived data artifacts.
+Heraclitus is a framework for the specification, persistence, and production of dependent, versioned, derived data artifacts. This framework provides a differential dataflow computation graph engine focused on the persistence and versioning of data artifacts at each edge of the graph.
 
-Succinctly, imagine one has a data artifact `A` (such as a table or schema) and a data artifact `B` that is partially derived (such as denormalized) by production process `P` from data in `A`. If a new version of `A`, `A_2`, can be created that descends from the original version, `A_1`, there are several affordances in describing, accessing, and producing our data artifacts that would be useful:
+Succinctly, imagine one has a data *artifact* `A` (such as a table or schema) and a data artifact `B` that is partially derived (such as denormalized) by production process `P` from data in `A`. If a new *version* of `A`, `A_2`, can be created that descends from the original version, `A_1`, there are several affordances in describing, accessing, and producing our data artifacts that would be useful:
 
 - Describing the dependence structure between artifacts (`B` depends on `A`) as a directed acyclic graph (DAG).
 - Describing the version structure of individual artifacts (`A_2` descends from `A_1`) as a DAG.

@@ -12,6 +12,7 @@ Ignoring
 - AG/VG caching
 - Grouped update of multiple artifacts/versions
 - Partition/dtype coupling problem
+- Asynchronous anything
 
 
 Guidelines
