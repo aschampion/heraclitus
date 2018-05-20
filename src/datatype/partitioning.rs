@@ -12,7 +12,6 @@ use super::{
     Description,
     InterfaceController,
     Model,
-    StateInterface,
     Store,
     StoreMetaController,
 };
@@ -25,12 +24,12 @@ pub trait Partitioning {
     ) -> BTreeSet<PartitionIndex>;
 }
 
-state_interface!(Partitioning);
+state_interface!(PartitioningState, Partitioning);
 
 #[derive(Default)]
 pub struct UnaryPartitioning;
 
-impl<T: InterfaceController<StateInterface<Partitioning>>> Model<T> for UnaryPartitioning {
+impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
     fn info(&self) -> Description<T> {
         Description {
             name: "UnaryPartitioning".into(),
@@ -39,7 +38,7 @@ impl<T: InterfaceController<StateInterface<Partitioning>>> Model<T> for UnaryPar
                     .into_iter()
                     .collect(),
             implements: vec![
-                <T as InterfaceController<StateInterface<Partitioning>>>::VARIANT,
+                <T as InterfaceController<PartitioningState>>::VARIANT,
             ],
             dependencies: vec![],
         }
@@ -58,8 +57,8 @@ impl<T: InterfaceController<StateInterface<Partitioning>>> Model<T> for UnaryPar
         _store: Store,
         iface: T
     ) -> Option<T> {
-        if iface == <T as InterfaceController<StateInterface<Partitioning>>>::VARIANT {
-            let control: Box<StateInterface<Partitioning>> = Box::new(UnaryPartitioningController {});
+        if iface == <T as InterfaceController<PartitioningState>>::VARIANT {
+            let control: Box<PartitioningState> = Box::new(UnaryPartitioningController {});
             Some(T::from(control))
         } else {
             None
@@ -137,7 +136,7 @@ pub mod arbitrary {
     #[derive(Default)]
     pub struct ArbitraryPartitioning;
 
-    impl<T: InterfaceController<StateInterface<Partitioning>>> Model<T> for ArbitraryPartitioning {
+    impl<T: InterfaceController<PartitioningState>> Model<T> for ArbitraryPartitioning {
         fn info(&self) -> Description<T> {
             Description {
                 name: "ArbitraryPartitioning".into(),
@@ -146,7 +145,7 @@ pub mod arbitrary {
                         .into_iter()
                         .collect(),
                 implements: vec![
-                    <T as InterfaceController<StateInterface<Partitioning>>>::VARIANT,
+                    <T as InterfaceController<PartitioningState>>::VARIANT,
                 ],
                 dependencies: vec![],
             }
@@ -165,10 +164,10 @@ pub mod arbitrary {
             store: Store,
             iface: T,
         ) -> Option<T> {
-            if iface == <T as InterfaceController<StateInterface<Partitioning>>>::VARIANT {
+            if iface == <T as InterfaceController<PartitioningState>>::VARIANT {
                 match store {
                     Store::Postgres => {
-                        let control: Box<StateInterface<Partitioning>> = Box::new(PostgresStore {});
+                        let control: Box<PartitioningState> = Box::new(PostgresStore {});
                         Some(T::from(control))
                     }
                     _ => unimplemented!()

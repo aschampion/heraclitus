@@ -909,11 +909,9 @@ mod tests {
         Partition,
         PartCompletion,
     };
-    use ::datatype::{
-        StateInterface,
-    };
     use ::datatype::partitioning::{
         Partitioning,
+        PartitioningState,
         UNARY_PARTITION_INDEX,
     };
     use ::datatype::ModelController as DatatypeModelController;
@@ -1158,7 +1156,7 @@ mod tests {
             ver_part_idx,
             ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
             .expect("UP comp map").into_iter().last().expect("UP state hunk").1;
-        let ver_part_control: Box<::datatype::StateInterface<::datatype::partitioning::Partitioning>> =
+        let ver_part_control: Box<::datatype::partitioning::PartitioningState> =
                 context.dtypes_registry
                                       .get_model(&ver_partitioning.artifact.dtype.name)
                                       .get_controller(store)
@@ -1317,7 +1315,7 @@ mod tests {
                 ver_part_idx,
                 ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
                 .expect("Composition map failed").into_iter().last().expect("No maps").1;
-            let ver_part_control: Box<::datatype::StateInterface<::datatype::partitioning::Partitioning>> =
+            let ver_part_control: Box<::datatype::partitioning::PartitioningState> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
                                           .get_controller(store)
@@ -1415,7 +1413,7 @@ mod tests {
                 ver_part_idx,
                 ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
                 .unwrap().into_iter().last().unwrap().1;
-            let ver_part_control: Box<::datatype::StateInterface<::datatype::partitioning::Partitioning>> =
+            let ver_part_control: Box<::datatype::partitioning::PartitioningState> =
                     context.dtypes_registry
                                           .get_model(&ver_partitioning.artifact.dtype.name)
                                           .get_controller(store)

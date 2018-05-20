@@ -245,13 +245,15 @@ impl Hash for UnrepresentableType {
 }
 
 
-pub trait StateInterface<I: ?Sized> {
-    fn get_composite_interface(
-        &self,
-        repo_control: &mut ::repo::StoreRepoController,
-        composition: &Composition,
-    ) -> Result<Box<I>, Error>;
-}
+// Previous implementation of state interfaces before moving to macro-generated
+// traits. Left here for reference.
+// pub trait StateInterface<I: ?Sized> {
+//     fn get_composite_interface(
+//         &self,
+//         repo_control: &mut ::repo::StoreRepoController,
+//         composition: &Composition,
+//     ) -> Result<Box<I>, Error>;
+// }
 
 
 pub enum StoreMetaController {
@@ -297,7 +299,7 @@ pub trait DatatypeEnum: Sized {
 }
 
 interface_controller_enum!(DefaultInterfaceController, (
-        (Partitioning, StateInterface<partitioning::Partitioning>, &*interface::INTERFACE_PARTITIONING_DESC),
+        (Partitioning, partitioning::PartitioningState, &*interface::INTERFACE_PARTITIONING_DESC),
         (Producer, ProducerController, &*interface::INTERFACE_PRODUCER_DESC),
         (CustomProductionPolicy, CustomProductionPolicyController, &*interface::INTERFACE_CUSTOM_PRODUCTION_POLICY_DESC)
     ));
