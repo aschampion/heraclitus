@@ -1,5 +1,3 @@
-#![feature(conservative_impl_trait)]
-#![feature(entry_and_modify)]
 #![feature(never_type)]
 #![feature(vec_remove_item)]
 
