@@ -15,12 +15,12 @@ name = "hera"
 path = "src/bin.rs"
 
 [dependencies]
-daggy = "*"
+daggy = "0.6"
 enum-set = "*"
 failure = "0.1"
 lazy_static = "*"
 maplit = "*"
-petgraph = { version = "*", features = ["serde-1"] }
+petgraph = { version = "0.4.13", features = ["serde-1"] }
 postgres = { version = "0.15", features = ["with-uuid"] }
 postgres_array = "0.9"
 postgres-derive = "0.3"
