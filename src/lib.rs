@@ -306,7 +306,7 @@ impl<'a> ArtifactGraph<'a> {
             let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
             let artifact = {
                 let mut art = Artifact {
-                    id: id,
+                    id,
                     name: a_desc.name.clone(),
                     self_partitioning: a_desc.self_partitioning,
                     dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
@@ -351,7 +351,7 @@ impl<'a> ArtifactGraph<'a> {
                 uuid: Uuid::new_v4(),
                 hash: ag_hash.finish(),
             },
-            artifacts: artifacts,
+            artifacts,
         }, idx_map)
     }
 
@@ -656,9 +656,9 @@ impl<'a: 'b, 'b> Version<'a, 'b> {
     ) -> Self {
         Version {
             id: Identity {uuid: Uuid::new_v4(), hash: 0},
-            artifact: artifact,
+            artifact,
             status: VersionStatus::Staging,
-            representation: representation,
+            representation,
         }
     }
 }

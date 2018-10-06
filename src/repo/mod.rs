@@ -71,7 +71,7 @@ pub mod testing {
             // TODO: fake UUID, version
             id: ::Identity{uuid: Uuid::new_v4(), hash: 0},
             name: "Test repo".into(),
-            url: url,
+            url,
         };
         let mut repo_control = StoreRepoController::new(&repo);
         repo_control.init(&dtypes_registry).unwrap();
@@ -84,8 +84,8 @@ pub mod testing {
         let repo_control = init_repo(store, &dtypes_registry);
 
         Context {
-            dtypes_registry: dtypes_registry,
-            repo_control: repo_control,
+            dtypes_registry,
+            repo_control,
         }
     }
 

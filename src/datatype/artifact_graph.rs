@@ -994,7 +994,7 @@ mod tests {
             ArtifactRelation::ProducedFrom("output".into())).unwrap();
 
         let mut ag_desc = ArtifactGraphDescription {
-            artifacts: artifacts,
+            artifacts,
         };
 
         let part_idx = partitioning.map(|part_desc| ag_desc.add_uniform_partitioning(part_desc));

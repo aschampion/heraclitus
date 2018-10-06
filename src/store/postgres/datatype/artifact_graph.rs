@@ -418,7 +418,7 @@ impl ModelController for PostgresStore {
             };
             let dtype_name = &row.get::<_, String>(NodeRow::DatatypeName as usize);
             let node = Artifact {
-                id: id,
+                id,
                 name: row.get(NodeRow::ArtifactName as usize),
                 self_partitioning: row.get(NodeRow::SelfPartitioning as usize),
                 dtype: dtypes_registry.get_datatype(dtype_name)
@@ -462,7 +462,7 @@ impl ModelController for PostgresStore {
 
         Ok(ArtifactGraph {
             id: ag_id,
-            artifacts: artifacts,
+            artifacts,
         })
     }
 
@@ -661,10 +661,10 @@ impl ModelController for PostgresStore {
                         let dep_art_uuids: Vec<Uuid> =
                             art_graph.artifacts.parents(v_idx)
                             .iter(&art_graph.artifacts)
-                            .filter_map(|(_, dependency_idx)|
+                            .map(|(_, dependency_idx)|
                                 // TODO: Not using relation because not clear variants are
                                 // distinct after changing producers to datatypes.
-                                Some(art_graph[dependency_idx].id.uuid)
+                                art_graph[dependency_idx].id.uuid
                             )
                             .collect();
 
@@ -891,9 +891,9 @@ impl ModelController for PostgresStore {
                     uuid: row.get(HunkRow::UUID as usize),
                     hash: row.get::<_, i64>(HunkRow::Hash as usize) as HashType,
                 },
-                version: version,
+                version,
                 partition: Partition {
-                    partitioning: partitioning,
+                    partitioning,
                     index: row.get::<_, i64>(HunkRow::PartitionID as usize) as PartitionIndex,
                 },
                 representation: row.get(HunkRow::Representation as usize),

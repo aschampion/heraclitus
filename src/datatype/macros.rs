@@ -40,7 +40,7 @@ macro_rules! interface_controller_enum {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(f, "{}", match self {
                     $(
-                        &$enum_name::$i_name(_) => stringify!($i_name),
+                        $enum_name::$i_name(_) => stringify!($i_name),
                     )*
                 })
             }
