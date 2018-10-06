@@ -327,6 +327,10 @@ Types of solutions:
 - Have MC methods take state as argument.
   - MCs are already boxed trait objects, so can be sized as needed. No reason to reinvent the wheel and not contain the state in the MC itself, unless there's a compelling reason to pass state between MCs or call the same MC with multiple states?
 
+Caches/Shallow Clones
+---------------------
+Caching layers become necessary in several contexts. For example, the AG controller current assumes the entire AG is loaded in memory, although this may be impractical. Controllers and managers, like the arborescence manager, need to have sparse state copies of a version, while being able to request additional partitions. This could be implemented as just model controller requests, or a cache, or a memory-store shallow clone (since AGs are also datatypes).
+
 
 Solution Sketches
 =================
