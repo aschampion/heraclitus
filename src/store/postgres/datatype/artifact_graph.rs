@@ -789,50 +789,55 @@ impl ModelController for PostgresStore {
         Ok(ver_graph)
     }
 
-    fn create_hunk(
+    fn create_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H>(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
-        hunk: &Hunk,
-    ) -> Result<(), Error> {
+        hunks: &[H],
+    ) -> Result<(), Error>
+        where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>> {
         let rc: &mut PostgresRepoController = repo_control.borrow_mut();
-
-        if !hunk.is_valid() {
-            return Err(Error::Model("Hunk is invalid.".into()));
-        }
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
 
-        // TODO should check that version is not committed
-        let version_id_row = trans.query(r#"
-                INSERT INTO hunk (
-                    uuid_, hash,
-                    version_id, partition_id,
-                    representation, completion)
-                SELECT r.uuid_, r.hash, v.id, r.partition_id, r.representation, r.completion
-                FROM (VALUES (
-                        $1::uuid, $2::bigint,
-                        $3::uuid, $4::bigint, $5::bigint,
-                        $6::representation_kind, $7::part_completion))
-                  AS r (uuid_, hash, v_uuid, v_hash, partition_id, representation, completion)
-                JOIN version v
-                  ON (v.uuid_ = r.v_uuid AND v.hash = r.v_hash)
-                RETURNING version_id;
-            "#, &[&hunk.id.uuid, &(hunk.id.hash as i64),
-                  &hunk.version.id.uuid, &(hunk.version.id.hash as i64),
-                  &(hunk.partition.index as i64),
-                  &hunk.representation, &hunk.completion])?;
+        for hunk in hunks {
+            let hunk = hunk.borrow();
 
-        if let Some(ref ver_uuid) = hunk.precedence {
-            let version_id: i64 = version_id_row.get(0).get(0);
-            trans.execute(r#"
-                    INSERT INTO hunk_precedence
-                        (merge_version_id, partition_id, precedent_version_id)
-                    SELECT r.merge_version_id, r.partition_id, hpv.id
-                    FROM (VALUES ($1::bigint, $2::bigint, $3::uuid))
-                      AS r (merge_version_id, partition_id, precedent_version_uuid)
-                    JOIN version hpv ON (hpv.uuid_ = r.precedent_version_uuid);
-                "#, &[&version_id, &(hunk.partition.index as i64), ver_uuid])?;
+            if !hunk.is_valid() {
+                return Err(Error::Model("Hunk is invalid.".into()));
+            }
+
+            // TODO should check that version is not committed
+            let version_id_row = trans.query(r#"
+                    INSERT INTO hunk (
+                        uuid_, hash,
+                        version_id, partition_id,
+                        representation, completion)
+                    SELECT r.uuid_, r.hash, v.id, r.partition_id, r.representation, r.completion
+                    FROM (VALUES (
+                            $1::uuid, $2::bigint,
+                            $3::uuid, $4::bigint, $5::bigint,
+                            $6::representation_kind, $7::part_completion))
+                      AS r (uuid_, hash, v_uuid, v_hash, partition_id, representation, completion)
+                    JOIN version v
+                      ON (v.uuid_ = r.v_uuid AND v.hash = r.v_hash)
+                    RETURNING version_id;
+                "#, &[&hunk.id.uuid, &(hunk.id.hash as i64),
+                      &hunk.version.id.uuid, &(hunk.version.id.hash as i64),
+                      &(hunk.partition.index as i64),
+                      &hunk.representation, &hunk.completion])?;
+
+            if let Some(ref ver_uuid) = hunk.precedence {
+                let version_id: i64 = version_id_row.get(0).get(0);
+                trans.execute(r#"
+                        INSERT INTO hunk_precedence
+                            (merge_version_id, partition_id, precedent_version_id)
+                        SELECT r.merge_version_id, r.partition_id, hpv.id
+                        FROM (VALUES ($1::bigint, $2::bigint, $3::uuid))
+                          AS r (merge_version_id, partition_id, precedent_version_uuid)
+                        JOIN version hpv ON (hpv.uuid_ = r.precedent_version_uuid);
+                    "#, &[&version_id, &(hunk.partition.index as i64), ver_uuid])?;
+            }
         }
 
         trans.set_commit();

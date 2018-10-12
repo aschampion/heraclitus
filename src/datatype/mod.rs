@@ -187,7 +187,29 @@ pub trait ModelController {
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
         payload: &Payload<Self::StateType, Self::DeltaType>,
-    ) -> Result<(), Error>;
+    ) -> Result<(), Error> {
+
+        self.write_hunks(repo_control, &[hunk], &[payload])
+    }
+
+    fn write_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H, P>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunks: &[H],
+        payloads: &[P],
+    ) -> Result<(), Error>
+            where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>,
+                P: std::borrow::Borrow<Payload<Self::StateType, Self::DeltaType>> {
+
+        for (hunk, payload) in hunks.iter().zip(payloads) {
+            let hunk: &Hunk = hunk.borrow();
+            let payload = payload.borrow();
+
+            self.write_hunk(repo_control, hunk, payload)?;
+        }
+
+        Ok(())
+    }
 
     fn read_hunk(
         &self,

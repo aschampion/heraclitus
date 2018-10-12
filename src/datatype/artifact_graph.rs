@@ -724,7 +724,16 @@ pub trait ModelController {
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
-    ) -> Result<(), Error>;
+    ) -> Result<(), Error> {
+        self.create_hunks(repo_control, &[hunk])
+    }
+
+    fn create_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H>(
+        &mut self,
+        repo_control: &mut ::repo::StoreRepoController,
+        hunks: &[H],
+    ) -> Result<(), Error>
+        where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>;
 
     /// Get hunks directly associated with a version.
     ///
