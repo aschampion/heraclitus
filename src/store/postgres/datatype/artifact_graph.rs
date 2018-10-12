@@ -800,6 +800,31 @@ impl ModelController for PostgresStore {
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
 
+        let insert_hunk = trans.prepare(r#"
+                INSERT INTO hunk (
+                    uuid_, hash,
+                    version_id, partition_id,
+                    representation, completion)
+                SELECT r.uuid_, r.hash, v.id, r.partition_id, r.representation, r.completion
+                FROM (VALUES (
+                        $1::uuid, $2::bigint,
+                        $3::uuid, $4::bigint, $5::bigint,
+                        $6::representation_kind, $7::part_completion))
+                  AS r (uuid_, hash, v_uuid, v_hash, partition_id, representation, completion)
+                JOIN version v
+                  ON (v.uuid_ = r.v_uuid AND v.hash = r.v_hash)
+                RETURNING version_id;
+            "#)?;
+
+        let insert_precedence = trans.prepare(r#"
+                INSERT INTO hunk_precedence
+                    (merge_version_id, partition_id, precedent_version_id)
+                SELECT r.merge_version_id, r.partition_id, hpv.id
+                FROM (VALUES ($1::bigint, $2::bigint, $3::uuid))
+                  AS r (merge_version_id, partition_id, precedent_version_uuid)
+                JOIN version hpv ON (hpv.uuid_ = r.precedent_version_uuid);
+            "#)?;
+
         for hunk in hunks {
             let hunk = hunk.borrow();
 
@@ -808,35 +833,16 @@ impl ModelController for PostgresStore {
             }
 
             // TODO should check that version is not committed
-            let version_id_row = trans.query(r#"
-                    INSERT INTO hunk (
-                        uuid_, hash,
-                        version_id, partition_id,
-                        representation, completion)
-                    SELECT r.uuid_, r.hash, v.id, r.partition_id, r.representation, r.completion
-                    FROM (VALUES (
-                            $1::uuid, $2::bigint,
-                            $3::uuid, $4::bigint, $5::bigint,
-                            $6::representation_kind, $7::part_completion))
-                      AS r (uuid_, hash, v_uuid, v_hash, partition_id, representation, completion)
-                    JOIN version v
-                      ON (v.uuid_ = r.v_uuid AND v.hash = r.v_hash)
-                    RETURNING version_id;
-                "#, &[&hunk.id.uuid, &(hunk.id.hash as i64),
+            let version_id_row = insert_hunk.query(
+                    &[&hunk.id.uuid, &(hunk.id.hash as i64),
                       &hunk.version.id.uuid, &(hunk.version.id.hash as i64),
                       &(hunk.partition.index as i64),
                       &hunk.representation, &hunk.completion])?;
 
             if let Some(ref ver_uuid) = hunk.precedence {
                 let version_id: i64 = version_id_row.get(0).get(0);
-                trans.execute(r#"
-                        INSERT INTO hunk_precedence
-                            (merge_version_id, partition_id, precedent_version_id)
-                        SELECT r.merge_version_id, r.partition_id, hpv.id
-                        FROM (VALUES ($1::bigint, $2::bigint, $3::uuid))
-                          AS r (merge_version_id, partition_id, precedent_version_uuid)
-                        JOIN version hpv ON (hpv.uuid_ = r.precedent_version_uuid);
-                    "#, &[&version_id, &(hunk.partition.index as i64), ver_uuid])?;
+                insert_precedence.execute(
+                    &[&version_id, &(hunk.partition.index as i64), ver_uuid])?;
             }
         }
 
