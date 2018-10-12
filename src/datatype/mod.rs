@@ -299,10 +299,12 @@ pub trait InterfaceController<T: ?Sized> : From<Box<T>> + Into<Box<T>> + Interfa
     const VARIANT : Self;
 }
 
+/// Trait for coproduct type of all an application's `InterfaceController` types.
 pub trait InterfaceControllerEnum : PartialEq + std::fmt::Display {
     fn all_descriptions() -> Vec<&'static InterfaceDescription>;
 }
 
+/// Trait for coproduct type of all an application's datatype `Model` types.
 pub trait DatatypeEnum: Sized {
     type InterfaceControllerType: InterfaceControllerEnum;
 
