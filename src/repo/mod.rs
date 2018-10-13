@@ -51,7 +51,6 @@ pub mod testing {
     use super::*;
 
     use url::Url;
-    use uuid::Uuid;
 
     use ::{Context};
 
@@ -68,9 +67,6 @@ pub mod testing {
         };
 
         let repo = ::Repository {
-            // TODO: fake UUID, version
-            id: ::Identity{uuid: Uuid::new_v4(), hash: 0},
-            name: "Test repo".into(),
             url,
         };
         let mut repo_control = StoreRepoController::new(&repo);

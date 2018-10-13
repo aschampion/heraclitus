@@ -4,7 +4,6 @@ use ::{
     RepresentationKind,
     Error,
     PartitionIndex,
-    Version,
     VersionGraph,
     VersionGraphIndex,
 };
@@ -112,15 +111,15 @@ impl super::ModelController for UnaryPartitioningController {
         &mut self,
         _repo_control: &mut ::repo::StoreRepoController,
         _hunk: &::Hunk,
-        payload: &super::Payload<Self::StateType, Self::DeltaType>,
+        _payload: &super::Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
         unimplemented!()
     }
 
     fn compose_state(
         &self,
-        state: &mut Self::StateType,
-        delta: &Self::DeltaType,
+        _state: &mut Self::StateType,
+        _delta: &Self::DeltaType,
     ) {
         unimplemented!()
     }

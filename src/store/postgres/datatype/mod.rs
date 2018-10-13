@@ -16,6 +16,7 @@ pub trait PostgresMetaController: MetaController + ::store::postgres::PostgresMi
 
 impl Into<Box<PostgresMetaController>> for StoreMetaController {
     fn into(self) -> Box<PostgresMetaController> {
+        #[allow(unreachable_patterns)] // Other store types may exist.
         match self {
             StoreMetaController::Postgres(smc) => smc,
             _ => panic!("Wrong store type."),

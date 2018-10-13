@@ -197,8 +197,6 @@ pub struct DatatypeRelation {
 }
 
 struct Repository {
-    id: Identity,  // TODO: no clear reason that repos need an identity. Except: cross-store deps.
-    name: String,
     url: Url,
 }
 

@@ -926,7 +926,6 @@ mod tests {
     use ::datatype::ModelController as DatatypeModelController;
     use ::datatype::partitioning::arbitrary::{
         ArbitraryPartitioningState,
-        ModelController as ArbitraryPartitioningModelController,
     };
     use ::datatype::producer::tests::NegateBlobProducer;
 

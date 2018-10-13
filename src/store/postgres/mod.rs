@@ -38,6 +38,7 @@ pub mod datatype;
 
 impl Borrow<PostgresRepoController> for StoreRepoController {
     fn borrow(&self) -> &PostgresRepoController {
+        #[allow(unreachable_patterns)] // Other store types may exist.
         match *self {
             StoreRepoController::Postgres(ref rc) => rc,
             _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
@@ -47,6 +48,7 @@ impl Borrow<PostgresRepoController> for StoreRepoController {
 
 impl BorrowMut<PostgresRepoController> for StoreRepoController {
     fn borrow_mut(&mut self) -> &mut PostgresRepoController {
+        #[allow(unreachable_patterns)] // Other store types may exist.
         match *self {
             StoreRepoController::Postgres(ref mut rc) => rc,
             _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
