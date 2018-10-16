@@ -192,6 +192,8 @@ pub trait ModelController {
         self.write_hunks(repo_control, &[hunk], &[payload])
     }
 
+    /// Write multiple hunks to this model. All hunks should be from the same
+    /// version.
     fn write_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H, P>(
         &mut self,
         repo_control: &mut ::repo::StoreRepoController,
