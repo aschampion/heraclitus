@@ -161,6 +161,9 @@ Milestone Goals
     - Yield precedence maps
     - Don't have to resolve all conflicts, to allow layering and manual resolution
     - Need some way to persist for staging/conflict versions?
+      - Conflict should be partition-specific flag/marker object? (b.c. conflict on committed ver would be meaningless)
+        - Conflicts could also have some un/resolved status, such that resolved conflicts could indicate which strategy/intervention was applied to resolve.
+      - Commit checks that no partitions have conflicts
     - [ ] Non-dtype specific: last-hunk-mtime-wins. But does require knowledge of partition dependence relationships.
       - [ ] Need to add ctime, mtime to versions
     - [ ] Dtypes must be able to declare custom resolution strategies. May also want policies for strategy selection per-artifact, but not immediately necessary.
@@ -193,7 +196,11 @@ Milestone Goals
   - Seems inefficient for updates, requiring creation of many hunks for each action as simple as, e.g., skeleton merging. May need to make a decision re: squashing head versions or streaming changes. Could be ameliorated at the hunk vs. changeset layer?
 - [ ] Goal: rocket list of dtypes/ags (hera-server)
 - [ ] Goal: plotly plot of dtypes/ags (hera-server)
-  - 3 stratified plot areas: dtypes, AG, VG
+  - ~~3 stratified plot areas: dtypes, AG, VG~~
+  - For now, 2 plot areas: AG, VG
+    - VG shows
+      - Lightcone of dependence versions (both upstream and downstream)
+      - Lightcont of ancestry versions (both upstream and downstream)
 
 
 Design Questions
@@ -202,6 +209,7 @@ Design Questions
 General
 -------
 - Can versions depend on staging versions?
+  - Only if also a staging version. Commits should be groups of staging versions for which all dependency edges are either internal or to committed versions.
 - Can dependencies change after a version is created (i.e., if it is still staging)? (~~Related to above question~~ ~~not related to above because this only constrains dependencies, not dependents~~)
   - Would greatly simplify if the case. Only hunks/content/hash of a staging version could change.
 - [x] Datatypes Registry should not be a DAG. This is cruft from early testing of daggy. E.g., even the testing negating blob producer datatype both inputs and outputs blobs. Only AGs/VGs must be DAGs.
