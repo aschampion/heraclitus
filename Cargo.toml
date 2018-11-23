@@ -14,7 +14,13 @@ path = "src/lib.rs"
 name = "hera"
 path = "src/bin.rs"
 
+[workspace]
+members = [
+	"crates/heraclitus-macros",
+]
+
 [dependencies]
+heraclitus-macros = { path = "crates/heraclitus-macros" }
 daggy = "0.6"
 enum-set = "*"
 failure = "0.1"

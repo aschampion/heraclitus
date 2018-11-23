@@ -1,3 +1,5 @@
+use heraclitus_macros::stored_controller;
+
 use ::Error;
 use ::datatype::{
     DatatypeEnum,
@@ -7,7 +9,6 @@ use ::store::Store;
 use ::store::postgres::PostgresRepoController;
 
 
-// pub type StoreRepoController = Stored<Box<RepoController>>;
 pub enum StoreRepoController {
     Postgres(PostgresRepoController),
 }
@@ -28,16 +29,7 @@ impl StoreRepoController {
     }
 }
 
-impl RepoController for StoreRepoController {
-    fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
-        use self::StoreRepoController::*;
-
-        match *self {
-            Postgres(ref mut rc) => rc.init(dtypes_registry)
-        }
-    }
-}
-
+#[stored_controller]
 pub trait RepoController {
     fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error>;
 }

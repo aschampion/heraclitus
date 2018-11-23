@@ -4,6 +4,7 @@
 extern crate daggy;
 extern crate enum_set;
 extern crate failure;
+extern crate heraclitus_macros;
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
