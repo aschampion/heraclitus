@@ -1,4 +1,5 @@
 use std::borrow::{Borrow, BorrowMut};
+use std::cell::RefCell;
 use std::convert::From;
 use std::fmt::Debug;
 use std::option::Option;
@@ -36,25 +37,25 @@ use self::datatype::PostgresMetaController;
 pub mod datatype;
 
 
-impl Borrow<PostgresRepoController> for StoreRepoController {
-    fn borrow(&self) -> &PostgresRepoController {
-        #[allow(unreachable_patterns)] // Other store types may exist.
-        match *self {
-            StoreRepoController::Postgres(ref rc) => rc,
-            _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
-        }
-    }
-}
+// impl Borrow<PostgresRepoController> for StoreRepoController {
+//     fn borrow(&self) -> &PostgresRepoController {
+//         #[allow(unreachable_patterns)] // Other store types may exist.
+//         match *self {
+//             StoreRepoController::Postgres(ref rc) => rc,
+//             _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
+//         }
+//     }
+// }
 
-impl BorrowMut<PostgresRepoController> for StoreRepoController {
-    fn borrow_mut(&mut self) -> &mut PostgresRepoController {
-        #[allow(unreachable_patterns)] // Other store types may exist.
-        match *self {
-            StoreRepoController::Postgres(ref mut rc) => rc,
-            _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
-        }
-    }
-}
+// impl BorrowMut<PostgresRepoController> for StoreRepoController {
+//     fn borrow_mut(&mut self) -> &mut PostgresRepoController {
+//         #[allow(unreachable_patterns)] // Other store types may exist.
+//         match *self {
+//             StoreRepoController::Postgres(ref mut rc) => rc,
+//             _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
+//         }
+//     }
+// }
 
 
 impl From<PostgresError> for Error {
@@ -78,30 +79,34 @@ pub trait PostgresMigratable {
     }
 }
 
+// impl<'a, D> PostgresMigratable for ::store::StoreRepoBackend<'a, PostgresRepoController, D>
+// where D: ::datatype::DatatypeMarker {
+
+// }
+
 pub struct PostgresRepoController {
     url: Url,
-    connection: Option<postgres::Connection>,
+    connection: RefCell<Option<postgres::Connection>>,
 }
 
 impl PostgresRepoController {
     pub(crate) fn new(repo: &Repository) -> PostgresRepoController {
         PostgresRepoController {
             url: repo.url.clone(),
-            connection: None,
+            connection: RefCell::new(None),
         }
     }
 
     // TODO: should have methods for getting RW or R-only transactions
-    pub fn conn(&mut self) -> Result<&mut postgres::Connection, Error> {
-        match self.connection {
-            Some(ref mut c) => Ok(c),
-            None => {
-                self.connection = Some(
+    pub fn conn(&self) -> Result<&postgres::Connection, Error> {
+        if let Some(ref c) = *self.connection.borrow() {
+            Ok(c)
+        } else {
+            self.connection.replace(Some(
                         postgres::Connection::connect(
                             self.url.as_str(),
-                            postgres::TlsMode::None)?);
-                self.conn()
-            }
+                            postgres::TlsMode::None)?));
+            self.conn()
         }
     }
 }
@@ -137,8 +142,7 @@ impl RepoController for PostgresRepoController {
             .flat_map(|dtype| {
                 let model = dtypes_registry.get_model(&dtype.name);
                 let smc: Box<PostgresMetaController> = model
-                    .meta_controller(::store::Store::Postgres)
-                    .expect("Model does not have a Postgres controller.")
+                    .meta_controller(&self.stored())
                     .into();
                 smc.migrations()
             })
@@ -154,5 +158,13 @@ impl RepoController for PostgresRepoController {
         }
 
         Ok(trans.commit()?)
+    }
+
+    fn backend(&self) -> ::store::Backend {
+        ::store::Backend::Postgres
+    }
+
+    fn stored(&self) -> StoreRepoController {
+        StoreRepoController::Postgres(self)
     }
 }

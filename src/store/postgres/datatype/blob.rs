@@ -14,11 +14,13 @@ use ::datatype::{
     MetaController,
     Payload,
 };
-use ::datatype::blob::ModelController;
+use ::datatype::blob::{
+    BlobDatatype,
+    ModelController,
+};
+use ::store::StoreRepoBackend;
 use ::store::postgres::{PostgresMigratable, PostgresRepoController};
 
-
-pub struct PostgresStore {}
 
 struct PGMigrationBlobs;
 migration!(
@@ -38,13 +40,13 @@ impl PostgresMigration for PGMigrationBlobs {
 }
 
 
-impl MetaController for PostgresStore {
+impl<'smc> MetaController for StoreRepoBackend<'smc, PostgresRepoController, BlobDatatype> {
     // fn register_with_repo(&self, repo_controller: &mut PostgresRepoController) {
     //     repo_controller.register_postgres_migratable(Box::new(*self));
     // }
 }
 
-impl PostgresMigratable for PostgresStore {
+impl<'smc> PostgresMigratable for StoreRepoBackend<'smc, PostgresRepoController, BlobDatatype> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
             Box::new(PGMigrationBlobs),
@@ -52,18 +54,17 @@ impl PostgresMigratable for PostgresStore {
     }
 }
 
-impl super::PostgresMetaController for PostgresStore {}
+impl<'smc> super::PostgresMetaController for StoreRepoBackend<'smc, PostgresRepoController, BlobDatatype> {}
 
-impl ::datatype::ModelController for PostgresStore {
+impl<'smc> ::datatype::ModelController for StoreRepoBackend<'smc, PostgresRepoController, BlobDatatype> {
     blob_common_model_controller_impl!();
 
     fn write_hunk(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
         payload: &Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -108,10 +109,9 @@ impl ::datatype::ModelController for PostgresStore {
 
     fn read_hunk(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
     ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -147,4 +147,4 @@ impl ::datatype::ModelController for PostgresStore {
     }
 }
 
-impl ModelController for PostgresStore {}
+impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, BlobDatatype> {}

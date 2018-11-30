@@ -5,9 +5,11 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
 use enum_set::EnumSet;
+use heraclitus_macros::stored_controller;
 
 use ::{Artifact, Composition, Datatype, Error, Hunk};
-use ::store::Store;
+use ::repo::RepoController;
+use ::store::Backend;
 use ::store::postgres::datatype::PostgresMetaController;
 use self::interface::{
     ProducerController,
@@ -25,6 +27,11 @@ pub mod partitioning;
 pub mod producer;
 pub mod reference;
 pub mod tracking_branch_producer;
+
+
+pub trait DatatypeMarker: 'static {}
+
+pub trait Implements<I: ?Sized + interface::InterfaceMeta> {}
 
 pub struct Description<T: InterfaceControllerEnum> {
     pub name: String,
@@ -88,7 +95,7 @@ impl DependencyCardinalityRestriction {
 pub enum DependencyStoreRestriction {
     Any,
     Same,
-    Stores(EnumSet<Store>),
+    Stores(EnumSet<Backend>),
 }
 
 pub struct DependencyDescription {
@@ -123,12 +130,13 @@ pub struct InterfaceDescription {
 
 /// Common interface to all datatypes that does not involve their state or
 /// types associated with their state.
+#[stored_controller(<'a> StoreMetaController<'a>)]
+
 pub trait MetaController {
     /// This allows the model controller to initialize any structures necessary
     /// for a new version (without involving state for that version).
     fn init_artifact(
         &mut self,
-        _repo_control: &mut ::repo::StoreRepoController,
         _artifact: &Artifact,
     ) -> Result<(), Error> {
         Ok(())
@@ -142,23 +150,23 @@ pub trait Model<T: InterfaceControllerEnum> {
 
     fn info(&self) -> Description<T>;
 
-    fn meta_controller(&self, Store) -> Option<StoreMetaController>;
+    fn meta_controller<'a: 'b, 'b>(&self, repo_control: &::repo::StoreRepoController<'a>) -> StoreMetaController<'b>;
 
     /// If this datatype acts as a partitioning controller, construct one.
-    fn interface_controller(&self, store: Store, iface: T) -> Option<T>;
+    fn interface_controller(&self, iface: T) -> Option<T>;
 }
 
-pub trait GetInterfaceController<T: ?Sized> {
-    fn get_controller(&self, store: Store) -> Option<Box<T>>;
+pub trait GetInterfaceController<T: ?Sized + interface::InterfaceMeta> {
+    fn get_controller(&self) -> Option<T::Generator>;
 }
 
 impl<'a, T, IC> GetInterfaceController<T> for Model<IC> + 'a
         where
-            T: ?Sized,
+            T: ?Sized + interface::InterfaceMeta,
             IC: InterfaceController<T> {
-    fn get_controller(&self, store: Store) -> Option<Box<T>> {
-        self.interface_controller(store, IC::VARIANT)
-            .map(|ic| ic.into())
+    fn get_controller(&self) -> Option<T::Generator> {
+        self.interface_controller(IC::VARIANT)
+            .and_then(|ic| ic.into_controller_generator())
     }
 }
 
@@ -184,19 +192,17 @@ pub trait ModelController {
 
     fn write_hunk(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
         payload: &Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
 
-        self.write_hunks(repo_control, &[hunk], &[payload])
+        self.write_hunks(&[hunk], &[payload])
     }
 
     /// Write multiple hunks to this model. All hunks should be from the same
     /// version.
     fn write_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H, P>(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
         hunks: &[H],
         payloads: &[P],
     ) -> Result<(), Error>
@@ -207,7 +213,7 @@ pub trait ModelController {
             let hunk: &Hunk = hunk.borrow();
             let payload = payload.borrow();
 
-            self.write_hunk(repo_control, hunk, payload)?;
+            self.write_hunk(hunk, payload)?;
         }
 
         Ok(())
@@ -215,7 +221,6 @@ pub trait ModelController {
 
     fn read_hunk(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
         hunk: &Hunk,
     ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error>;
 
@@ -224,18 +229,17 @@ pub trait ModelController {
     /// Datatypes' store types may choose to implement this more efficiently.
     fn get_composite_state(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
         composition: &Composition,
     ) -> Result<Self::StateType, Error> {
             let mut hunk_iter = composition.iter().rev();
 
-            let mut state = match self.read_hunk(repo_control, hunk_iter.next().expect("TODO"))? {
+            let mut state = match self.read_hunk(hunk_iter.next().expect("TODO"))? {
                 Payload::State(mut state) => state,
                 _ => panic!("Composition rooted in non-state hunk"),
             };
 
             for hunk in hunk_iter {
-                match self.read_hunk(repo_control, hunk)? {
+                match self.read_hunk(hunk)? {
                     Payload::State(_) => panic!("TODO: shouldn't have non-root state"),
                     Payload::Delta(ref delta) => {
                         self.compose_state(&mut state, delta);
@@ -268,6 +272,80 @@ impl Hash for UnrepresentableType {
     }
 }
 
+use store::Store;
+use store::StoreRepoBackend;
+impl<'store, State, Delta, D> ModelController for Store<'store, D>
+    where
+        State: Debug + Hash + PartialEq,
+        Delta: Debug + Hash + PartialEq,
+        D: DatatypeMarker,
+        StoreRepoBackend<'store, ::store::postgres::PostgresRepoController, D>:
+            ModelController<StateType=State, DeltaType=Delta>,
+        // ::store::postgres::PostgresRepoController: ModelController<StateType=State, DeltaType=Delta>,
+{
+    type StateType = State;
+    type DeltaType = Delta;
+
+    fn hash_payload(
+        &self,
+        payload: &Payload<Self::StateType, Self::DeltaType>,
+    ) -> ::HashType {
+        match self {
+            Store::Postgres(c) => c.hash_payload(payload),
+        }
+    }
+
+    fn write_hunk(
+        &mut self,
+        hunk: &Hunk,
+        payload: &Payload<Self::StateType, Self::DeltaType>,
+    ) -> Result<(), Error> {
+        match self {
+            Store::Postgres(c) => c.write_hunk(hunk, payload),
+        }
+    }
+
+    fn write_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H, P>(
+        &mut self,
+        hunks: &[H],
+        payloads: &[P],
+    ) -> Result<(), Error>
+            where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>,
+                P: std::borrow::Borrow<Payload<Self::StateType, Self::DeltaType>> {
+        match self {
+            Store::Postgres(c) => c.write_hunks(hunks, payloads),
+        }
+    }
+
+    fn read_hunk(
+        &self,
+        hunk: &Hunk,
+    ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error> {
+        match self {
+            Store::Postgres(c) => c.read_hunk(hunk),
+        }
+
+    }
+
+    fn get_composite_state(
+        &self,
+        composition: &Composition,
+    ) -> Result<Self::StateType, Error> {
+        match self {
+            Store::Postgres(c) => c.get_composite_state(composition),
+        }
+    }
+
+    fn compose_state(
+        &self,
+        state: &mut Self::StateType,
+        delta: &Self::DeltaType,
+    ) {
+        match self {
+            Store::Postgres(c) => c.compose_state(state, delta),
+        };
+    }
+}
 
 // Previous implementation of state interfaces before moving to macro-generated
 // traits. Left here for reference.
@@ -280,25 +358,39 @@ impl Hash for UnrepresentableType {
 // }
 
 
-pub enum StoreMetaController {
-    Postgres(Box<PostgresMetaController>),
+pub enum StoreMetaController<'a> {
+    Postgres(Box<dyn PostgresMetaController + 'a>),
 }
 
-// TODO: ugly kludge, but getting deref/borrow to work for variants is fraught.
-impl MetaController for StoreMetaController {
-    fn init_artifact(
-        &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
-        artifact: &Artifact,
-    ) -> Result<(), Error> {
-        match *self {
-            StoreMetaController::Postgres(ref mut pmc) => pmc.init_artifact(repo_control, artifact),
+impl<'a> StoreMetaController<'a> {
+    pub fn new<D: ::datatype::DatatypeMarker>(repo_control: &::repo::StoreRepoController<'a>) -> StoreMetaController<'a>
+            where ::store::StoreRepoBackend<'a, ::store::postgres::PostgresRepoController, D>: PostgresMetaController {
+        match repo_control {
+            ::repo::StoreRepoController::Postgres(prc) => StoreMetaController::Postgres(Box::new(
+                ::store::StoreRepoBackend::<::store::postgres::PostgresRepoController, D>::new(prc))),
         }
     }
 }
 
-pub trait InterfaceController<T: ?Sized> : From<Box<T>> + Into<Box<T>> + InterfaceControllerEnum {
+// TODO: ugly kludge, but getting deref/borrow to work for variants is fraught.
+// impl MetaController for StoreMetaController {
+//     fn init_artifact(
+//         &mut self,
+//         artifact: &Artifact,
+//     ) -> Result<(), Error> {
+//         match *self {
+//             StoreMetaController::Postgres(ref mut pmc) => pmc.init_artifact(artifact),
+//         }
+//     }
+// }
+
+pub trait InterfaceController<T: ?Sized + interface::InterfaceMeta> :
+        From<T::Generator> +
+        // Into<T::Generator> +
+        InterfaceControllerEnum {
     const VARIANT : Self;
+
+    fn into_controller_generator(self) -> Option<T::Generator>;
 }
 
 /// Trait for coproduct type of all an application's `InterfaceController` types.
@@ -335,7 +427,7 @@ datatype_enum!(DefaultDatatypes, DefaultInterfaceController, (
         (Ref, reference::Ref),
         (UnaryPartitioning, partitioning::UnaryPartitioning),
         (ArbitraryPartitioning, partitioning::arbitrary::ArbitraryPartitioning),
-        (Blob, blob::Blob),
+        (Blob, blob::BlobDatatype),
         (NoopProducer, producer::NoopProducer),
         (TrackingBranchProducer, tracking_branch_producer::TrackingBranchProducer),
     ));
@@ -397,6 +489,13 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
     // TODO: Unable to implement as Index trait because of trait obj lifetime?
     pub fn get_model<'a>(&self, name: &str) -> &(Model<T::InterfaceControllerType> + 'a) {
         self.models.get(name).expect("Datatype must be known").as_model()
+    }
+
+    pub fn get_model_interface<I: ?Sized + interface::InterfaceMeta>(&self, name: &str)
+            -> Option<<I as interface::InterfaceMeta>::Generator>
+            where T::InterfaceControllerType: InterfaceController<I> {
+
+        self.get_model(name).get_controller()
     }
 
     /// Iterate over datatypes.

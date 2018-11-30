@@ -1,6 +1,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use enum_set::EnumSet;
+use heraclitus_macros::{interface, stored_controller};
 
 use ::{
     ArtifactGraph,
@@ -42,6 +43,13 @@ lazy_static! {
 }
 
 
+pub trait InterfaceMeta {
+    type Generator;
+}
+
+
+use ::repo::StoreRepoController;
+#[interface]
 pub trait PartitioningController {
     fn get_partition_ids(
         &self,
@@ -107,6 +115,12 @@ pub enum ProductionOutput {
 }
 
 
+#[interface]
+#[stored_controller(<'repo, D: ::datatype::DatatypeMarker> ::store::Store<'repo, D>
+        where ::store::StoreRepoBackend<'repo, ::store::postgres::PostgresRepoController, D>: ProducerController)]
+// #[stored_controller(<'repo, D: ::datatype::DatatypeMarker> ::store::Store<'repo, D>
+//         where D: super::Implements<ProducerController>)]
+// where D: Model<T>, T: InterfaceController<ProducerController>
 pub trait ProducerController {
     fn production_strategies(&self) -> ProductionStrategies;
 
@@ -114,7 +128,7 @@ pub trait ProducerController {
 
     fn notify_new_version<'a, 'b>(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -122,10 +136,13 @@ pub trait ProducerController {
 }
 
 
+#[interface]
+#[stored_controller(<'repo, D: ::datatype::DatatypeMarker> ::store::Store<'repo, D>
+        where ::store::StoreRepoBackend<'repo, ::store::postgres::PostgresRepoController, D>: CustomProductionPolicyController)]
 pub trait CustomProductionPolicyController {
     fn get_custom_production_policy(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         art_graph: &ArtifactGraph,
         prod_a_idx: ArtifactGraphIndex,
     ) -> Result<Box<ProductionPolicy>, Error>;

@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -22,16 +21,16 @@ use ::datatype::reference::{
     ArtifactSpecifier,
     BranchRevisionTip,
     ModelController,
+    Ref,
     RevisionPath,
     UuidSpecifier,
     VersionSpecifier,
 };
+use ::store::StoreRepoBackend;
 use ::store::postgres::{PostgresMigratable, PostgresRepoController};
 
 use super::PostgresMetaController;
 
-
-pub struct PostgresStore {}
 
 struct PGMigrationRefs;
 migration!(
@@ -52,9 +51,9 @@ impl PostgresMigration for PGMigrationRefs {
     }
 }
 
-impl MetaController for PostgresStore {}
+impl<'repo> MetaController for StoreRepoBackend<'repo, PostgresRepoController, Ref> {}
 
-impl PostgresMigratable for PostgresStore {
+impl<'repo> PostgresMigratable for StoreRepoBackend<'repo, PostgresRepoController, Ref> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
             Box::new(PGMigrationRefs),
@@ -62,15 +61,15 @@ impl PostgresMigratable for PostgresStore {
     }
 }
 
-impl PostgresMetaController for PostgresStore {}
+impl<'repo> PostgresMetaController for StoreRepoBackend<'repo, PostgresRepoController, Ref> {}
 
-impl ModelController for PostgresStore {
+impl<'repo> ModelController for StoreRepoBackend<'repo, PostgresRepoController, Ref> {
     fn get_branch_revision_tips(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         artifact: &Artifact,
     ) -> Result<HashMap<BranchRevisionTip, Identity>, Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -108,11 +107,11 @@ impl ModelController for PostgresStore {
 
     fn set_branch_revision_tips(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         artifact: &Artifact,
         tip_versions: &HashMap<BranchRevisionTip, Identity>,
     ) -> Result<(), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -154,11 +153,11 @@ impl ModelController for PostgresStore {
 
     fn write_message(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         version: &Version,
         message: &Option<String>,
     ) -> Result<(), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         match *message {
             Some(ref t) => {
@@ -183,10 +182,10 @@ impl ModelController for PostgresStore {
 
     fn read_message(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         version: &Version,
     ) -> Result<Option<String>, Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -202,11 +201,11 @@ impl ModelController for PostgresStore {
 
     fn create_branch(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         ref_version: &Version,
         name: &str,
     ) -> Result<(), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -234,10 +233,10 @@ impl ModelController for PostgresStore {
 
     fn get_version_id(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         specifier: &VersionSpecifier,
     ) -> Result<Identity, Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;

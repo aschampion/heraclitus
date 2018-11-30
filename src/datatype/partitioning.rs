@@ -8,13 +8,15 @@ use ::{
     VersionGraphIndex,
 };
 use super::{
+    Backend,
+    DatatypeMarker,
     Description,
     InterfaceController,
     Model,
-    Store,
     StoreMetaController,
 };
 use ::datatype::interface::PartitioningController;
+use ::repo::StoreRepoController;
 
 
 pub trait Partitioning {
@@ -27,6 +29,8 @@ state_interface!(PartitioningState, Partitioning);
 
 #[derive(Default)]
 pub struct UnaryPartitioning;
+
+impl DatatypeMarker for UnaryPartitioning {}
 
 impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
     fn info(&self) -> Description<T> {
@@ -43,35 +47,15 @@ impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
         }
     }
 
-    fn meta_controller(&self, store: Store) -> Option<StoreMetaController> {
-        match store {
-            Store::Postgres => Some(StoreMetaController::Postgres(
-                Box::new(UnaryPartitioningController {}))),
-            _ => None,
-        }
-    }
-
-    fn interface_controller(
-        &self,
-        _store: Store,
-        iface: T
-    ) -> Option<T> {
-        if iface == <T as InterfaceController<PartitioningState>>::VARIANT {
-            let control: Box<PartitioningState> = Box::new(UnaryPartitioningController {});
-            Some(T::from(control))
-        } else {
-            None
-        }
-    }
+    datatype_controllers!(UnaryPartitioning, (PartitioningState));
 }
 
 
 /// Index of the unary partition. Unary partitioning is special, common
 /// enough case that this is public for convenience.
 pub const UNARY_PARTITION_INDEX: PartitionIndex = 0;
-pub struct UnaryPartitioningController;
 
-impl PartitioningController for UnaryPartitioningController {
+impl<'repo, RC: ::repo::RepoController> PartitioningController for ::store::StoreRepoBackend<'repo, RC, UnaryPartitioning> {
     fn get_partition_ids(
         &self,
         _repo_control: &mut ::repo::StoreRepoController,
@@ -93,15 +77,14 @@ impl Partitioning for UnaryPartitioningState {
     }
 }
 
-impl super::MetaController for UnaryPartitioningController {}
+impl<'repo, RC: ::repo::RepoController> super::MetaController for ::store::StoreRepoBackend<'repo, RC, UnaryPartitioning> {}
 
-impl super::ModelController for UnaryPartitioningController {
+impl<'repo, RC: ::repo::RepoController> super::ModelController for ::store::StoreRepoBackend<'repo, RC, UnaryPartitioning> {
     type StateType = UnaryPartitioningState;
     type DeltaType = super::UnrepresentableType;
 
     fn read_hunk(
         &self,
-        _repo_control: &mut ::repo::StoreRepoController,
         _hunk: &::Hunk,
     ) -> Result<super::Payload<Self::StateType, Self::DeltaType>, Error> {
         Ok(super::Payload::State(UnaryPartitioningState))
@@ -109,7 +92,6 @@ impl super::ModelController for UnaryPartitioningController {
 
     fn write_hunk(
         &mut self,
-        _repo_control: &mut ::repo::StoreRepoController,
         _hunk: &::Hunk,
         _payload: &super::Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
@@ -129,11 +111,11 @@ impl super::ModelController for UnaryPartitioningController {
 pub mod arbitrary {
     use super::*;
 
-    use ::store::postgres::datatype::partitioning::arbitrary::PostgresStore;
-
 
     #[derive(Default)]
     pub struct ArbitraryPartitioning;
+
+    impl DatatypeMarker for ArbitraryPartitioning {}
 
     impl<T: InterfaceController<PartitioningState>> Model<T> for ArbitraryPartitioning {
         fn info(&self) -> Description<T> {
@@ -150,38 +132,7 @@ pub mod arbitrary {
             }
         }
 
-        fn meta_controller(&self, store: Store) -> Option<super::StoreMetaController> {
-            match store {
-                Store::Postgres => Some(StoreMetaController::Postgres(
-                    Box::new(PostgresStore {}))),
-                _ => None,
-            }
-        }
-
-        fn interface_controller(
-            &self,
-            store: Store,
-            iface: T,
-        ) -> Option<T> {
-            if iface == <T as InterfaceController<PartitioningState>>::VARIANT {
-                match store {
-                    Store::Postgres => {
-                        let control: Box<PartitioningState> = Box::new(PostgresStore {});
-                        Some(T::from(control))
-                    }
-                    _ => unimplemented!()
-                }
-            } else {
-                None
-            }
-        }
-    }
-
-    pub fn model_controller(store: Store) -> impl ModelController {
-        match store {
-            Store::Postgres => PostgresStore {},
-            _ => unimplemented!(),
-        }
+        datatype_controllers!(ArbitraryPartitioning, (PartitioningState));
     }
 
     #[derive(Debug, Hash, PartialEq)]

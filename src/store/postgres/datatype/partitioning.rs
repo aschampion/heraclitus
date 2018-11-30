@@ -11,16 +11,19 @@ use ::datatype::{
     MetaController,
 };
 use ::datatype::partitioning::{
-    UnaryPartitioningController,
+    UnaryPartitioning,
 };
+use ::store::StoreRepoBackend;
 use ::store::postgres::{PostgresMigratable, PostgresRepoController};
 
 use super::PostgresMetaController;
 
 
-impl PostgresMigratable for UnaryPartitioningController {}
+impl<'smc> MetaController for StoreRepoBackend<'smc, PostgresRepoController, UnaryPartitioning> {}
 
-impl super::PostgresMetaController for UnaryPartitioningController {}
+impl<'smc> PostgresMigratable for StoreRepoBackend<'smc, PostgresRepoController, UnaryPartitioning> {}
+
+impl<'smc> super::PostgresMetaController for StoreRepoBackend<'smc, PostgresRepoController, UnaryPartitioning> {}
 
 
 pub mod arbitrary {
@@ -36,12 +39,11 @@ pub mod arbitrary {
         Payload,
     };
     use ::datatype::partitioning::arbitrary::{
+        ArbitraryPartitioning,
         ArbitraryPartitioningState,
         ModelController,
     };
 
-
-    pub struct PostgresStore;
 
     struct PGMigrationArbitraryPartitioning;
     migration!(
@@ -60,9 +62,10 @@ pub mod arbitrary {
         }
     }
 
-    impl MetaController for PostgresStore {}
 
-    impl PostgresMigratable for PostgresStore {
+    impl<'smc> MetaController for StoreRepoBackend<'smc, PostgresRepoController, ArbitraryPartitioning> {}
+
+    impl<'smc> PostgresMigratable for StoreRepoBackend<'smc, PostgresRepoController, ArbitraryPartitioning> {
         fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
             vec![
                 Box::new(PGMigrationArbitraryPartitioning),
@@ -70,19 +73,18 @@ pub mod arbitrary {
         }
     }
 
-    impl PostgresMetaController for PostgresStore {}
+    impl<'smc> PostgresMetaController for StoreRepoBackend<'smc, PostgresRepoController, ArbitraryPartitioning> {}
 
-    impl ::datatype::ModelController for PostgresStore {
+    impl<'smc> ::datatype::ModelController for StoreRepoBackend<'smc, PostgresRepoController, ArbitraryPartitioning> {
         type StateType = ArbitraryPartitioningState;
         type DeltaType = ::datatype::UnrepresentableType;
 
         fn write_hunk(
             &mut self,
-            repo_control: &mut ::repo::StoreRepoController,
             hunk: &Hunk,
             payload: &Payload<Self::StateType, Self::DeltaType>,
         ) -> Result<(), Error> {
-            let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+            let rc = self.repo_control;
 
             let conn = rc.conn()?;
             let trans = conn.transaction()?;
@@ -115,10 +117,9 @@ pub mod arbitrary {
 
         fn read_hunk(
             &self,
-            repo_control: &mut ::repo::StoreRepoController,
             hunk: &Hunk,
         ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error> {
-            let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+            let rc = self.repo_control;
 
             let conn = rc.conn()?;
             let trans = conn.transaction()?;
@@ -146,5 +147,5 @@ pub mod arbitrary {
         }
     }
 
-    impl ModelController for PostgresStore {}
+    impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, ArbitraryPartitioning> {}
 }

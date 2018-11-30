@@ -18,6 +18,7 @@ use ::{
     VersionRelation,
 };
 use ::datatype::{
+    DatatypeMarker,
     DependencyDescription,
     DependencyCardinalityRestriction,
     DependencyStoreRestriction,
@@ -26,7 +27,6 @@ use ::datatype::{
     InterfaceController,
     MetaController,
     Model,
-    Store,
     StoreMetaController,
 };
 use ::datatype::artifact_graph::{
@@ -45,11 +45,18 @@ use ::datatype::interface::{
     ProductionRepresentationCapability,
     ProductionStrategies,
 };
-use ::datatype::reference::ModelController as ReferenceModelController;
+use ::datatype::reference::{
+    ModelController as ReferenceModelController,
+    Ref,
+};
+use ::repo::RepoController;
+use ::repo::StoreRepoController;
 
 
 #[derive(Default)]
 pub struct TrackingBranchProducer;
+
+impl DatatypeMarker for TrackingBranchProducer {}
 
 impl<T> Model<T> for TrackingBranchProducer
         where T: InterfaceController<ProducerController> +
@@ -76,35 +83,10 @@ impl<T> Model<T> for TrackingBranchProducer
         }
     }
 
-    fn meta_controller(&self, store: Store) -> Option<StoreMetaController> {
-        match store {
-            Store::Postgres => Some(StoreMetaController::Postgres(
-                Box::new(TrackingBranchProducerController {}))),
-            _ => None,
-        }
-    }
-
-    fn interface_controller(
-        &self,
-        _store: Store,
-        iface: T,
-    ) -> Option<T> {
-        if iface == <T as InterfaceController<ProducerController>>::VARIANT {
-            let control: Box<ProducerController> = Box::new(TrackingBranchProducerController {});
-            Some(T::from(control))
-        } else if iface == <T as InterfaceController<CustomProductionPolicyController>>::VARIANT {
-            let control: Box<CustomProductionPolicyController> =
-                Box::new(TrackingBranchProducerController {});
-            Some(T::from(control))
-        } else {
-            None
-        }
-    }
+    datatype_controllers!(TrackingBranchProducer, (ProducerController, CustomProductionPolicyController));
 }
 
-pub struct TrackingBranchProducerController;
-
-impl MetaController for TrackingBranchProducerController {}
+impl<'repo, RC: ::repo::RepoController> MetaController for ::store::StoreRepoBackend<'repo, RC, TrackingBranchProducer> {}
 
 
 struct TrackingBranchProductionPolicy {
@@ -154,10 +136,10 @@ impl ProductionPolicy for TrackingBranchProductionPolicy {
 }
 
 
-impl CustomProductionPolicyController for TrackingBranchProducerController {
+impl<'repo, RC: ::repo::RepoController> CustomProductionPolicyController for ::store::StoreRepoBackend<'repo, RC, TrackingBranchProducer> {
     fn get_custom_production_policy(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         art_graph: &ArtifactGraph,
         prod_a_idx: ArtifactGraphIndex,
     ) -> Result<Box<ProductionPolicy>, Error> {
@@ -169,7 +151,7 @@ impl CustomProductionPolicyController for TrackingBranchProducerController {
         let ref_art = &art_graph[ref_art_idx];
 
         // Get ref model controller.
-        let ref_control = ::datatype::reference::model_controller(repo_control.store());
+        let ref_control = ::store::Store::<Ref>::new(repo_control);
 
         // Get branch heads from model controller.
         let tips = ref_control.get_branch_revision_tips(repo_control, ref_art)?.values().cloned().collect();
@@ -177,7 +159,7 @@ impl CustomProductionPolicyController for TrackingBranchProducerController {
     }
 }
 
-impl ProducerController for TrackingBranchProducerController {
+impl<'repo, RC: ::repo::RepoController> ProducerController for ::store::StoreRepoBackend<'repo, RC, TrackingBranchProducer> {
     fn production_strategies(&self) -> ProductionStrategies {
         let mut rep = EnumSet::new();
         rep.insert(RepresentationKind::State);
@@ -204,7 +186,7 @@ impl ProducerController for TrackingBranchProducerController {
 
     fn notify_new_version<'a, 'b>(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -265,16 +247,15 @@ impl ProducerController for TrackingBranchProducerController {
                 VersionRelation::Dependence(tracked_ref_rel))?;
         }
 
-        let mut ag_control = ::datatype::artifact_graph::model_controller(repo_control.store());
+        let mut ag_control = ::store::Store::<::datatype::artifact_graph::ArtifactGraphDtype>::new(&repo_control.stored());
         ag_control.create_staging_version(
-            repo_control,
             ver_graph,
             ref_ver_idx).unwrap();
 
         // TODO: ref hash
 
         // Get ref model controller.
-        let mut ref_control = ::datatype::reference::model_controller(repo_control.store());
+        let mut ref_control = ::store::Store::<Ref>::new(repo_control);
 
         // Get branch heads from model controller.
         let old_tips = ref_control.get_branch_revision_tips(repo_control, ref_art)?;

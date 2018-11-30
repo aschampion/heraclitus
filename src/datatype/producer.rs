@@ -8,6 +8,7 @@ use ::{
     VersionGraphIndex,
 };
 use ::datatype::{
+    DatatypeMarker,
     Description,
     DependencyDescription,
     DependencyTypeRestriction,
@@ -24,11 +25,20 @@ use ::datatype::interface::{
     ProductionRepresentationCapability,
     ProductionStrategies,
 };
-use ::store::Store;
+use ::repo::{
+    RepoController as _,
+    StoreRepoController,
+};
+use ::store::{
+    Store,
+    StoreRepoBackend,
+};
 
 
 #[derive(Default)]
 pub struct NoopProducer;
+
+impl DatatypeMarker for NoopProducer {}
 
 impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
     fn info(&self) -> Description<T> {
@@ -52,33 +62,12 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
         }
     }
 
-    fn meta_controller(&self, store: Store) -> Option<StoreMetaController> {
-        match store {
-            Store::Postgres => Some(StoreMetaController::Postgres(
-                Box::new(NoopProducerController {}))),
-            _ => None,
-        }
-    }
-
-    fn interface_controller(
-        &self,
-        _store: Store,
-        iface: T,
-    ) -> Option<T> {
-        if iface == <T as InterfaceController<ProducerController>>::VARIANT {
-            let control: Box<ProducerController> = Box::new(NoopProducerController {});
-            Some(T::from(control))
-        } else {
-            None
-        }
-    }
+    datatype_controllers!(NoopProducer, (ProducerController));
 }
 
-pub struct NoopProducerController;
+impl<'repo, RC: ::repo::RepoController> MetaController for StoreRepoBackend<'repo, RC, NoopProducer> {}
 
-impl MetaController for NoopProducerController {}
-
-impl ProducerController for NoopProducerController {
+impl<'repo, RC: ::repo::RepoController> ProducerController for StoreRepoBackend<'repo, RC, NoopProducer> {
     fn production_strategies(&self) -> ProductionStrategies {
     // fn representation_capabilities(&self) -> Vec<ProductionRepresentationCapability> {
         hashmap!{
@@ -95,7 +84,7 @@ impl ProducerController for NoopProducerController {
 
     fn notify_new_version<'a, 'b>(
         &self,
-        _repo_control: &mut ::repo::StoreRepoController,
+        _repo_control: &::repo::StoreRepoController,
         _art_graph: &'b ArtifactGraph<'a>,
         _ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -127,6 +116,8 @@ pub(crate) mod tests {
     #[derive(Default)]
     pub struct NegateBlobProducer;
 
+    impl DatatypeMarker for NegateBlobProducer {}
+
     impl<T: InterfaceController<ProducerController>> Model<T> for NegateBlobProducer {
         fn info(&self) -> Description<T> {
             Description {
@@ -149,33 +140,12 @@ pub(crate) mod tests {
             }
         }
 
-        fn meta_controller(&self, store: Store) -> Option<StoreMetaController> {
-            match store {
-                Store::Postgres => Some(StoreMetaController::Postgres(
-                    Box::new(NegateBlobProducerController {}))),
-                _ => None,
-            }
-        }
-
-        fn interface_controller(
-            &self,
-            _store: Store,
-            iface: T,
-        ) -> Option<T> {
-            if iface == <T as InterfaceController<ProducerController>>::VARIANT {
-                let control: Box<ProducerController> = Box::new(NegateBlobProducerController {});
-                Some(T::from(control))
-            } else {
-                None
-            }
-        }
+        datatype_controllers!(NegateBlobProducer, (ProducerController));
     }
 
-    pub struct NegateBlobProducerController;
+    impl<'repo, RC: ::repo::RepoController> MetaController for StoreRepoBackend<'repo, RC, NegateBlobProducer> {}
 
-    impl MetaController for NegateBlobProducerController {}
-
-    impl ProducerController for NegateBlobProducerController {
+    impl<'repo, RC: ::repo::RepoController> ProducerController for StoreRepoBackend<'repo, RC, NegateBlobProducer> {
         fn production_strategies(&self) -> ProductionStrategies {
             let mut rep = EnumSet::new();
             rep.insert(RepresentationKind::State);
@@ -202,7 +172,7 @@ pub(crate) mod tests {
 
         fn notify_new_version<'a, 'b>(
             &self,
-            repo_control: &mut ::repo::StoreRepoController,
+            repo_control: &::repo::StoreRepoController,
             art_graph: &'b ArtifactGraph<'a>,
             ver_graph: &mut VersionGraph<'a, 'b>,
             v_idx: VersionGraphIndex,
@@ -269,14 +239,12 @@ pub(crate) mod tests {
                     VersionRelation::Parent)?;
             }
 
-            let mut ag_control = ::datatype::artifact_graph::model_controller(repo_control.store());
+            let mut ag_control = Store::<::datatype::artifact_graph::ArtifactGraphDtype>::new(&repo_control.stored());
 
             let production_specs = ag_control.get_production_specs(
-                repo_control,
                 &ver_graph[v_idx])?;
 
             ag_control.create_staging_version(
-                repo_control,
                 ver_graph,
                 ver_blob_idx.clone()).unwrap();
 
@@ -286,15 +254,14 @@ pub(crate) mod tests {
             // with the input version.
             {
                 let input_hunks = ag_control.get_hunks(
-                    repo_control,
                     &ver_graph[input_ver],
                     &ver_graph[input_ver_part_idx],
                     None).expect("TODO");
 
                 // Create output hunks computed from input hunks.
-                let mut blob_control = ::datatype::blob::model_controller(repo_control.store());
+                let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo_control.stored());
                 for input_hunk in &input_hunks {
-                    let input_blob = blob_control.read_hunk(repo_control, input_hunk).expect("TODO");
+                    let input_blob = blob_control.read_hunk(input_hunk).expect("TODO");
                     let output_blob = match input_blob {
                         Payload::State(ref blob) =>
                             Payload::State(blob.iter().cloned().map(|b| !b).collect::<Vec<u8>>()),
@@ -317,11 +284,8 @@ pub(crate) mod tests {
                     };
                     output_hunk.id.hash.hash(&mut ver_hash);
 
-                    ag_control.create_hunk(
-                        repo_control,
-                        &output_hunk).expect("TODO");
+                    ag_control.create_hunk(&output_hunk).expect("TODO");
                     blob_control.write_hunk(
-                        repo_control,
                         &output_hunk,
                         &output_blob).expect("TODO");
                 }

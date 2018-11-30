@@ -4,6 +4,7 @@ use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
+use heraclitus_macros::stored_controller;
 use uuid::Uuid;
 
 use ::{
@@ -14,6 +15,7 @@ use ::{
     Version,
 };
 use ::datatype::{
+    DatatypeMarker,
     Description,
     DependencyDescription,
     DependencyTypeRestriction,
@@ -23,8 +25,7 @@ use ::datatype::{
     Model,
     StoreMetaController,
 };
-use ::store::Store;
-use ::store::postgres::datatype::reference::PostgresStore;
+use ::repo::StoreRepoController;
 
 
 // TODO: Will scrap all of this string spec format for something more git-like.
@@ -316,6 +317,8 @@ impl FromStr for VersionSpecifier {
 #[derive(Default)]
 pub struct Ref;
 
+impl DatatypeMarker for Ref {}
+
 impl<T: InterfaceControllerEnum> Model<T> for Ref {
     fn info(&self) -> Description<T> {
         Description {
@@ -338,69 +341,48 @@ impl<T: InterfaceControllerEnum> Model<T> for Ref {
         }
     }
 
-    fn meta_controller(&self, store: Store) -> Option<StoreMetaController> {
-        match store {
-            Store::Postgres => Some(StoreMetaController::Postgres(Box::new(PostgresStore {}))),
-            _ => None,
-        }
-    }
-
-    fn interface_controller(
-        &self,
-        _store: Store,
-        _iface: T,
-    ) -> Option<T> {
-        None
-    }
-}
-
-pub fn model_controller(store: Store) -> impl ModelController {
-    match store {
-        Store::Postgres => PostgresStore {},
-        _ => unimplemented!(),
-    }
+    datatype_controllers!(Ref, ());
 }
 
 
+#[stored_controller(<'store> ::store::Store<'store, Ref>)]
 pub trait ModelController {
     fn get_branch_revision_tips(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         artifact: &Artifact,
     ) -> Result<HashMap<BranchRevisionTip, Identity>, Error>;
 
     fn set_branch_revision_tips(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         artifact: &Artifact,
         tip_versions: &HashMap<BranchRevisionTip, Identity>,
     ) -> Result<(), Error>;
 
     fn write_message(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         version: &Version,
         message: &Option<String>,
     ) -> Result<(), Error>;
 
     fn read_message(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         version: &Version,
     ) -> Result<Option<String>, Error>;
 
     fn create_branch(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         ref_version: &Version,
         name: &str,
     ) -> Result<(), Error>;
 
     fn get_version_id(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo_control: &::repo::StoreRepoController,
         specifier: &VersionSpecifier,
     ) -> Result<Identity, Error>;
 }
-
-

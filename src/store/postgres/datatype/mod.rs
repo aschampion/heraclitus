@@ -14,8 +14,8 @@ pub mod tracking_branch_producer;
 
 pub trait PostgresMetaController: MetaController + ::store::postgres::PostgresMigratable {}
 
-impl Into<Box<PostgresMetaController>> for StoreMetaController {
-    fn into(self) -> Box<PostgresMetaController> {
+impl<'a> Into<Box<PostgresMetaController + 'a>> for StoreMetaController<'a> {
+    fn into(self) -> Box<PostgresMetaController + 'a> {
         #[allow(unreachable_patterns)] // Other store types may exist.
         match self {
             StoreMetaController::Postgres(smc) => smc,

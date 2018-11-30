@@ -5,10 +5,10 @@
 
 #[macro_export]
 macro_rules! interface_controller_enum {
-    ( $enum_name:ident, ( $( ( $i_name:ident, $i_control:ty, $i_desc:expr ) ),*  $(,)* ) ) => {
+    ( $enum_name:ident, ( $( ( $i_name:ident, $i_control:path, $i_desc:expr ) ),*  $(,)* ) ) => {
         pub enum $enum_name {
             $(
-                $i_name(Option<Box<$i_control>>),
+                $i_name(Option<<$i_control as $crate::datatype::interface::InterfaceMeta>::Generator>),
             )*
         }
 
@@ -57,22 +57,29 @@ macro_rules! interface_controller_enum {
         $(
             impl $crate::datatype::InterfaceController<$i_control> for $enum_name {
                 const VARIANT: $enum_name = $enum_name::$i_name(None);
-            }
 
-            impl std::convert::From<Box<$i_control>> for $enum_name {
-                fn from(inner: Box<$i_control>) -> $enum_name {
-                    $enum_name::$i_name(Some(inner))
-                }
-            }
-
-            impl std::convert::From<$enum_name> for Box<$i_control> {
-                fn from(iface_control: $enum_name) -> Box<$i_control> {
-                    match iface_control {
-                        $enum_name::$i_name(Some(inner)) => inner,
+                fn into_controller_generator(self) -> Option<<$i_control as $crate::datatype::interface::InterfaceMeta>::Generator> {
+                    match self {
+                        $enum_name::$i_name(g) => g,
                         _ => panic!("Attempt to unwrap interface controller into wrong type!"),
                     }
                 }
             }
+
+            impl std::convert::From<<$i_control as $crate::datatype::interface::InterfaceMeta>::Generator> for $enum_name {
+                fn from(inner: <$i_control as $crate::datatype::interface::InterfaceMeta>::Generator) -> $enum_name {
+                    $enum_name::$i_name(Some(inner))
+                }
+            }
+
+            // impl std::convert::From<$enum_name> for <$i_control as $crate::datatype::interface::InterfaceMeta>::Generator {
+            //     fn from(iface_control: $enum_name) -> <$i_control as $crate::datatype::interface::InterfaceMeta>::Generator {
+            //         match iface_control {
+            //             $enum_name::$i_name(Some(inner)) => inner,
+            //             _ => panic!("Attempt to unwrap interface controller into wrong type!"),
+            //         }
+            //     }
+            // }
         )*
     };
 }
@@ -116,12 +123,48 @@ macro_rules! datatype_enum {
 }
 
 #[macro_export]
+macro_rules! datatype_controllers {
+    ( $dtype:ident, ( $( $i_control:ident ),* $(,)* ) ) => {
+        fn meta_controller<'a: 'b, 'b>(
+            &self,
+            repo_control: &StoreRepoController<'b>,
+        ) -> StoreMetaController<'b> {
+            StoreMetaController::new::<$dtype>(repo_control)
+        }
+
+        fn interface_controller(
+            &self,
+            iface: T,
+        ) -> Option<T> {
+
+            $(
+                if iface == <T as InterfaceController<$i_control>>::VARIANT {
+                    let closure: <$i_control as $crate::datatype::interface::InterfaceMeta>::Generator =
+                        Box::new(|repo_control| {
+                            let store = $crate::store::Store::<$dtype>::new(repo_control);
+                            let control: Box<$i_control> = Box::new(store);
+                            control
+                        });
+                    return Some(T::from(closure));
+                }
+            )*
+
+            {&iface;} // Suppress unused warnings in datatypes without interfaces.
+
+            None
+        }
+    }
+}
+
+#[macro_export]
 macro_rules! state_interface {
     ( $trait_name:ident, $iface:path ) => {
+        use $crate::datatype::interface::InterfaceMeta;
+
+        #[heraclitus_macros::interface]
         pub trait $trait_name {
             fn get_composite_interface(
                 &self,
-                repo_control: &mut $crate::repo::StoreRepoController,
                 composition: &$crate::Composition,
             ) -> Result<Box<$iface>, $crate::Error>;
         }
@@ -132,10 +175,9 @@ macro_rules! state_interface {
                     MC: $crate::datatype::ModelController<StateType = S> {
             fn get_composite_interface(
                 &self,
-                repo_control: &mut $crate::repo::StoreRepoController,
                 composition: &$crate::Composition,
             ) -> Result<Box<$iface>, $crate::Error> {
-                Ok(Box::new(self.get_composite_state(repo_control, composition)?))
+                Ok(Box::new(self.get_composite_state(composition)?))
             }
         }
     };

@@ -1,4 +1,8 @@
 #![feature(never_type)]
+// #![feature(nll)]
+#![feature(specialization)]
+#![feature(trivial_bounds)]
+#![feature(underscore_imports)]
 #![feature(vec_remove_item)]
 
 extern crate daggy;
@@ -43,6 +47,8 @@ use uuid::Uuid;
 
 use datatype::{DatatypeEnum, DatatypesRegistry};
 use datatype::artifact_graph::{ArtifactGraphDescription};
+
+mod heraclitus { pub use super::*; }
 
 
 #[macro_use]
@@ -201,10 +207,11 @@ struct Repository {
     url: Url,
 }
 
-pub struct Context<T: DatatypeEnum> {
-    pub dtypes_registry: datatype::DatatypesRegistry<T>,
-    pub repo_control: repo::StoreRepoController,
-}
+pub struct Context;
+// pub struct Context<T: DatatypeEnum> {
+//     pub dtypes_registry: datatype::DatatypesRegistry<T>,
+//     pub repo_control: repo::StoreRepoController,
+// }
 
 pub trait IdentifiableGraph {
     type N: Identifiable;

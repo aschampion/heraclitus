@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
 
@@ -38,6 +37,7 @@ use ::datatype::{
     InterfaceController,
 };
 use ::datatype::artifact_graph::{
+    ArtifactGraphDtype,
     ModelController,
     PolicyDependencyRequirements,
     PolicyProducerRequirements,
@@ -49,15 +49,14 @@ use ::datatype::interface::{
     CustomProductionPolicyController,
     ProducerController,
 };
+use ::store::StoreRepoBackend;
 use ::store::postgres::{
     PostgresMigratable,
     PostgresRepoController,
 };
 
 
-pub(crate) struct PostgresStore {}
-
-impl PostgresStore {
+impl<'smc> StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {
     /// Load version rows from a query result into a version graph.
     fn load_version_rows<'a, 'b>(
         &self,
@@ -282,13 +281,13 @@ impl PostgresMigration for PGMigrationArtifactGraphs {
 }
 
 
-impl super::MetaController for PostgresStore {
+impl<'smc> super::MetaController for StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {
     // fn register_with_repo(&self, repo_controller: &mut PostgresRepoController) {
     //     repo_controller.register_postgres_migratable(Box::new(*self));
     // }
 }
 
-impl PostgresMigratable for PostgresStore {
+impl<'smc> PostgresMigratable for StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
             Box::new(PGMigrationArtifactGraphs),
@@ -296,18 +295,17 @@ impl PostgresMigratable for PostgresStore {
     }
 }
 
-impl super::PostgresMetaController for PostgresStore {}
+impl<'smc> super::PostgresMetaController for StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {}
 
-impl ModelController for PostgresStore {
+impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {
     fn list_graphs(&self) -> Vec<Identity> {
         unimplemented!()
     }
 
     fn write_artifact_graph(
             &mut self,
-            repo_control: &mut ::repo::StoreRepoController,
             art_graph: &ArtifactGraph) -> Result<(), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -365,10 +363,9 @@ impl ModelController for PostgresStore {
 
     fn get_artifact_graph<'a, T: DatatypeEnum>(
             &self,
-            repo_control: &mut ::repo::StoreRepoController,
             dtypes_registry: &'a DatatypesRegistry<T>,
             id: &Identity) -> Result<ArtifactGraph<'a>, Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -468,11 +465,10 @@ impl ModelController for PostgresStore {
 
     fn create_staging_version(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
         ver_graph: &VersionGraph,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -526,7 +522,6 @@ impl ModelController for PostgresStore {
     fn commit_version<'a, 'b, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
-        repo_control: &mut ::repo::StoreRepoController,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -536,7 +531,7 @@ impl ModelController for PostgresStore {
                     InterfaceController<ProducerController> +
                     InterfaceController<CustomProductionPolicyController> {
         {
-            let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+            let rc = self.repo_control;
 
             let conn = rc.conn()?;
             let trans = conn.transaction()?;
@@ -556,7 +551,6 @@ impl ModelController for PostgresStore {
 
         self.cascade_notify_producers(
             dtypes_registry,
-            repo_control,
             art_graph,
             ver_graph,
             v_idx)?;
@@ -566,14 +560,13 @@ impl ModelController for PostgresStore {
 
     fn fulfill_policy_requirements<'a, 'b>(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
     ) -> Result<(), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -705,11 +698,10 @@ impl ModelController for PostgresStore {
 
     fn get_version<'a, 'b>(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
         art_graph: &'b ArtifactGraph<'a>,
         id: &Identity,
     ) -> Result<(VersionGraphIndex, VersionGraph<'a, 'b>), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -748,10 +740,9 @@ impl ModelController for PostgresStore {
 
     fn get_version_graph<'a, 'b>(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
         art_graph: &'b ArtifactGraph<'a>,
     ) -> Result<VersionGraph<'a, 'b>, Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -791,11 +782,10 @@ impl ModelController for PostgresStore {
 
     fn create_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H>(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
         hunks: &[H],
     ) -> Result<(), Error>
         where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -852,12 +842,11 @@ impl ModelController for PostgresStore {
 
     fn get_hunks<'a, 'b, 'c, 'd>(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
         version: &'d Version<'a, 'b>,
         partitioning: &'c Version<'a, 'b>,
         partitions: Option<&BTreeSet<PartitionIndex>>,
     ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -918,11 +907,10 @@ impl ModelController for PostgresStore {
 
     fn write_production_policies<'a>(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
         artifact: &Artifact<'a>,
         policies: EnumSet<ProductionPolicies>,
     ) -> Result<(), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -945,10 +933,9 @@ impl ModelController for PostgresStore {
 
     fn get_production_policies<'a>(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
         artifact: &Artifact<'a>,
     ) -> Result<Option<EnumSet<ProductionPolicies>>, Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -967,11 +954,10 @@ impl ModelController for PostgresStore {
 
     fn write_production_specs<'a, 'b>(
         &mut self,
-        repo_control: &mut ::repo::StoreRepoController,
         version: &Version<'a, 'b>,
         specs: ProductionStrategySpecs,
     ) -> Result<(), Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -993,10 +979,9 @@ impl ModelController for PostgresStore {
 
     fn get_production_specs<'a, 'b>(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
         version: &Version<'a, 'b>,
     ) -> Result<ProductionStrategySpecs, Error> {
-        let rc: &mut PostgresRepoController = repo_control.borrow_mut();
+        let rc = self.repo_control;
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
