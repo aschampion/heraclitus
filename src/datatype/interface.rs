@@ -48,12 +48,12 @@ pub trait InterfaceMeta {
 }
 
 
-use ::repo::StoreRepoController;
+use ::repo::Repository;
 #[interface]
 pub trait PartitioningController {
     fn get_partition_ids(
         &self,
-        repo_control: &mut ::repo::StoreRepoController,
+        repo: &mut ::repo::Repository,
         ver_graph: &VersionGraph,
         v_idx: VersionGraphIndex,
     ) -> BTreeSet<PartitionIndex>;
@@ -116,9 +116,9 @@ pub enum ProductionOutput {
 
 
 #[interface]
-#[stored_controller(<'repo, D: ::datatype::DatatypeMarker> ::store::Store<'repo, D>
-        where ::store::StoreRepoBackend<'repo, ::store::postgres::PostgresRepoController, D>: ProducerController)]
-// #[stored_controller(<'repo, D: ::datatype::DatatypeMarker> ::store::Store<'repo, D>
+#[stored_controller(< D: ::datatype::DatatypeMarker> ::store::Store< D>
+        where ::store::StoreRepoBackend< ::store::postgres::PostgresRepository, D>: ProducerController)]
+// #[stored_controller(< D: ::datatype::DatatypeMarker> ::store::Store< D>
 //         where D: super::Implements<ProducerController>)]
 // where D: Model<T>, T: InterfaceController<ProducerController>
 pub trait ProducerController {
@@ -128,7 +128,7 @@ pub trait ProducerController {
 
     fn notify_new_version<'a, 'b>(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -137,12 +137,12 @@ pub trait ProducerController {
 
 
 #[interface]
-#[stored_controller(<'repo, D: ::datatype::DatatypeMarker> ::store::Store<'repo, D>
-        where ::store::StoreRepoBackend<'repo, ::store::postgres::PostgresRepoController, D>: CustomProductionPolicyController)]
+#[stored_controller(< D: ::datatype::DatatypeMarker> ::store::Store< D>
+        where ::store::StoreRepoBackend< ::store::postgres::PostgresRepository, D>: CustomProductionPolicyController)]
 pub trait CustomProductionPolicyController {
     fn get_custom_production_policy(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         art_graph: &ArtifactGraph,
         prod_a_idx: ArtifactGraphIndex,
     ) -> Result<Box<ProductionPolicy>, Error>;

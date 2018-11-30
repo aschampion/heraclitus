@@ -50,7 +50,7 @@ use ::datatype::reference::{
     Ref,
 };
 use ::repo::RepoController;
-use ::repo::StoreRepoController;
+use ::repo::Repository;
 
 
 #[derive(Default)]
@@ -86,7 +86,7 @@ impl<T> Model<T> for TrackingBranchProducer
     datatype_controllers!(TrackingBranchProducer, (ProducerController, CustomProductionPolicyController));
 }
 
-impl<'repo, RC: ::repo::RepoController> MetaController for ::store::StoreRepoBackend<'repo, RC, TrackingBranchProducer> {}
+impl< RC: ::repo::RepoController> MetaController for ::store::StoreRepoBackend< RC, TrackingBranchProducer> {}
 
 
 struct TrackingBranchProductionPolicy {
@@ -136,10 +136,10 @@ impl ProductionPolicy for TrackingBranchProductionPolicy {
 }
 
 
-impl<'repo, RC: ::repo::RepoController> CustomProductionPolicyController for ::store::StoreRepoBackend<'repo, RC, TrackingBranchProducer> {
+impl< RC: ::repo::RepoController> CustomProductionPolicyController for ::store::StoreRepoBackend< RC, TrackingBranchProducer> {
     fn get_custom_production_policy(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         art_graph: &ArtifactGraph,
         prod_a_idx: ArtifactGraphIndex,
     ) -> Result<Box<ProductionPolicy>, Error> {
@@ -151,15 +151,15 @@ impl<'repo, RC: ::repo::RepoController> CustomProductionPolicyController for ::s
         let ref_art = &art_graph[ref_art_idx];
 
         // Get ref model controller.
-        let ref_control = ::store::Store::<Ref>::new(repo_control);
+        let ref_control = ::store::Store::<Ref>::new(repo);
 
         // Get branch heads from model controller.
-        let tips = ref_control.get_branch_revision_tips(repo_control, ref_art)?.values().cloned().collect();
+        let tips = ref_control.get_branch_revision_tips(repo, ref_art)?.values().cloned().collect();
         Ok(Box::new(TrackingBranchProductionPolicy {tips}))
     }
 }
 
-impl<'repo, RC: ::repo::RepoController> ProducerController for ::store::StoreRepoBackend<'repo, RC, TrackingBranchProducer> {
+impl< RC: ::repo::RepoController> ProducerController for ::store::StoreRepoBackend< RC, TrackingBranchProducer> {
     fn production_strategies(&self) -> ProductionStrategies {
         let mut rep = EnumSet::new();
         rep.insert(RepresentationKind::State);
@@ -186,7 +186,7 @@ impl<'repo, RC: ::repo::RepoController> ProducerController for ::store::StoreRep
 
     fn notify_new_version<'a, 'b>(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -247,22 +247,23 @@ impl<'repo, RC: ::repo::RepoController> ProducerController for ::store::StoreRep
                 VersionRelation::Dependence(tracked_ref_rel))?;
         }
 
-        let mut ag_control = ::store::Store::<::datatype::artifact_graph::ArtifactGraphDtype>::new(&repo_control.stored());
+        let mut ag_control = ::store::Store::<::datatype::artifact_graph::ArtifactGraphDtype>::new(repo);
         ag_control.create_staging_version(
+            repo,
             ver_graph,
             ref_ver_idx).unwrap();
 
         // TODO: ref hash
 
         // Get ref model controller.
-        let mut ref_control = ::store::Store::<Ref>::new(repo_control);
+        let mut ref_control = ::store::Store::<Ref>::new(repo);
 
         // Get branch heads from model controller.
-        let old_tips = ref_control.get_branch_revision_tips(repo_control, ref_art)?;
+        let old_tips = ref_control.get_branch_revision_tips(repo, ref_art)?;
 
         if old_tips.is_empty() {
             // Leaf bootstrapping.
-            ref_control.create_branch(repo_control, &ver_graph[ref_ver_idx], "master")?;
+            ref_control.create_branch(repo, &ver_graph[ref_ver_idx], "master")?;
         } else {
             let new_tips: HashMap<_, _> = old_tips.into_iter().filter_map(|(bprt, id)| {
                 match ver_graph.get_by_id(&id) {
@@ -280,7 +281,7 @@ impl<'repo, RC: ::repo::RepoController> ProducerController for ::store::StoreRep
             if !new_tips.is_empty() {
                 // Normal tracking update.
                 ref_control.set_branch_revision_tips(
-                    repo_control,
+                    repo,
                     ref_art,
                     &new_tips)?;
             } else {

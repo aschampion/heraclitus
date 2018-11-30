@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -27,7 +28,7 @@ use ::datatype::reference::{
     VersionSpecifier,
 };
 use ::store::StoreRepoBackend;
-use ::store::postgres::{PostgresMigratable, PostgresRepoController};
+use ::store::postgres::{PostgresMigratable, PostgresRepository};
 
 use super::PostgresMetaController;
 
@@ -51,9 +52,9 @@ impl PostgresMigration for PGMigrationRefs {
     }
 }
 
-impl<'repo> MetaController for StoreRepoBackend<'repo, PostgresRepoController, Ref> {}
+impl MetaController for StoreRepoBackend< PostgresRepository, Ref> {}
 
-impl<'repo> PostgresMigratable for StoreRepoBackend<'repo, PostgresRepoController, Ref> {
+impl PostgresMigratable for StoreRepoBackend< PostgresRepository, Ref> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
             Box::new(PGMigrationRefs),
@@ -61,15 +62,15 @@ impl<'repo> PostgresMigratable for StoreRepoBackend<'repo, PostgresRepoControlle
     }
 }
 
-impl<'repo> PostgresMetaController for StoreRepoBackend<'repo, PostgresRepoController, Ref> {}
+impl PostgresMetaController for StoreRepoBackend< PostgresRepository, Ref> {}
 
-impl<'repo> ModelController for StoreRepoBackend<'repo, PostgresRepoController, Ref> {
+impl ModelController for StoreRepoBackend< PostgresRepository, Ref> {
     fn get_branch_revision_tips(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         artifact: &Artifact,
     ) -> Result<HashMap<BranchRevisionTip, Identity>, Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -107,11 +108,11 @@ impl<'repo> ModelController for StoreRepoBackend<'repo, PostgresRepoController, 
 
     fn set_branch_revision_tips(
         &mut self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         artifact: &Artifact,
         tip_versions: &HashMap<BranchRevisionTip, Identity>,
     ) -> Result<(), Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -153,11 +154,11 @@ impl<'repo> ModelController for StoreRepoBackend<'repo, PostgresRepoController, 
 
     fn write_message(
         &mut self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         version: &Version,
         message: &Option<String>,
     ) -> Result<(), Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         match *message {
             Some(ref t) => {
@@ -182,10 +183,10 @@ impl<'repo> ModelController for StoreRepoBackend<'repo, PostgresRepoController, 
 
     fn read_message(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         version: &Version,
     ) -> Result<Option<String>, Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -201,11 +202,11 @@ impl<'repo> ModelController for StoreRepoBackend<'repo, PostgresRepoController, 
 
     fn create_branch(
         &mut self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         ref_version: &Version,
         name: &str,
     ) -> Result<(), Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -233,10 +234,10 @@ impl<'repo> ModelController for StoreRepoBackend<'repo, PostgresRepoController, 
 
     fn get_version_id(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         specifier: &VersionSpecifier,
     ) -> Result<Identity, Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;

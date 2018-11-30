@@ -1,11 +1,11 @@
 use ::datatype::tracking_branch_producer::TrackingBranchProducer;
-use ::store::postgres::PostgresRepoController;
+use ::store::postgres::PostgresRepository;
 use ::store::StoreRepoBackend;
 use ::store::postgres::PostgresMigratable;
 
 use super::PostgresMetaController;
 
 
-impl<'repo> PostgresMigratable for StoreRepoBackend<'repo, PostgresRepoController, TrackingBranchProducer> {}
+impl PostgresMigratable for StoreRepoBackend< PostgresRepository, TrackingBranchProducer> {}
 
-impl<'repo> PostgresMetaController for StoreRepoBackend<'repo, PostgresRepoController, TrackingBranchProducer> {}
+impl PostgresMetaController for StoreRepoBackend< PostgresRepository, TrackingBranchProducer> {}

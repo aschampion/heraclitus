@@ -27,7 +27,7 @@ use ::datatype::interface::{
 };
 use ::repo::{
     RepoController as _,
-    StoreRepoController,
+    Repository,
 };
 use ::store::{
     Store,
@@ -65,9 +65,9 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
     datatype_controllers!(NoopProducer, (ProducerController));
 }
 
-impl<'repo, RC: ::repo::RepoController> MetaController for StoreRepoBackend<'repo, RC, NoopProducer> {}
+impl< RC: ::repo::RepoController> MetaController for StoreRepoBackend< RC, NoopProducer> {}
 
-impl<'repo, RC: ::repo::RepoController> ProducerController for StoreRepoBackend<'repo, RC, NoopProducer> {
+impl< RC: ::repo::RepoController> ProducerController for StoreRepoBackend< RC, NoopProducer> {
     fn production_strategies(&self) -> ProductionStrategies {
     // fn representation_capabilities(&self) -> Vec<ProductionRepresentationCapability> {
         hashmap!{
@@ -84,7 +84,7 @@ impl<'repo, RC: ::repo::RepoController> ProducerController for StoreRepoBackend<
 
     fn notify_new_version<'a, 'b>(
         &self,
-        _repo_control: &::repo::StoreRepoController,
+        _repo: &::repo::Repository,
         _art_graph: &'b ArtifactGraph<'a>,
         _ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -143,9 +143,9 @@ pub(crate) mod tests {
         datatype_controllers!(NegateBlobProducer, (ProducerController));
     }
 
-    impl<'repo, RC: ::repo::RepoController> MetaController for StoreRepoBackend<'repo, RC, NegateBlobProducer> {}
+    impl< RC: ::repo::RepoController> MetaController for StoreRepoBackend< RC, NegateBlobProducer> {}
 
-    impl<'repo, RC: ::repo::RepoController> ProducerController for StoreRepoBackend<'repo, RC, NegateBlobProducer> {
+    impl< RC: ::repo::RepoController> ProducerController for StoreRepoBackend< RC, NegateBlobProducer> {
         fn production_strategies(&self) -> ProductionStrategies {
             let mut rep = EnumSet::new();
             rep.insert(RepresentationKind::State);
@@ -172,7 +172,7 @@ pub(crate) mod tests {
 
         fn notify_new_version<'a, 'b>(
             &self,
-            repo_control: &::repo::StoreRepoController,
+            repo: &::repo::Repository,
             art_graph: &'b ArtifactGraph<'a>,
             ver_graph: &mut VersionGraph<'a, 'b>,
             v_idx: VersionGraphIndex,
@@ -239,12 +239,14 @@ pub(crate) mod tests {
                     VersionRelation::Parent)?;
             }
 
-            let mut ag_control = Store::<::datatype::artifact_graph::ArtifactGraphDtype>::new(&repo_control.stored());
+            let mut ag_control = Store::<::datatype::artifact_graph::ArtifactGraphDtype>::new(repo);
 
             let production_specs = ag_control.get_production_specs(
+                repo,
                 &ver_graph[v_idx])?;
 
             ag_control.create_staging_version(
+                repo,
                 ver_graph,
                 ver_blob_idx.clone()).unwrap();
 
@@ -254,14 +256,15 @@ pub(crate) mod tests {
             // with the input version.
             {
                 let input_hunks = ag_control.get_hunks(
+                    repo,
                     &ver_graph[input_ver],
                     &ver_graph[input_ver_part_idx],
                     None).expect("TODO");
 
                 // Create output hunks computed from input hunks.
-                let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo_control.stored());
+                let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(repo);
                 for input_hunk in &input_hunks {
-                    let input_blob = blob_control.read_hunk(input_hunk).expect("TODO");
+                    let input_blob = blob_control.read_hunk(repo, input_hunk).expect("TODO");
                     let output_blob = match input_blob {
                         Payload::State(ref blob) =>
                             Payload::State(blob.iter().cloned().map(|b| !b).collect::<Vec<u8>>()),
@@ -284,8 +287,9 @@ pub(crate) mod tests {
                     };
                     output_hunk.id.hash.hash(&mut ver_hash);
 
-                    ag_control.create_hunk(&output_hunk).expect("TODO");
+                    ag_control.create_hunk(repo, &output_hunk).expect("TODO");
                     blob_control.write_hunk(
+                        repo,
                         &output_hunk,
                         &output_blob).expect("TODO");
                 }

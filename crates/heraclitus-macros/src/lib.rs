@@ -126,7 +126,7 @@ fn impl_interface(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
     quote! {
         #mc
 
-        pub type #gen_name = Box<for <'repo> Fn(&StoreRepoController<'repo>) -> Box<dyn #name + 'repo>>;
+        pub type #gen_name = Box<Fn(&Repository) -> Box<dyn #name>>;
 
         impl InterfaceMeta for #name {
             type Generator = #gen_name;

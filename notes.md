@@ -385,7 +385,7 @@ Interface Graph: (no need to serialize)
   - Partitioning
     - (Already specified)
   - Producer
-    - produce(&mut self, repo_control: &mut repo::StoreRepoController, version: &Version)
+    - produce(&mut self, repo: &mut repo::Repository, version: &Version)
   - [x] This makes the unary partition singleton even more tedious. If it has its own static interface graph, then interface checks will fail bc its interfaces are not the same as those in the DtypeReg iface graph instance.
     - Options:
       1. Make an InterfaceRegistry static mut global

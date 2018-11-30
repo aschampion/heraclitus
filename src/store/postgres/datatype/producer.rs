@@ -1,14 +1,14 @@
 use store::StoreRepoBackend;
-use store::postgres::PostgresRepoController;
+use store::postgres::PostgresRepository;
 use ::datatype::producer::NoopProducer;
 use ::store::postgres::PostgresMigratable;
 
 use super::PostgresMetaController;
 
 
-impl<'repo> PostgresMigratable for StoreRepoBackend<'repo, PostgresRepoController, NoopProducer> {}
+impl PostgresMigratable for StoreRepoBackend< PostgresRepository, NoopProducer> {}
 
-impl<'repo> PostgresMetaController for StoreRepoBackend<'repo, PostgresRepoController, NoopProducer> {}
+impl PostgresMetaController for StoreRepoBackend< PostgresRepository, NoopProducer> {}
 
 
 #[cfg(test)]
@@ -17,7 +17,7 @@ pub(crate) mod tests {
 
     use ::datatype::producer::tests::NegateBlobProducer;
 
-    impl<'repo> PostgresMigratable for StoreRepoBackend<'repo, PostgresRepoController, NegateBlobProducer> {}
+    impl PostgresMigratable for StoreRepoBackend< PostgresRepository, NegateBlobProducer> {}
 
-    impl<'repo> PostgresMetaController for StoreRepoBackend<'repo, PostgresRepoController, NegateBlobProducer> {}
+    impl PostgresMetaController for StoreRepoBackend< PostgresRepository, NegateBlobProducer> {}
 }

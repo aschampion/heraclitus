@@ -203,15 +203,9 @@ pub struct DatatypeRelation {
     pub name: String,
 }
 
-struct Repository {
+struct RepositoryLocation {
     url: Url,
 }
-
-pub struct Context;
-// pub struct Context<T: DatatypeEnum> {
-//     pub dtypes_registry: datatype::DatatypesRegistry<T>,
-//     pub repo_control: repo::StoreRepoController,
-// }
 
 pub trait IdentifiableGraph {
     type N: Identifiable;

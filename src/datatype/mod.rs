@@ -8,7 +8,7 @@ use enum_set::EnumSet;
 use heraclitus_macros::stored_controller;
 
 use ::{Artifact, Composition, Datatype, Error, Hunk};
-use ::repo::RepoController;
+use ::repo::Repository;
 use ::store::Backend;
 use ::store::postgres::datatype::PostgresMetaController;
 use self::interface::{
@@ -130,7 +130,7 @@ pub struct InterfaceDescription {
 
 /// Common interface to all datatypes that does not involve their state or
 /// types associated with their state.
-#[stored_controller(<'a> StoreMetaController<'a>)]
+#[stored_controller(StoreMetaController)]
 
 pub trait MetaController {
     /// This allows the model controller to initialize any structures necessary
@@ -150,7 +150,7 @@ pub trait Model<T: InterfaceControllerEnum> {
 
     fn info(&self) -> Description<T>;
 
-    fn meta_controller<'a: 'b, 'b>(&self, repo_control: &::repo::StoreRepoController<'a>) -> StoreMetaController<'b>;
+    fn meta_controller(&self, repo: ::store::Backend) -> StoreMetaController;
 
     /// If this datatype acts as a partitioning controller, construct one.
     fn interface_controller(&self, iface: T) -> Option<T>;
@@ -192,17 +192,19 @@ pub trait ModelController {
 
     fn write_hunk(
         &mut self,
+        repo: &Repository,
         hunk: &Hunk,
         payload: &Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
 
-        self.write_hunks(&[hunk], &[payload])
+        self.write_hunks(repo, &[hunk], &[payload])
     }
 
     /// Write multiple hunks to this model. All hunks should be from the same
     /// version.
     fn write_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H, P>(
         &mut self,
+        repo: &Repository,
         hunks: &[H],
         payloads: &[P],
     ) -> Result<(), Error>
@@ -213,7 +215,7 @@ pub trait ModelController {
             let hunk: &Hunk = hunk.borrow();
             let payload = payload.borrow();
 
-            self.write_hunk(hunk, payload)?;
+            self.write_hunk(repo, hunk, payload)?;
         }
 
         Ok(())
@@ -221,6 +223,7 @@ pub trait ModelController {
 
     fn read_hunk(
         &self,
+        repo: &Repository,
         hunk: &Hunk,
     ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error>;
 
@@ -229,17 +232,18 @@ pub trait ModelController {
     /// Datatypes' store types may choose to implement this more efficiently.
     fn get_composite_state(
         &self,
+        repo: &Repository,
         composition: &Composition,
     ) -> Result<Self::StateType, Error> {
             let mut hunk_iter = composition.iter().rev();
 
-            let mut state = match self.read_hunk(hunk_iter.next().expect("TODO"))? {
+            let mut state = match self.read_hunk(repo, hunk_iter.next().expect("TODO"))? {
                 Payload::State(mut state) => state,
                 _ => panic!("Composition rooted in non-state hunk"),
             };
 
             for hunk in hunk_iter {
-                match self.read_hunk(hunk)? {
+                match self.read_hunk(repo, hunk)? {
                     Payload::State(_) => panic!("TODO: shouldn't have non-root state"),
                     Payload::Delta(ref delta) => {
                         self.compose_state(&mut state, delta);
@@ -274,14 +278,14 @@ impl Hash for UnrepresentableType {
 
 use store::Store;
 use store::StoreRepoBackend;
-impl<'store, State, Delta, D> ModelController for Store<'store, D>
+impl< State, Delta, D> ModelController for Store< D>
     where
         State: Debug + Hash + PartialEq,
         Delta: Debug + Hash + PartialEq,
         D: DatatypeMarker,
-        StoreRepoBackend<'store, ::store::postgres::PostgresRepoController, D>:
+        StoreRepoBackend< ::store::postgres::PostgresRepository, D>:
             ModelController<StateType=State, DeltaType=Delta>,
-        // ::store::postgres::PostgresRepoController: ModelController<StateType=State, DeltaType=Delta>,
+        // ::store::postgres::PostgresRepository: ModelController<StateType=State, DeltaType=Delta>,
 {
     type StateType = State;
     type DeltaType = Delta;
@@ -297,42 +301,46 @@ impl<'store, State, Delta, D> ModelController for Store<'store, D>
 
     fn write_hunk(
         &mut self,
+        repo: &Repository,
         hunk: &Hunk,
         payload: &Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
         match self {
-            Store::Postgres(c) => c.write_hunk(hunk, payload),
+            Store::Postgres(c) => c.write_hunk(repo, hunk, payload),
         }
     }
 
     fn write_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H, P>(
         &mut self,
+        repo: &Repository,
         hunks: &[H],
         payloads: &[P],
     ) -> Result<(), Error>
             where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>,
                 P: std::borrow::Borrow<Payload<Self::StateType, Self::DeltaType>> {
         match self {
-            Store::Postgres(c) => c.write_hunks(hunks, payloads),
+            Store::Postgres(c) => c.write_hunks(repo, hunks, payloads),
         }
     }
 
     fn read_hunk(
         &self,
+        repo: &Repository,
         hunk: &Hunk,
     ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error> {
         match self {
-            Store::Postgres(c) => c.read_hunk(hunk),
+            Store::Postgres(c) => c.read_hunk(repo, hunk),
         }
 
     }
 
     fn get_composite_state(
         &self,
+        repo: &Repository,
         composition: &Composition,
     ) -> Result<Self::StateType, Error> {
         match self {
-            Store::Postgres(c) => c.get_composite_state(composition),
+            Store::Postgres(c) => c.get_composite_state(repo, composition),
         }
     }
 
@@ -352,22 +360,31 @@ impl<'store, State, Delta, D> ModelController for Store<'store, D>
 // pub trait StateInterface<I: ?Sized> {
 //     fn get_composite_interface(
 //         &self,
-//         repo_control: &mut ::repo::StoreRepoController,
+//         repo: &mut ::repo::Repository,
 //         composition: &Composition,
 //     ) -> Result<Box<I>, Error>;
 // }
 
 
-pub enum StoreMetaController<'a> {
-    Postgres(Box<dyn PostgresMetaController + 'a>),
+pub enum StoreMetaController {
+    Postgres(Box<dyn PostgresMetaController>),
 }
 
-impl<'a> StoreMetaController<'a> {
-    pub fn new<D: ::datatype::DatatypeMarker>(repo_control: &::repo::StoreRepoController<'a>) -> StoreMetaController<'a>
-            where ::store::StoreRepoBackend<'a, ::store::postgres::PostgresRepoController, D>: PostgresMetaController {
-        match repo_control {
-            ::repo::StoreRepoController::Postgres(prc) => StoreMetaController::Postgres(Box::new(
-                ::store::StoreRepoBackend::<::store::postgres::PostgresRepoController, D>::new(prc))),
+impl StoreMetaController {
+    pub fn new<D: ::datatype::DatatypeMarker>(repo: &::repo::Repository) -> StoreMetaController
+            where ::store::StoreRepoBackend<::store::postgres::PostgresRepository, D>: PostgresMetaController {
+        match repo {
+            ::repo::Repository::Postgres(prc) => StoreMetaController::Postgres(Box::new(
+                ::store::StoreRepoBackend::<::store::postgres::PostgresRepository, D>::new(prc))),
+        }
+    }
+
+    pub fn from_backend<D: ::datatype::DatatypeMarker>(backend: Backend) -> StoreMetaController
+            where ::store::StoreRepoBackend<::store::postgres::PostgresRepository, D>: PostgresMetaController {
+        match backend {
+            Backend::Postgres => StoreMetaController::Postgres(Box::new(
+                ::store::StoreRepoBackend::<::store::postgres::PostgresRepository, D>::infer())),
+            _ => unimplemented!()
         }
     }
 }

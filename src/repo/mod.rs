@@ -7,42 +7,42 @@ use ::datatype::{
 };
 use ::store::Backend;
 use ::store::Store;
-use ::store::postgres::PostgresRepoController;
+use ::store::postgres::PostgresRepository;
 
 
-pub enum StoreRepo {
-    Postgres(PostgresRepoController),
+pub enum Repository {
+    Postgres(PostgresRepository),
 }
 
-impl StoreRepo {
-    fn new(repo: &super::Repository) -> StoreRepo {
-        use self::StoreRepo::*;
+impl Repository {
+    fn new(repo: &super::RepositoryLocation) -> Repository {
+        use self::Repository::*;
         match repo.url.scheme() {
-            "postgres" | "postgresql" => Postgres(PostgresRepoController::new(repo)),
+            "postgres" | "postgresql" => Postgres(PostgresRepository::new(repo)),
             _ => unimplemented!()
         }
     }
 
-    fn controller(&self) -> StoreRepoController {
-        match self {
-            StoreRepo::Postgres(ref c) => StoreRepoController::Postgres(c),
-        }
-    }
+    // fn controller(&self) -> Repository {
+    //     match self {
+    //         StoreRepo::Postgres(ref c) => Repository::Postgres(c),
+    //     }
+    // }
 }
 
-pub enum StoreRepoController<'store> {
-    Postgres(&'store PostgresRepoController),
-}
+// pub enum Repository {
+//     Postgres(&'store PostgresRepository),
+// }
 
-#[stored_controller(<'store> StoreRepoController<'store>)]
-#[stored_controller(<'store, D: ::datatype::DatatypeMarker> Store<'store, D>)]
+#[stored_controller( Repository)]
+// #[stored_controller(< D: ::datatype::DatatypeMarker> Store< D>)]
 pub trait RepoController {
     fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error>;
 
     fn backend(&self) -> Backend;
 
     // TODO: seems this could be avoid with better handling of backend value/types.
-    fn stored(&self) -> StoreRepoController;
+    // fn stored(&self) -> Repository;
 }
 
 
@@ -58,7 +58,7 @@ pub mod testing {
     pub fn init_repo<T: DatatypeEnum>(
             backend: Backend,
             dtypes_registry: &DatatypesRegistry<T>,
-        ) -> StoreRepoController {
+        ) -> Repository {
 
         let url = match backend {
             Backend::Postgres =>
@@ -67,22 +67,22 @@ pub mod testing {
             _ => unimplemented!()
         };
 
-        let repo = ::Repository {
+        let repo = ::RepositoryLocation {
             url,
         };
-        let mut repo_control = StoreRepo::new(&repo).controller();
-        repo_control.init(&dtypes_registry).unwrap();
+        let mut repo = Repository::new(&repo);
+        repo.init(&dtypes_registry).unwrap();
 
-        repo_control
+        repo
     }
 
     // pub fn init_default_context(backend: Backend) -> Context<::datatype::DefaultDatatypes> {
     //     let dtypes_registry = ::datatype::testing::init_default_dtypes_registry();
-    //     let repo_control = init_repo(backend, &dtypes_registry);
+    //     let repo = init_repo(backend, &dtypes_registry);
 
     //     Context {
     //         dtypes_registry,
-    //         repo_control,
+    //         repo,
     //     }
     // }
 

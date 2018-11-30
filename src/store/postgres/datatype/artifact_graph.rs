@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
 
@@ -49,14 +50,15 @@ use ::datatype::interface::{
     CustomProductionPolicyController,
     ProducerController,
 };
+use ::repo::Repository;
 use ::store::StoreRepoBackend;
 use ::store::postgres::{
     PostgresMigratable,
-    PostgresRepoController,
+    PostgresRepository,
 };
 
 
-impl<'smc> StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {
+impl StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
     /// Load version rows from a query result into a version graph.
     fn load_version_rows<'a, 'b>(
         &self,
@@ -281,13 +283,13 @@ impl PostgresMigration for PGMigrationArtifactGraphs {
 }
 
 
-impl<'smc> super::MetaController for StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {
-    // fn register_with_repo(&self, repo_controller: &mut PostgresRepoController) {
-    //     repo_controller.register_postgres_migratable(Box::new(*self));
+impl super::MetaController for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
+    // fn register_with_repo(&self, repoler: &PostgresRepository) {
+    //     repoler.register_postgres_migratable(Box::new(*self));
     // }
 }
 
-impl<'smc> PostgresMigratable for StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {
+impl PostgresMigratable for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
             Box::new(PGMigrationArtifactGraphs),
@@ -295,17 +297,18 @@ impl<'smc> PostgresMigratable for StoreRepoBackend<'smc, PostgresRepoController,
     }
 }
 
-impl<'smc> super::PostgresMetaController for StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {}
+impl super::PostgresMetaController for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {}
 
-impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, ArtifactGraphDtype> {
+impl ModelController for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
     fn list_graphs(&self) -> Vec<Identity> {
         unimplemented!()
     }
 
     fn write_artifact_graph(
             &mut self,
+            repo: &Repository,
             art_graph: &ArtifactGraph) -> Result<(), Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -364,8 +367,9 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
     fn get_artifact_graph<'a, T: DatatypeEnum>(
             &self,
             dtypes_registry: &'a DatatypesRegistry<T>,
+            repo: &Repository,
             id: &Identity) -> Result<ArtifactGraph<'a>, Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -465,10 +469,11 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn create_staging_version(
         &mut self,
+        repo: &Repository,
         ver_graph: &VersionGraph,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -522,6 +527,7 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
     fn commit_version<'a, 'b, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -531,7 +537,7 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
                     InterfaceController<ProducerController> +
                     InterfaceController<CustomProductionPolicyController> {
         {
-            let rc = self.repo_control;
+            let rc: &PostgresRepository = repo.borrow();
 
             let conn = rc.conn()?;
             let trans = conn.transaction()?;
@@ -551,6 +557,7 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
         self.cascade_notify_producers(
             dtypes_registry,
+            repo,
             art_graph,
             ver_graph,
             v_idx)?;
@@ -560,13 +567,14 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn fulfill_policy_requirements<'a, 'b>(
         &self,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
     ) -> Result<(), Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -698,10 +706,11 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn get_version<'a, 'b>(
         &self,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
         id: &Identity,
     ) -> Result<(VersionGraphIndex, VersionGraph<'a, 'b>), Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -740,9 +749,10 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn get_version_graph<'a, 'b>(
         &self,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
     ) -> Result<VersionGraph<'a, 'b>, Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -782,10 +792,11 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn create_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H>(
         &mut self,
+        repo: &Repository,
         hunks: &[H],
     ) -> Result<(), Error>
         where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -842,11 +853,12 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn get_hunks<'a, 'b, 'c, 'd>(
         &self,
+        repo: &Repository,
         version: &'d Version<'a, 'b>,
         partitioning: &'c Version<'a, 'b>,
         partitions: Option<&BTreeSet<PartitionIndex>>,
     ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -907,10 +919,11 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn write_production_policies<'a>(
         &mut self,
+        repo: &Repository,
         artifact: &Artifact<'a>,
         policies: EnumSet<ProductionPolicies>,
     ) -> Result<(), Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -933,9 +946,10 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn get_production_policies<'a>(
         &self,
+        repo: &Repository,
         artifact: &Artifact<'a>,
     ) -> Result<Option<EnumSet<ProductionPolicies>>, Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -954,10 +968,11 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn write_production_specs<'a, 'b>(
         &mut self,
+        repo: &Repository,
         version: &Version<'a, 'b>,
         specs: ProductionStrategySpecs,
     ) -> Result<(), Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
@@ -979,9 +994,10 @@ impl<'smc> ModelController for StoreRepoBackend<'smc, PostgresRepoController, Ar
 
     fn get_production_specs<'a, 'b>(
         &self,
+        repo: &Repository,
         version: &Version<'a, 'b>,
     ) -> Result<ProductionStrategySpecs, Error> {
-        let rc = self.repo_control;
+        let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;

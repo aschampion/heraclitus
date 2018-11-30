@@ -34,53 +34,60 @@ impl enum_set::CLike for Backend {
 /// Provides repository-backed storage for a datatype.
 ///
 /// TODO: explain the purpose of enum dispatch, history of design decisions.
-pub enum Store<'a, D> {
-    Postgres(StoreRepoBackend<'a, ::store::postgres::PostgresRepoController, D>),
+pub enum Store<D> {
+    Postgres(StoreRepoBackend<::store::postgres::PostgresRepository, D>),
 }
 
-impl<'a, D> Store<'a, D> {
-    pub fn new(repo_control: &::repo::StoreRepoController<'a>) -> Store<'a, D> {
-        use ::repo::StoreRepoController;
+impl<D> Store<D> {
+    pub fn new(repo: &::repo::Repository) -> Store<D> {
+        use ::repo::Repository;
 
-        match repo_control {
-            StoreRepoController::Postgres(ref rc) => Store::Postgres(StoreRepoBackend::new(rc)),
+        match repo {
+            Repository::Postgres(ref rc) => Store::Postgres(StoreRepoBackend::new(rc)),
         }
     }
 }
 
 /// A backend-specific `Store` internal type. This is public so that other
 /// libraries can provide backend implementations for their datatypes.
-pub struct StoreRepoBackend<'a, RC: ::repo::RepoController, D> {
-    repo_control: &'a RC,
+pub struct StoreRepoBackend<RC: ::repo::RepoController, D> {
+    repo: PhantomData<RC>,
     datatype: PhantomData<D>,
 }
 
-impl<'a, RC: ::repo::RepoController, D> StoreRepoBackend<'a, RC, D> {
-    pub fn new(repo_control: &'a RC) -> StoreRepoBackend<'a, RC, D> {
+impl<RC: ::repo::RepoController, D> StoreRepoBackend<RC, D> {
+    pub fn new(_repo: &RC) -> StoreRepoBackend<RC, D> {
         StoreRepoBackend {
-            repo_control,
+            repo: PhantomData,
             datatype: PhantomData,
         }
     }
 
-    pub fn dtype_controller<D2>(&self) -> StoreRepoBackend<'a, RC, D2> {
+    pub fn infer() -> StoreRepoBackend<RC, D> {
         StoreRepoBackend {
-            repo_control: self.repo_control,
+            repo: PhantomData,
+            datatype: PhantomData,
+        }
+    }
+
+    pub fn dtype_controller<D2>(&self) -> StoreRepoBackend<RC, D2> {
+        StoreRepoBackend {
+            repo: self.repo,
             datatype: PhantomData,
         }
     }
 }
 
-impl<'a, RC: ::repo::RepoController, D> ::repo::RepoController for StoreRepoBackend<'a, RC, D> {
-    fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
-        self.repo_control.init(dtypes_registry)
-    }
+// impl<RC: ::repo::RepoController, D> ::repo::RepoController for StoreRepoBackend<RC, D> {
+//     fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
+//         self.init(dtypes_registry)
+//     }
 
-    fn backend(&self) -> Backend {
-        self.repo_control.backend()
-    }
+//     fn backend(&self) -> Backend {
+//         self.backend()
+//     }
 
-    fn stored(&self) -> ::repo::StoreRepoController {
-        self.repo_control.stored()
-    }
-}
+//     // fn stored(&self) -> ::repo::Repository {
+//     //     self.stored()
+//     // }
+// }

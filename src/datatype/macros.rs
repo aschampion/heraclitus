@@ -125,11 +125,11 @@ macro_rules! datatype_enum {
 #[macro_export]
 macro_rules! datatype_controllers {
     ( $dtype:ident, ( $( $i_control:ident ),* $(,)* ) ) => {
-        fn meta_controller<'a: 'b, 'b>(
+        fn meta_controller(
             &self,
-            repo_control: &StoreRepoController<'b>,
-        ) -> StoreMetaController<'b> {
-            StoreMetaController::new::<$dtype>(repo_control)
+            backend: $crate::store::Backend,
+        ) -> StoreMetaController {
+            StoreMetaController::from_backend::<$dtype>(backend)
         }
 
         fn interface_controller(
@@ -140,8 +140,8 @@ macro_rules! datatype_controllers {
             $(
                 if iface == <T as InterfaceController<$i_control>>::VARIANT {
                     let closure: <$i_control as $crate::datatype::interface::InterfaceMeta>::Generator =
-                        Box::new(|repo_control| {
-                            let store = $crate::store::Store::<$dtype>::new(repo_control);
+                        Box::new(|repo| {
+                            let store = $crate::store::Store::<$dtype>::new(repo);
                             let control: Box<$i_control> = Box::new(store);
                             control
                         });
@@ -165,6 +165,7 @@ macro_rules! state_interface {
         pub trait $trait_name {
             fn get_composite_interface(
                 &self,
+                repo: &$crate::repo::Repository,
                 composition: &$crate::Composition,
             ) -> Result<Box<$iface>, $crate::Error>;
         }
@@ -175,9 +176,10 @@ macro_rules! state_interface {
                     MC: $crate::datatype::ModelController<StateType = S> {
             fn get_composite_interface(
                 &self,
+                repo: &$crate::repo::Repository,
                 composition: &$crate::Composition,
             ) -> Result<Box<$iface>, $crate::Error> {
-                Ok(Box::new(self.get_composite_state(composition)?))
+                Ok(Box::new(self.get_composite_state(repo, composition)?))
             }
         }
     };

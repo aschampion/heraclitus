@@ -25,7 +25,7 @@ use ::datatype::{
     Model,
     StoreMetaController,
 };
-use ::repo::StoreRepoController;
+use ::repo::Repository;
 
 
 // TODO: Will scrap all of this string spec format for something more git-like.
@@ -345,44 +345,44 @@ impl<T: InterfaceControllerEnum> Model<T> for Ref {
 }
 
 
-#[stored_controller(<'store> ::store::Store<'store, Ref>)]
+#[stored_controller( ::store::Store< Ref>)]
 pub trait ModelController {
     fn get_branch_revision_tips(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         artifact: &Artifact,
     ) -> Result<HashMap<BranchRevisionTip, Identity>, Error>;
 
     fn set_branch_revision_tips(
         &mut self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         artifact: &Artifact,
         tip_versions: &HashMap<BranchRevisionTip, Identity>,
     ) -> Result<(), Error>;
 
     fn write_message(
         &mut self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         version: &Version,
         message: &Option<String>,
     ) -> Result<(), Error>;
 
     fn read_message(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         version: &Version,
     ) -> Result<Option<String>, Error>;
 
     fn create_branch(
         &mut self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         ref_version: &Version,
         name: &str,
     ) -> Result<(), Error>;
 
     fn get_version_id(
         &self,
-        repo_control: &::repo::StoreRepoController,
+        repo: &::repo::Repository,
         specifier: &VersionSpecifier,
     ) -> Result<Identity, Error>;
 }

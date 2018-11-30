@@ -2,6 +2,7 @@ use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::convert::From;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::option::Option;
 
 use failure::Fail;
@@ -21,7 +22,7 @@ use url::Url;
 
 use ::{
     Error,
-    Repository,
+    RepositoryLocation,
 };
 use ::datatype::{
     DatatypeEnum,
@@ -29,7 +30,7 @@ use ::datatype::{
 };
 use ::repo::{
     RepoController,
-    StoreRepoController,
+    Repository,
 };
 
 use self::datatype::PostgresMetaController;
@@ -37,25 +38,25 @@ use self::datatype::PostgresMetaController;
 pub mod datatype;
 
 
-// impl Borrow<PostgresRepoController> for StoreRepoController {
-//     fn borrow(&self) -> &PostgresRepoController {
-//         #[allow(unreachable_patterns)] // Other store types may exist.
-//         match *self {
-//             StoreRepoController::Postgres(ref rc) => rc,
-//             _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
-//         }
-//     }
-// }
+impl Borrow<PostgresRepository> for Repository {
+    fn borrow(&self) -> &PostgresRepository {
+        #[allow(unreachable_patterns)] // Other store types may exist.
+        match *self {
+            Repository::Postgres(ref rc) => rc,
+            _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
+        }
+    }
+}
 
-// impl BorrowMut<PostgresRepoController> for StoreRepoController {
-//     fn borrow_mut(&mut self) -> &mut PostgresRepoController {
-//         #[allow(unreachable_patterns)] // Other store types may exist.
-//         match *self {
-//             StoreRepoController::Postgres(ref mut rc) => rc,
-//             _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
-//         }
-//     }
-// }
+impl BorrowMut<PostgresRepository> for Repository {
+    fn borrow_mut(&mut self) -> &mut PostgresRepository {
+        #[allow(unreachable_patterns)] // Other store types may exist.
+        match *self {
+            Repository::Postgres(ref mut rc) => rc,
+            _ => panic!("Attempt to borrow PostgresStore from a non-Postgres repo")
+        }
+    }
+}
 
 
 impl From<PostgresError> for Error {
@@ -79,35 +80,38 @@ pub trait PostgresMigratable {
     }
 }
 
-// impl<'a, D> PostgresMigratable for ::store::StoreRepoBackend<'a, PostgresRepoController, D>
+// impl<'a, D> PostgresMigratable for ::store::StoreRepoBackend<'a, PostgresRepository, D>
 // where D: ::datatype::DatatypeMarker {
 
 // }
 
-pub struct PostgresRepoController {
+pub struct PostgresRepository {
     url: Url,
     connection: RefCell<Option<postgres::Connection>>,
 }
 
-impl PostgresRepoController {
-    pub(crate) fn new(repo: &Repository) -> PostgresRepoController {
-        PostgresRepoController {
+impl PostgresRepository {
+    pub(crate) fn new(repo: &RepositoryLocation) -> PostgresRepository {
+        PostgresRepository {
             url: repo.url.clone(),
             connection: RefCell::new(None),
         }
     }
 
     // TODO: should have methods for getting RW or R-only transactions
-    pub fn conn(&self) -> Result<&postgres::Connection, Error> {
-        if let Some(ref c) = *self.connection.borrow() {
-            Ok(c)
-        } else {
-            self.connection.replace(Some(
-                        postgres::Connection::connect(
-                            self.url.as_str(),
-                            postgres::TlsMode::None)?));
-            self.conn()
+    pub fn conn(&self) -> Result<impl std::ops::Deref<Target = postgres::Connection> + '_, Error> {
+        {
+            let borrow = self.connection.borrow();
+            if borrow.is_some() {
+                return Ok(std::cell::Ref::map(borrow, |b| b.as_ref().unwrap()));
+            }
         }
+
+        self.connection.replace(Some(
+                    postgres::Connection::connect(
+                        self.url.as_str(),
+                        postgres::TlsMode::None)?));
+        Ok(std::cell::Ref::map(self.connection.borrow(), |b| b.as_ref().unwrap()))
     }
 }
 
@@ -128,10 +132,10 @@ impl PostgresMigration for PGMigrationDatatypes {
     }
 }
 
-impl RepoController for PostgresRepoController {
+impl RepoController for PostgresRepository {
     fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error> {
         let connection = self.conn()?;
-        let adapter = PostgresAdapter::new(connection, None);
+        let adapter = PostgresAdapter::new(&connection, None);
         adapter.init()?;
 
         let mut migrator = Migrator::new(adapter);
@@ -142,7 +146,7 @@ impl RepoController for PostgresRepoController {
             .flat_map(|dtype| {
                 let model = dtypes_registry.get_model(&dtype.name);
                 let smc: Box<PostgresMetaController> = model
-                    .meta_controller(&self.stored())
+                    .meta_controller(self.backend())
                     .into();
                 smc.migrations()
             })
@@ -164,7 +168,7 @@ impl RepoController for PostgresRepoController {
         ::store::Backend::Postgres
     }
 
-    fn stored(&self) -> StoreRepoController {
-        StoreRepoController::Postgres(self)
-    }
+    // fn stored(&self) -> Repository {
+    //     Repository::Postgres(self)
+    // }
 }

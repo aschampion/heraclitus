@@ -16,7 +16,7 @@ use super::{
     StoreMetaController,
 };
 use ::datatype::interface::PartitioningController;
-use ::repo::StoreRepoController;
+use ::repo::Repository;
 
 
 pub trait Partitioning {
@@ -55,10 +55,10 @@ impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
 /// enough case that this is public for convenience.
 pub const UNARY_PARTITION_INDEX: PartitionIndex = 0;
 
-impl<'repo, RC: ::repo::RepoController> PartitioningController for ::store::StoreRepoBackend<'repo, RC, UnaryPartitioning> {
+impl<RC: ::repo::RepoController> PartitioningController for ::store::StoreRepoBackend<RC, UnaryPartitioning> {
     fn get_partition_ids(
         &self,
-        _repo_control: &mut ::repo::StoreRepoController,
+        _repo: &mut ::repo::Repository,
         _ver_graph: &VersionGraph,
         _v_idx: VersionGraphIndex,
     ) -> BTreeSet<PartitionIndex> {
@@ -77,14 +77,15 @@ impl Partitioning for UnaryPartitioningState {
     }
 }
 
-impl<'repo, RC: ::repo::RepoController> super::MetaController for ::store::StoreRepoBackend<'repo, RC, UnaryPartitioning> {}
+impl<RC: ::repo::RepoController> super::MetaController for ::store::StoreRepoBackend<RC, UnaryPartitioning> {}
 
-impl<'repo, RC: ::repo::RepoController> super::ModelController for ::store::StoreRepoBackend<'repo, RC, UnaryPartitioning> {
+impl<RC: ::repo::RepoController> super::ModelController for ::store::StoreRepoBackend<RC, UnaryPartitioning> {
     type StateType = UnaryPartitioningState;
     type DeltaType = super::UnrepresentableType;
 
     fn read_hunk(
         &self,
+        _repo: &Repository,
         _hunk: &::Hunk,
     ) -> Result<super::Payload<Self::StateType, Self::DeltaType>, Error> {
         Ok(super::Payload::State(UnaryPartitioningState))
@@ -92,6 +93,7 @@ impl<'repo, RC: ::repo::RepoController> super::ModelController for ::store::Stor
 
     fn write_hunk(
         &mut self,
+        _repo: &Repository,
         _hunk: &::Hunk,
         _payload: &super::Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {

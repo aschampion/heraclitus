@@ -59,7 +59,8 @@ use ::datatype::interface::{
     ProductionStrategies,
     ProductionStrategyID,
 };
-use ::repo::StoreRepoController;
+use ::repo::Repository;
+use ::repo::RepoController;
 
 
 #[derive(Default)]
@@ -420,22 +421,23 @@ pub struct ProductionStrategySpecs {
 }
 
 
-#[stored_controller(<'store> ::store::Store<'store, ArtifactGraphDtype>)]
-pub trait ModelController: ::repo::RepoController {
+#[stored_controller(::store::Store< ArtifactGraphDtype>)]
+pub trait ModelController {
     fn list_graphs(&self) -> Vec<Identity>;
 
     fn create_artifact_graph<'a, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &'a DatatypesRegistry<T>,
+        repo: &Repository,
         art_graph: &ArtifactGraph,
     ) -> Result<(), Error> {
-        self.write_artifact_graph(art_graph)?;
+        self.write_artifact_graph(repo, art_graph)?;
 
         for idx in art_graph.artifacts.graph().node_indices() {
             let art = &art_graph[idx];
             let mut meta_controller = dtypes_registry
                 .get_model(&art.dtype.name)
-                .meta_controller(&self.stored());
+                .meta_controller(repo.backend());
             meta_controller.init_artifact(art)?;
         }
 
@@ -444,17 +446,20 @@ pub trait ModelController: ::repo::RepoController {
 
     fn write_artifact_graph(
         &mut self,
+        repo: &Repository,
         art_graph: &ArtifactGraph,
     ) -> Result<(), Error>;
 
     fn get_artifact_graph<'a, T: DatatypeEnum>(
         &self,
         dtypes_registry: &'a DatatypesRegistry<T>,
+        repo: &Repository,
         id: &Identity,
     ) -> Result<ArtifactGraph<'a>, Error>;
 
     fn create_staging_version(
         &mut self,
+        repo: &Repository,
         ver_graph: &VersionGraph,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>;
@@ -470,6 +475,7 @@ pub trait ModelController: ::repo::RepoController {
         // look at other Rust workarounds, or better yet finally design a way
         // to get model directly from datatypes.
         dtypes_registry: &DatatypesRegistry<T>,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -483,6 +489,7 @@ pub trait ModelController: ::repo::RepoController {
     fn cascade_notify_producers<'a, 'b, T:DatatypeEnum> (
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         seed_v_idx: VersionGraphIndex,
@@ -494,6 +501,7 @@ pub trait ModelController: ::repo::RepoController {
             {
         let outputs = self.notify_producers(
             dtypes_registry,
+            repo,
             art_graph,
             ver_graph,
             seed_v_idx)?;
@@ -503,6 +511,7 @@ pub trait ModelController: ::repo::RepoController {
                 for v_idx in v_idxs {
                     self.commit_version(
                         dtypes_registry,
+                        repo,
                         art_graph,
                         ver_graph,
                         *v_idx)?;
@@ -516,6 +525,7 @@ pub trait ModelController: ::repo::RepoController {
     fn notify_producers<'a, 'b, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -550,11 +560,11 @@ pub trait ModelController: ::repo::RepoController {
             let dtype = dependent.dtype;
 
             let producer_interface = dtypes_registry.get_model_interface::<ProducerController>(&dtype.name)
-                .map(|gen| gen(&self.stored()));
+                .map(|gen| gen(&repo));
             if let Some(producer_controller) = producer_interface {
 
                 let production_policies: Option<Vec<Box<ProductionPolicy>>> =
-                    self.get_production_policies(dependent)?
+                    self.get_production_policies(&repo, dependent)?
                     .map(|policies| policies.iter().filter_map(|p| match p {
                         ProductionPolicies::Extant =>
                             Some(Box::new(ExtantProductionPolicy) as Box<ProductionPolicy>),
@@ -565,11 +575,11 @@ pub trait ModelController: ::repo::RepoController {
                                 .get_model_interface::<CustomProductionPolicyController>(&dtype.name)
                                 // .get_model(&dtype.name)
                                 // .get_controller()
-                                .map(|gen| gen(&self.stored()));
+                                .map(|gen| gen(&repo));
                             if let Some(custom_policy_controller) = custom_policy_interface {
 
                                 Some(custom_policy_controller.get_custom_production_policy(
-                                    &self.stored(),
+                                    &repo,
                                     art_graph,
                                     dep_art_idx).expect("TODO"))
                             } else {
@@ -592,6 +602,7 @@ pub trait ModelController: ::repo::RepoController {
                         });
 
                 self.fulfill_policy_requirements(
+                    &repo,
                     art_graph,
                     ver_graph,
                     v_idx,
@@ -645,15 +656,17 @@ pub trait ModelController: ::repo::RepoController {
                     };
 
                     self.create_staging_version(
+                        &repo,
                         ver_graph,
                         new_prod_ver_idx)?;
 
                     self.write_production_specs(
+                        &repo,
                         &ver_graph[new_prod_ver_idx],
                         strategy_specs)?;
 
                     let output = producer_controller.notify_new_version(
-                        &self.stored(),
+                        &repo,
                         art_graph,
                         ver_graph,
                         new_prod_ver_idx)?;
@@ -674,6 +687,7 @@ pub trait ModelController: ::repo::RepoController {
     ///   relations must already be present in the graph.
     fn fulfill_policy_requirements<'a, 'b>(
         &self,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -683,24 +697,28 @@ pub trait ModelController: ::repo::RepoController {
 
     fn get_version<'a, 'b>(
         &self,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
         id: &Identity,
     ) -> Result<(VersionGraphIndex, VersionGraph<'a, 'b>), Error>;
 
     fn get_version_graph<'a, 'b>(
         &self,
+        repo: &Repository,
         art_graph: &'b ArtifactGraph<'a>,
     ) -> Result<VersionGraph<'a, 'b>, Error>;
 
     fn create_hunk(
         &mut self,
+        repo: &Repository,
         hunk: &Hunk,
     ) -> Result<(), Error> {
-        self.create_hunks(&[hunk])
+        self.create_hunks(repo, &[hunk])
     }
 
     fn create_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H>(
         &mut self,
+        repo: &Repository,
         hunks: &[H],
     ) -> Result<(), Error>
         where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>;
@@ -713,6 +731,7 @@ pub trait ModelController: ::repo::RepoController {
     ///                  `None`, return hunks for all partitions.
     fn get_hunks<'a, 'b, 'c, 'd>(
         &self,
+        repo: &Repository,
         version: &'d Version<'a, 'b>,
         partitioning: &'c Version<'a, 'b>,
         partitions: Option<&BTreeSet<PartitionIndex>>,
@@ -725,6 +744,7 @@ pub trait ModelController: ::repo::RepoController {
     /// returned `CompositionMap` if they have never been populated.
     fn get_composition_map<'a: 'b, 'b: 'r, 'c, 'd, 'r: 'c + 'd>(
         &self,
+        repo: &Repository,
         ver_graph: &'r VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
         partitions: BTreeSet<PartitionIndex>,
@@ -756,6 +776,7 @@ pub trait ModelController: ::repo::RepoController {
             }
 
             let hunks = self.get_hunks(
+                &repo,
                 version,
                 &ver_graph[ver_graph.get_partitioning(n_idx).expect("TODO: comp map part").0],
                 Some(&unresolved))?;
@@ -792,23 +813,27 @@ pub trait ModelController: ::repo::RepoController {
 
     fn write_production_policies<'a>(
         &mut self,
+        repo: &Repository,
         artifact: &Artifact<'a>,
         policies: EnumSet<ProductionPolicies>,
     ) -> Result<(), Error>;
 
     fn get_production_policies<'a>(
         &self,
+        repo: &Repository,
         artifact: &Artifact<'a>,
     ) -> Result<Option<EnumSet<ProductionPolicies>>, Error>;
 
     fn write_production_specs<'a, 'b>(
         &mut self,
+        repo: &Repository,
         version: &Version<'a, 'b>,
         specs: ProductionStrategySpecs,
     ) -> Result<(), Error>;
 
     fn get_production_specs<'a, 'b>(
         &self,
+        repo: &Repository,
         version: &Version<'a, 'b>,
     ) -> Result<ProductionStrategySpecs, Error>;
 }
@@ -877,7 +902,6 @@ mod tests {
     use uuid::Uuid;
 
     use ::{
-        Context,
         Partition,
         PartCompletion,
     };
@@ -1035,15 +1059,15 @@ mod tests {
     fn test_create_get_artifact_graph(backend: Backend) {
 
         let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
-        let repo_control = ::repo::testing::init_repo(backend, &dtypes_registry);
+        let repo = ::repo::testing::init_repo(backend, &dtypes_registry);
 
         let (ag, _) = simple_blob_prod_ag_fixture(&dtypes_registry, None);
 
-        let mut model_ctrl = Store::<ArtifactGraphDtype>::new(&repo_control);
+        let mut model_ctrl = Store::<ArtifactGraphDtype>::new(&repo);
 
-        model_ctrl.create_artifact_graph(&dtypes_registry, &ag).unwrap();
+        model_ctrl.create_artifact_graph(&dtypes_registry, &repo, &ag).unwrap();
 
-        let ag2 = model_ctrl.get_artifact_graph(&dtypes_registry, &ag.id).unwrap();
+        let ag2 = model_ctrl.get_artifact_graph(&dtypes_registry, &repo, &ag.id).unwrap();
         assert!(ag2.verify_hash());
         assert_eq!(ag.id.hash, ag2.id.hash);
     }
@@ -1054,13 +1078,13 @@ mod tests {
         let backend = Backend::Postgres;
 
         let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
-        let repo_control = ::repo::testing::init_repo(backend, &dtypes_registry);
+        let repo = ::repo::testing::init_repo(backend, &dtypes_registry);
 
         let (ag, idxs) = simple_blob_prod_ag_fixture(&dtypes_registry, None);
 
-        let mut model_ctrl = Store::<ArtifactGraphDtype>::new(&repo_control);
+        let mut model_ctrl = Store::<ArtifactGraphDtype>::new(&repo);
 
-        model_ctrl.create_artifact_graph(&dtypes_registry, &ag).unwrap();
+        model_ctrl.create_artifact_graph(&dtypes_registry, &repo, &ag).unwrap();
 
         let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
@@ -1068,6 +1092,7 @@ mod tests {
         // are being committed.
         for node_idx in ver_graph.versions.graph().node_indices() {
             model_ctrl.create_staging_version(
+                &repo,
                 &ver_graph,
                 node_idx.clone()).unwrap();
         }
@@ -1091,8 +1116,7 @@ mod tests {
                 completion: PartCompletion::Complete,
                 precedence: None,
             };
-            model_ctrl.create_hunk(
-                &hunk).unwrap();
+            model_ctrl.create_hunk(&repo, &hunk).unwrap();
         }
 
         let blob1_art_idx = idxs["Test Blob 1"];
@@ -1104,12 +1128,14 @@ mod tests {
                 &ag[ag.artifacts.find_edge(up_art_idx, blob1_art_idx).unwrap()])).unwrap();
 
         model_ctrl.create_staging_version(
+            &repo,
             &ver_graph,
             blob1_ver_idx.clone()).unwrap();
 
         let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
             .expect("Partitioning version missing");
         let ver_part_comp = model_ctrl.get_composition_map(
+            &repo,
             &ver_graph,
             ver_part_idx,
             ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
@@ -1117,14 +1143,14 @@ mod tests {
         let ver_part_control: Box<::datatype::partitioning::PartitioningState> =
                 dtypes_registry
                     .get_model_interface::<::datatype::partitioning::PartitioningState>(&ver_partitioning.artifact.dtype.name)
-                    .map(|gen| gen(&repo_control.stored()))
+                    .map(|gen| gen(&repo))
                     .expect("Partitioning must have controller for backend");
 
-        let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo_control);
+        let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo);
         let ver_blob_real = &ver_graph[blob1_ver_idx];
         let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
         let ver_hunks = ver_part_control
-                .get_composite_interface(&ver_part_comp).unwrap()
+                .get_composite_interface(&repo, &ver_part_comp).unwrap()
                 .get_partition_ids()
                 .iter()
                 .map(|partition_id| Hunk {
@@ -1144,16 +1170,17 @@ mod tests {
 
         // Can't do this in an iterator because of borrow conflict on context?
         for hunk in &ver_hunks {
-            model_ctrl.create_hunk(&hunk).unwrap();
-            blob_control.write_hunk(&hunk, &fake_blob).unwrap();
+            model_ctrl.create_hunk(&repo, &hunk).unwrap();
+            blob_control.write_hunk(&repo, &hunk, &fake_blob).unwrap();
         }
 
         for hunk in &ver_hunks {
-            let blob = blob_control.read_hunk(&hunk).unwrap();
+            let blob = blob_control.read_hunk(&repo, &hunk).unwrap();
             assert_eq!(blob, fake_blob);
         }
 
         let (_, ver_graph2) = model_ctrl.get_version(
+            &repo,
             &ag,
             &ver_blob_real.id).unwrap();
 
@@ -1170,7 +1197,7 @@ mod tests {
         let backend = Backend::Postgres;
 
         let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
-        let mut repo_control = ::repo::testing::init_repo(backend, &dtypes_registry);
+        let mut repo = ::repo::testing::init_repo(backend, &dtypes_registry);
 
         let partitioning = ArtifactDescription {
             name: Some("Arbitrary Partitioning".into()),
@@ -1179,11 +1206,12 @@ mod tests {
         };
         let (ag, idxs) = simple_blob_prod_ag_fixture(&dtypes_registry, Some(partitioning));
 
-        let mut model_ctrl = Store::<ArtifactGraphDtype>::new(&repo_control);
+        let mut model_ctrl = Store::<ArtifactGraphDtype>::new(&repo);
 
 
-        model_ctrl.create_artifact_graph(&dtypes_registry, &ag).unwrap();
+        model_ctrl.create_artifact_graph(&dtypes_registry, &repo, &ag).unwrap();
         model_ctrl.write_production_policies(
+            &repo,
             &ag[idxs["TBP"]],
             EnumSet::from_iter(
                 vec![ProductionPolicies::LeafBootstrap, ProductionPolicies::Custom]
@@ -1203,9 +1231,10 @@ mod tests {
 
         // Create arbitrary partitions.
         {
-            let mut part_control = Store::<::datatype::partitioning::arbitrary::ArbitraryPartitioning>::new(&repo_control);
+            let mut part_control = Store::<::datatype::partitioning::arbitrary::ArbitraryPartitioning>::new(&repo);
 
             model_ctrl.create_staging_version(
+                &repo,
                 &ver_graph,
                 part_idx).expect("TODO");
             let part_state = ::datatype::Payload::State(
@@ -1224,11 +1253,12 @@ mod tests {
                 completion: PartCompletion::Complete,
                 precedence: None,
             };
-            model_ctrl.create_hunk(&hunk).unwrap();
-            part_control.write_hunk(&hunk, &part_state).expect("TODO");
+            model_ctrl.create_hunk(&repo, &hunk).unwrap();
+            part_control.write_hunk(&repo, &hunk, &part_state).expect("TODO");
         }
         model_ctrl.commit_version(
             &dtypes_registry,
+            &repo,
             &ag,
             &mut ver_graph,
             part_idx).expect("TODO");
@@ -1242,12 +1272,14 @@ mod tests {
                 &ag[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()])).unwrap();
 
         model_ctrl.create_staging_version(
+            &repo,
             &ver_graph,
             blob1_ver_idx.clone()).unwrap();
 
         let ver_hash = {
             let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
             let ver_part_comp = model_ctrl.get_composition_map(
+                &repo,
                 &ver_graph,
                 ver_part_idx,
                 ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
@@ -1255,14 +1287,14 @@ mod tests {
             let ver_part_control: Box<::datatype::partitioning::PartitioningState> =
                     dtypes_registry
                         .get_model_interface::<::datatype::partitioning::PartitioningState>(&ver_partitioning.artifact.dtype.name)
-                        .map(|gen| gen(&repo_control.stored()))
+                        .map(|gen| gen(&repo))
                         .expect("Partitioning must have controller for backend");
 
-            let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo_control);
+            let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo);
             let ver_blob_real = &ver_graph[blob1_ver_idx];
             let fake_blob = ::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
             let ver_hunks = ver_part_control
-                    .get_composite_interface(&ver_part_comp).unwrap()
+                    .get_composite_interface(&repo, &ver_part_comp).unwrap()
                     // Note that this is in ascending order, so version hash
                     // is correct.
                     .get_partition_ids()
@@ -1289,8 +1321,8 @@ mod tests {
 
             // Can't do this in an iterator because of borrow conflict on context?
             for hunk in &ver_hunks {
-                model_ctrl.create_hunk(&hunk).unwrap();
-                blob_control.write_hunk(&hunk, &fake_blob).unwrap();
+                model_ctrl.create_hunk(&repo, &hunk).unwrap();
+                blob_control.write_hunk(&repo, &hunk, &fake_blob).unwrap();
             }
 
             ver_hash
@@ -1300,12 +1332,12 @@ mod tests {
 
         model_ctrl.commit_version(
             &dtypes_registry,
+            &repo,
             &ag,
             &mut ver_graph,
             blob1_ver_idx).expect("Commit blob failed");
 
-        let vg2 = model_ctrl.get_version_graph(
-            &ag).unwrap();
+        let vg2 = model_ctrl.get_version_graph(&repo, &ag).unwrap();
 
         println!("{:?}", petgraph::dot::Dot::new(&vg2.versions.graph()));
 
@@ -1331,12 +1363,14 @@ mod tests {
         ver_graph.versions.add_edge(blob1_ver_idx, blob1_ver2_idx, VersionRelation::Parent).unwrap();
 
         model_ctrl.create_staging_version(
+            &repo,
             &ver_graph,
             blob1_ver2_idx.clone()).unwrap();
 
         let ver2_hash = {
             let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver2_idx).unwrap();
             let ver_part_comp = model_ctrl.get_composition_map(
+                &repo,
                 &ver_graph,
                 ver_part_idx,
                 ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
@@ -1344,14 +1378,14 @@ mod tests {
             let ver_part_control: Box<::datatype::partitioning::PartitioningState> =
                     dtypes_registry
                         .get_model_interface::<::datatype::partitioning::PartitioningState>(&ver_partitioning.artifact.dtype.name)
-                        .map(|gen| gen(&repo_control.stored()))
+                        .map(|gen| gen(&repo))
                         .expect("Partitioning must have controller for backend");
 
-            let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo_control);
+            let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo);
             let ver_blob_real = &ver_graph[blob1_ver2_idx];
             let fake_blob = ::datatype::Payload::Delta((vec![1, 6], vec![7, 8]));
             let ver_hunks = ver_part_control
-                    .get_composite_interface(&ver_part_comp).unwrap()
+                    .get_composite_interface(&repo, &ver_part_comp).unwrap()
                     // Note that this is in ascending order, so version hash
                     // is correct.
                     .get_partition_ids()
@@ -1378,8 +1412,8 @@ mod tests {
                 .finish();
 
             for hunk in &ver_hunks {
-                model_ctrl.create_hunk(&hunk).unwrap();
-                blob_control.write_hunk(&hunk, &fake_blob).unwrap();
+                model_ctrl.create_hunk(&repo, &hunk).unwrap();
+                blob_control.write_hunk(&repo, &hunk, &fake_blob).unwrap();
             }
 
             ver_hash
@@ -1389,12 +1423,12 @@ mod tests {
 
         model_ctrl.commit_version(
             &dtypes_registry,
+            &repo,
             &ag,
             &mut ver_graph,
             blob1_ver2_idx).expect("Commit blob delta failed");
 
-        let vg3 = model_ctrl.get_version_graph(
-            &ag).unwrap();
+        let vg3 = model_ctrl.get_version_graph(&repo, &ag).unwrap();
 
         println!("{:?}", petgraph::dot::Dot::new(&vg3.versions.graph()));
 
@@ -1412,34 +1446,37 @@ mod tests {
             );
 
         {
-            let part_control = Store::<::datatype::partitioning::arbitrary::ArbitraryPartitioning>::new(&repo_control);
+            let part_control = Store::<::datatype::partitioning::arbitrary::ArbitraryPartitioning>::new(&repo);
             let (ver_part_idx, _) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
             let ver_part_comp = model_ctrl.get_composition_map(
+                &repo,
                 &ver_graph,
                 ver_part_idx,
                 ::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
                 .unwrap().into_iter().last().unwrap().1;
             let part_ids = part_control
-                    .get_composite_interface(&ver_part_comp).unwrap()
+                    .get_composite_interface(&repo, &ver_part_comp).unwrap()
                     .get_partition_ids();
 
             let map1 = model_ctrl.get_composition_map(
+                &repo,
                 &vg3,
                 blob1_vg3_idxs[1],
                 part_ids.clone(),
             ).unwrap();
             let map3 = model_ctrl.get_composition_map(
+                &repo,
                 &vg3,
                 blob3_vg3_idxs[1],
                 part_ids,
             ).unwrap();
-            let blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo_control);
+            let blob_control = Store::<::datatype::blob::BlobDatatype>::new(&repo);
 
             for (p_id, blob1_comp) in &map1 {
                 let blob3_comp = &map3[p_id];
 
-                let blob1_state = blob_control.get_composite_state(blob1_comp).unwrap();
-                let blob3_state = blob_control.get_composite_state(blob3_comp).unwrap();
+                let blob1_state = blob_control.get_composite_state(&repo, blob1_comp).unwrap();
+                let blob3_state = blob_control.get_composite_state(&repo, blob3_comp).unwrap();
 
                 assert_eq!(blob1_state, blob3_state, "Blob states do not match");
             }
@@ -1449,11 +1486,11 @@ mod tests {
             use std::str::FromStr;
             use datatype::reference::VersionSpecifier;
             use datatype::reference::ModelController as RefModelController;
-            let ref_control = Store::<::datatype::reference::Ref>::new(&repo_control.stored());
+            let ref_control = Store::<::datatype::reference::Ref>::new(&repo);
             assert_eq!(
                 vg3[blob3_vg3_idxs[1]].id,
                 ref_control.get_version_id(
-                    &mut repo_control,
+                    &mut repo,
                     &VersionSpecifier::from_str("blobs/master/Test Blob 3").unwrap()).unwrap(),
                 "Tracking branch has wrong version for Blob 3.");
         }

@@ -7,7 +7,7 @@ use super::{
     InterfaceControllerEnum,
     StoreMetaController,
 };
-use ::repo::StoreRepoController;
+use ::repo::Repository;
 
 #[derive(Default)]
 pub struct BlobDatatype;
@@ -53,6 +53,6 @@ macro_rules! blob_common_model_controller_impl {
     )
 }
 
-#[stored_controller(<'store> ::store::Store<'store, BlobDatatype>)]
+#[stored_controller( ::store::Store< BlobDatatype>)]
 pub trait ModelController: super::ModelController<StateType=StateType, DeltaType=DeltaType> {
 }
