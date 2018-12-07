@@ -345,44 +345,44 @@ impl<T: InterfaceControllerEnum> Model<T> for Ref {
 }
 
 
-#[stored_controller( ::store::Store< Ref>)]
-pub trait ModelController {
+#[stored_controller(::store::Store<Ref>)]
+pub trait Storage {
     fn get_branch_revision_tips(
         &self,
-        repo: &::repo::Repository,
+        repo: &Repository,
         artifact: &Artifact,
     ) -> Result<HashMap<BranchRevisionTip, Identity>, Error>;
 
     fn set_branch_revision_tips(
         &mut self,
-        repo: &::repo::Repository,
+        repo: &Repository,
         artifact: &Artifact,
         tip_versions: &HashMap<BranchRevisionTip, Identity>,
     ) -> Result<(), Error>;
 
     fn write_message(
         &mut self,
-        repo: &::repo::Repository,
+        repo: &Repository,
         version: &Version,
         message: &Option<String>,
     ) -> Result<(), Error>;
 
     fn read_message(
         &self,
-        repo: &::repo::Repository,
+        repo: &Repository,
         version: &Version,
     ) -> Result<Option<String>, Error>;
 
     fn create_branch(
         &mut self,
-        repo: &::repo::Repository,
+        repo: &Repository,
         ref_version: &Version,
         name: &str,
     ) -> Result<(), Error>;
 
     fn get_version_id(
         &self,
-        repo: &::repo::Repository,
+        repo: &Repository,
         specifier: &VersionSpecifier,
     ) -> Result<Identity, Error>;
 }

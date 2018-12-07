@@ -173,7 +173,7 @@ macro_rules! state_interface {
         impl<S: 'static, MC> $trait_name for MC
                 where
                     S: $iface + ::std::fmt::Debug + ::std::hash::Hash + PartialEq,
-                    MC: $crate::datatype::ModelController<StateType = S> {
+                    MC: $crate::datatype::Storage<StateType = S> {
             fn get_composite_interface(
                 &self,
                 repo: &$crate::repo::Repository,

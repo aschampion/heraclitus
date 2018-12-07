@@ -28,7 +28,6 @@ impl Parse for StoreType {
             syn::Generics::default()
         };
 
-        // let self_ty: syn::TypePath = input.parse()?;
         let self_ty: syn::Path = input.call(syn::Path::parse_mod_style)?;
 
         let has_generics = input.peek(syn::Token![<]);
@@ -53,8 +52,6 @@ impl Parse for StoreType {
 pub fn stored_controller(attr: proc_macro::TokenStream, item: proc_macro::TokenStream)
         -> proc_macro::TokenStream {
     let ast = syn::parse_macro_input!(item as syn::ItemTrait);
-    // let etype_lit = syn::parse_macro_input!(attr as syn::LitStr);
-    // let etype = etype_lit.parse::<StoreType>().unwrap();
     let etype = syn::parse_macro_input!(attr as StoreType);
 
     let gen = impl_stored_controller(&ast, &etype);
@@ -85,13 +82,10 @@ fn impl_stored_controller(mc: &syn::ItemTrait, etype: &StoreType) -> proc_macro2
         }
     });
     let etype_ty = &etype.self_ty;
-    // let etype_ident = &etype_ty.ident;
     let etype_repeat = std::iter::repeat(etype_ty);
     let impl_generics = &etype.impl_generics;
     let ty_generics = &etype.ty_generics;
     let where_clause = &etype.where_clause;
-
-    // let (impl_generics, ty_generics, where_clause) = etype.generics.split_for_impl();
 
     quote! {
         #mc

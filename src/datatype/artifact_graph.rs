@@ -45,7 +45,6 @@ use super::{
     DatatypeMarker,
     DatatypesRegistry,
     Description,
-    GetInterfaceController,
     InterfaceController,
     InterfaceControllerEnum,
     MetaController,
@@ -421,8 +420,8 @@ pub struct ProductionStrategySpecs {
 }
 
 
-#[stored_controller(::store::Store< ArtifactGraphDtype>)]
-pub trait ModelController {
+#[stored_controller(::store::Store<ArtifactGraphDtype>)]
+pub trait Storage {
     fn list_graphs(&self) -> Vec<Identity>;
 
     fn create_artifact_graph<'a, T: DatatypeEnum>(
@@ -910,7 +909,7 @@ mod tests {
         PartitioningState,
         UNARY_PARTITION_INDEX,
     };
-    use ::datatype::ModelController as DatatypeModelController;
+    use ::datatype::Storage as DatatypeStorage;
     use ::datatype::partitioning::arbitrary::{
         ArbitraryPartitioningState,
     };
@@ -1051,11 +1050,6 @@ mod tests {
         (ag, idxs)
     }
 
-    #[test]
-    fn test_postgres_create_get_artifact_graph() {
-        test_create_get_artifact_graph(Backend::Postgres);
-    }
-
     fn test_create_get_artifact_graph(backend: Backend) {
 
         let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
@@ -1072,10 +1066,7 @@ mod tests {
         assert_eq!(ag.id.hash, ag2.id.hash);
     }
 
-    #[test]
-    fn test_postgres_create_get_version_graph() {
-
-        let backend = Backend::Postgres;
+    fn test_create_get_version_graph(backend: Backend) {
 
         let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
         let repo = ::repo::testing::init_repo(backend, &dtypes_registry);
@@ -1191,10 +1182,7 @@ mod tests {
             |_, _| true));
     }
 
-    #[test]
-    fn test_postgres_production() {
-
-        let backend = Backend::Postgres;
+    fn test_production(backend: Backend) {
 
         let dtypes_registry = ::datatype::testing::init_dtypes_registry::<TestDatatypes>();
         let mut repo = ::repo::testing::init_repo(backend, &dtypes_registry);
@@ -1485,7 +1473,7 @@ mod tests {
         {
             use std::str::FromStr;
             use datatype::reference::VersionSpecifier;
-            use datatype::reference::ModelController as RefModelController;
+            use datatype::reference::Storage as RefStorage;
             let ref_control = Store::<::datatype::reference::Ref>::new(&repo);
             assert_eq!(
                 vg3[blob3_vg3_idxs[1]].id,
@@ -1495,6 +1483,31 @@ mod tests {
                 "Tracking branch has wrong version for Blob 3.");
         }
     }
+
+    macro_rules! backend_test_suite {
+        ( $backend_name:ident, $backend:path ) => {
+            mod $backend_name {
+                use super::*;
+
+                #[test]
+                fn test_create_get_artifact_graph() {
+                    super::test_create_get_artifact_graph($backend);
+                }
+
+                #[test]
+                fn test_create_get_version_graph() {
+                    super::test_create_get_version_graph($backend);
+                }
+
+                #[test]
+                fn test_production() {
+                    super::test_production($backend);
+                }
+            }
+        }
+    }
+
+    backend_test_suite!(postgres, Backend::Postgres);
 
     #[test]
     fn test_production_version_specs() {

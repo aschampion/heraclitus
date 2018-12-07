@@ -8,7 +8,6 @@ use ::{
     VersionGraphIndex,
 };
 use super::{
-    Backend,
     DatatypeMarker,
     Description,
     InterfaceController,
@@ -17,6 +16,7 @@ use super::{
 };
 use ::datatype::interface::PartitioningController;
 use ::repo::Repository;
+use ::store::StoreRepoBackend;
 
 
 pub trait Partitioning {
@@ -55,10 +55,10 @@ impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
 /// enough case that this is public for convenience.
 pub const UNARY_PARTITION_INDEX: PartitionIndex = 0;
 
-impl<RC: ::repo::RepoController> PartitioningController for ::store::StoreRepoBackend<RC, UnaryPartitioning> {
+impl<RC: ::repo::RepoController> PartitioningController for StoreRepoBackend<RC, UnaryPartitioning> {
     fn get_partition_ids(
         &self,
-        _repo: &mut ::repo::Repository,
+        _repo: &mut Repository,
         _ver_graph: &VersionGraph,
         _v_idx: VersionGraphIndex,
     ) -> BTreeSet<PartitionIndex> {
@@ -77,9 +77,9 @@ impl Partitioning for UnaryPartitioningState {
     }
 }
 
-impl<RC: ::repo::RepoController> super::MetaController for ::store::StoreRepoBackend<RC, UnaryPartitioning> {}
+impl<RC: ::repo::RepoController> super::MetaController for StoreRepoBackend<RC, UnaryPartitioning> {}
 
-impl<RC: ::repo::RepoController> super::ModelController for ::store::StoreRepoBackend<RC, UnaryPartitioning> {
+impl<RC: ::repo::RepoController> super::Storage for StoreRepoBackend<RC, UnaryPartitioning> {
     type StateType = UnaryPartitioningState;
     type DeltaType = super::UnrepresentableType;
 
@@ -148,7 +148,7 @@ pub mod arbitrary {
         }
     }
 
-    pub trait ModelController:
-        ::datatype::ModelController<StateType = ArbitraryPartitioningState,
+    pub trait Storage:
+        ::datatype::Storage<StateType = ArbitraryPartitioningState,
                                     DeltaType = ::datatype::UnrepresentableType> {}
 }

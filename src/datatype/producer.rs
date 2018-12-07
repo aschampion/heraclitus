@@ -26,11 +26,10 @@ use ::datatype::interface::{
     ProductionStrategies,
 };
 use ::repo::{
-    RepoController as _,
+    RepoController,
     Repository,
 };
 use ::store::{
-    Store,
     StoreRepoBackend,
 };
 
@@ -65,9 +64,9 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
     datatype_controllers!(NoopProducer, (ProducerController));
 }
 
-impl< RC: ::repo::RepoController> MetaController for StoreRepoBackend< RC, NoopProducer> {}
+impl<RC: RepoController> MetaController for StoreRepoBackend<RC, NoopProducer> {}
 
-impl< RC: ::repo::RepoController> ProducerController for StoreRepoBackend< RC, NoopProducer> {
+impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, NoopProducer> {
     fn production_strategies(&self) -> ProductionStrategies {
     // fn representation_capabilities(&self) -> Vec<ProductionRepresentationCapability> {
         hashmap!{
@@ -84,7 +83,7 @@ impl< RC: ::repo::RepoController> ProducerController for StoreRepoBackend< RC, N
 
     fn notify_new_version<'a, 'b>(
         &self,
-        _repo: &::repo::Repository,
+        _repo: &Repository,
         _art_graph: &'b ArtifactGraph<'a>,
         _ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -109,8 +108,9 @@ pub(crate) mod tests {
     use ::{
         ArtifactRelation, Hunk, Identity, IdentifiableGraph,
         PartCompletion, Version, VersionRelation};
-    use datatype::{Payload, ModelController as DatatypeModelController};
-    use datatype::artifact_graph::ModelController as ArtifactGraphModelController;
+    use datatype::{Payload, Storage as DatatypeStorage};
+    use datatype::artifact_graph::Storage as ArtifactGraphStorage;
+    use ::store::Store;
 
 
     #[derive(Default)]
@@ -143,9 +143,9 @@ pub(crate) mod tests {
         datatype_controllers!(NegateBlobProducer, (ProducerController));
     }
 
-    impl< RC: ::repo::RepoController> MetaController for StoreRepoBackend< RC, NegateBlobProducer> {}
+    impl<RC: RepoController> MetaController for StoreRepoBackend<RC, NegateBlobProducer> {}
 
-    impl< RC: ::repo::RepoController> ProducerController for StoreRepoBackend< RC, NegateBlobProducer> {
+    impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, NegateBlobProducer> {
         fn production_strategies(&self) -> ProductionStrategies {
             let mut rep = EnumSet::new();
             rep.insert(RepresentationKind::State);
@@ -172,7 +172,7 @@ pub(crate) mod tests {
 
         fn notify_new_version<'a, 'b>(
             &self,
-            repo: &::repo::Repository,
+            repo: &Repository,
             art_graph: &'b ArtifactGraph<'a>,
             ver_graph: &mut VersionGraph<'a, 'b>,
             v_idx: VersionGraphIndex,

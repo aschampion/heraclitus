@@ -42,7 +42,7 @@ pub mod arbitrary {
     use ::datatype::partitioning::arbitrary::{
         ArbitraryPartitioning,
         ArbitraryPartitioningState,
-        ModelController,
+        Storage,
     };
 
 
@@ -76,7 +76,7 @@ pub mod arbitrary {
 
     impl PostgresMetaController for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {}
 
-    impl ::datatype::ModelController for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {
+    impl ::datatype::Storage for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {
         type StateType = ArbitraryPartitioningState;
         type DeltaType = ::datatype::UnrepresentableType;
 
@@ -150,5 +150,5 @@ pub mod arbitrary {
         }
     }
 
-    impl ModelController for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {}
+    impl Storage for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {}
 }

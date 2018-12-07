@@ -2,7 +2,6 @@ use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 use std::convert::From;
 use std::fmt::Debug;
-use std::ops::Deref;
 use std::option::Option;
 
 use failure::Fail;
@@ -79,11 +78,6 @@ pub trait PostgresMigratable {
         vec![]
     }
 }
-
-// impl<'a, D> PostgresMigratable for ::store::StoreRepoBackend<'a, PostgresRepository, D>
-// where D: ::datatype::DatatypeMarker {
-
-// }
 
 pub struct PostgresRepository {
     url: Url,
@@ -167,8 +161,4 @@ impl RepoController for PostgresRepository {
     fn backend(&self) -> ::store::Backend {
         ::store::Backend::Postgres
     }
-
-    // fn stored(&self) -> Repository {
-    //     Repository::Postgres(self)
-    // }
 }

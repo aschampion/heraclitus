@@ -238,9 +238,9 @@ Producers
 
 Dtype controllers and Web View
 ------------------------------
-- Dtypes also have (non-model) APIControllers. The expose higher-level semantic operations, but are only able to interface with (non-store-specific) ModelControllers. Not clear if these are HTTP specific. (Decision: they aren't)
+- Dtypes also have (non-model) APIControllers. The expose higher-level semantic operations, but are only able to interface with (non-store-specific) Storages. Not clear if these are HTTP specific. (Decision: they aren't)
   - These higher level controls should also be more focused on the payload datatypes and note take the internal datastructures (AGs, VGs, etc.) as arguments, only identifiers for them.
-  - FFI use should be able to call either the ModelControllers or APIControllers
+  - FFI use should be able to call either the Storages or APIControllers
     - Scratch that, use as a rust lib should be able to call either, FFI will most likely only be able to call API controllers because of lifetimes
 - Also have view controllers (in JS/TypeScript or via emscripten?) that can only talk to HTTP APIControllers. These can be embedded in the web frontend, so that it doesn't need to be aware of every dtype.
 
@@ -305,7 +305,7 @@ Partitions
 - Should there be a typed distinction between implicitly populated and explicitly populated partitions. That is, determination of population of the former belongs to the dependent datatype, while for the latter it is explicit in the partitioning datatype.
 - MultiGraphPartitioning trait? Would not be able to be a type-level extension of GraphPartitionin because, again, enum variants are not types.
 
-Stateful ModelControllers (i.e., Models)
+Stateful Storages (i.e., Models)
 ----------------------------------------
 Having model controllers be stateless discourages violation of state integrity and makes store implementation of each MC method isolated. However, it is needlessly slow for most cases, and makes reuse of store-agnostic logic difficult. Creating a stateful model, however, is undesirable because:
 - Risks creating a whole ORM.
@@ -327,8 +327,8 @@ Types of solutions:
           - Enforced by InterfaceControllerEnum, but this is already independent of the reflection.
       - Explicit reflection of types (via DatatypeRegistry)
     - Difficulty: would have to get the interface via `interface_controller`, but don't have a concrete trait for the trait object, because need an MC which we then use to get the state for the trait we want.
-      - i.e., `interface_controller` would have to give back a `ModelController<S: IC, _> where IC: InterfaceController<...>` (which it cannot because `S` cannot be erased)
-        - Could introduce a trait, like `StateInterface` that takes a `ModelController` and have a method that wraps `get_composite_state`, boxing result to the target trait type? Then blanket `impl<S> StateInterface<IC> for MC where MC: ModelController<S: IC, _>`
+      - i.e., `interface_controller` would have to give back a `Storage<S: IC, _> where IC: InterfaceController<...>` (which it cannot because `S` cannot be erased)
+        - Could introduce a trait, like `StateInterface` that takes a `Storage` and have a method that wraps `get_composite_state`, boxing result to the target trait type? Then blanket `impl<S> StateInterface<IC> for MC where MC: Storage<S: IC, _>`
           - Can't seem to do this, because can't make impls generic over traits, only over types.
           - Need better naming. Is this naming dependent on refactoring naming of dtype/state/models/controllers/[even version] in general?
           - In any case, does the interface in the enum now become `StateInterface<IC>` rather than `IC`? Yes -- if in the future we require some way to have transparent controller/state interfaces, can revisit (but seems like that would be a separate mechanism regardless).
@@ -475,7 +475,7 @@ Model for squashing head versions:
 
 - Once a delta version has been propagated to all dependent nodes in AG, gets squashed/appended into squashing version
 - APIControllers act directly on squashing versions/pending delta versions
-- ModelController clients must attempt to work on the squashing version and rebase on proximal parent if squashing version has changed
+- Storage clients must attempt to work on the squashing version and rebase on proximal parent if squashing version has changed
 
 Alternatively:
 [History] -> [Prox. parent] -> [Delta versions being propagated]
@@ -498,7 +498,7 @@ Misc. Cleanup
   - [ ] Dependency/input/output name strings
   - [ ] Interface identifiers
   - [ ] Datatype identifiers
-- [ ] Model controllers should have a verify_hunk_hash method, e.g., if in trait Foo would impl<T: DatatypesModelController> Foo<T>. Not clear if these sorts of methods should be on datatype::MetaController or datatype::ModelController.
+- [ ] Model controllers should have a verify_hunk_hash method, e.g., if in trait Foo would impl<T: DatatypesStorage> Foo<T>. Not clear if these sorts of methods should be on datatype::MetaController or datatype::Storage.
 - [ ] Refactoring attempt: Since models no longer need to be boxable, could make controllers an assoc type, which would finally remove need to box them?!
   - Would allow model controllers to specify their payload types
 

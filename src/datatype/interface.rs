@@ -15,6 +15,7 @@ use ::{
 };
 use ::datatype::{DependencyDescription, InterfaceDescription};
 use ::datatype::artifact_graph::ProductionPolicy;
+use ::repo::Repository;
 
 
 lazy_static! {
@@ -48,7 +49,6 @@ pub trait InterfaceMeta {
 }
 
 
-use ::repo::Repository;
 #[interface]
 pub trait PartitioningController {
     fn get_partition_ids(
@@ -116,11 +116,8 @@ pub enum ProductionOutput {
 
 
 #[interface]
-#[stored_controller(< D: ::datatype::DatatypeMarker> ::store::Store< D>
-        where ::store::StoreRepoBackend< ::store::postgres::PostgresRepository, D>: ProducerController)]
-// #[stored_controller(< D: ::datatype::DatatypeMarker> ::store::Store< D>
-//         where D: super::Implements<ProducerController>)]
-// where D: Model<T>, T: InterfaceController<ProducerController>
+#[stored_controller(<D: ::datatype::DatatypeMarker> ::store::Store<D>
+        where ::store::StoreRepoBackend<::store::postgres::PostgresRepository, D>: ProducerController)]
 pub trait ProducerController {
     fn production_strategies(&self) -> ProductionStrategies;
 
@@ -137,8 +134,8 @@ pub trait ProducerController {
 
 
 #[interface]
-#[stored_controller(< D: ::datatype::DatatypeMarker> ::store::Store< D>
-        where ::store::StoreRepoBackend< ::store::postgres::PostgresRepository, D>: CustomProductionPolicyController)]
+#[stored_controller(<D: ::datatype::DatatypeMarker> ::store::Store<D>
+        where ::store::StoreRepoBackend<::store::postgres::PostgresRepository, D>: CustomProductionPolicyController)]
 pub trait CustomProductionPolicyController {
     fn get_custom_production_policy(
         &self,

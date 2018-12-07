@@ -6,7 +6,6 @@ use ::datatype::{
     DatatypesRegistry,
 };
 use ::store::Backend;
-use ::store::Store;
 use ::store::postgres::PostgresRepository;
 
 

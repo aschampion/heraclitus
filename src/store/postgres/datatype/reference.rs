@@ -21,7 +21,7 @@ use ::datatype::{
 use ::datatype::reference::{
     ArtifactSpecifier,
     BranchRevisionTip,
-    ModelController,
+    Storage,
     Ref,
     RevisionPath,
     UuidSpecifier,
@@ -64,7 +64,7 @@ impl PostgresMigratable for StoreRepoBackend< PostgresRepository, Ref> {
 
 impl PostgresMetaController for StoreRepoBackend< PostgresRepository, Ref> {}
 
-impl ModelController for StoreRepoBackend< PostgresRepository, Ref> {
+impl Storage for StoreRepoBackend< PostgresRepository, Ref> {
     fn get_branch_revision_tips(
         &self,
         repo: &::repo::Repository,

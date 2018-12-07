@@ -16,7 +16,7 @@ use ::datatype::{
 };
 use ::datatype::blob::{
     BlobDatatype,
-    ModelController,
+    Storage,
 };
 use repo::Repository;
 use ::store::StoreRepoBackend;
@@ -41,13 +41,13 @@ impl PostgresMigration for PGMigrationBlobs {
 }
 
 
-impl MetaController for StoreRepoBackend< PostgresRepository, BlobDatatype> {
+impl MetaController for StoreRepoBackend<PostgresRepository, BlobDatatype> {
     // fn register_with_repo(&self, repoler: &mut PostgresRepository) {
     //     repoler.register_postgres_migratable(Box::new(*self));
     // }
 }
 
-impl PostgresMigratable for StoreRepoBackend< PostgresRepository, BlobDatatype> {
+impl PostgresMigratable for StoreRepoBackend<PostgresRepository, BlobDatatype> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
             Box::new(PGMigrationBlobs),
@@ -55,9 +55,9 @@ impl PostgresMigratable for StoreRepoBackend< PostgresRepository, BlobDatatype> 
     }
 }
 
-impl super::PostgresMetaController for StoreRepoBackend< PostgresRepository, BlobDatatype> {}
+impl super::PostgresMetaController for StoreRepoBackend<PostgresRepository, BlobDatatype> {}
 
-impl ::datatype::ModelController for StoreRepoBackend< PostgresRepository, BlobDatatype> {
+impl ::datatype::Storage for StoreRepoBackend<PostgresRepository, BlobDatatype> {
     blob_common_model_controller_impl!();
 
     fn write_hunk(
@@ -150,4 +150,4 @@ impl ::datatype::ModelController for StoreRepoBackend< PostgresRepository, BlobD
     }
 }
 
-impl ModelController for StoreRepoBackend< PostgresRepository, BlobDatatype> {}
+impl Storage for StoreRepoBackend<PostgresRepository, BlobDatatype> {}

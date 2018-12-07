@@ -39,7 +39,7 @@ use ::datatype::{
 };
 use ::datatype::artifact_graph::{
     ArtifactGraphDtype,
-    ModelController,
+    Storage,
     PolicyDependencyRequirements,
     PolicyProducerRequirements,
     ProductionPolicies,
@@ -299,7 +299,7 @@ impl PostgresMigratable for StoreRepoBackend< PostgresRepository, ArtifactGraphD
 
 impl super::PostgresMetaController for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {}
 
-impl ModelController for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
+impl Storage for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
     fn list_graphs(&self) -> Vec<Identity> {
         unimplemented!()
     }

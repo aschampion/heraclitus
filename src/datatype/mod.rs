@@ -9,7 +9,11 @@ use heraclitus_macros::stored_controller;
 
 use ::{Artifact, Composition, Datatype, Error, Hunk};
 use ::repo::Repository;
-use ::store::Backend;
+use ::store::{
+    Backend,
+    Store,
+    StoreRepoBackend,
+};
 use ::store::postgres::datatype::PostgresMetaController;
 use self::interface::{
     ProducerController,
@@ -177,7 +181,7 @@ pub enum Payload<S, D> {
 }
 
 /// Common interface to all datatypes that involves state.
-pub trait ModelController {
+pub trait Storage {
     type StateType: Debug + Hash + PartialEq;
     type DeltaType: Debug + Hash + PartialEq;
 
@@ -262,7 +266,7 @@ pub trait ModelController {
 }
 
 /// A type for a representation kind that is not supported by a model. This
-/// allows, for example, models to implement `ModelController` if they do not
+/// allows, for example, models to implement `Storage` if they do not
 /// support deltas.
 ///
 /// The type is uninstantiable.
@@ -276,16 +280,13 @@ impl Hash for UnrepresentableType {
     }
 }
 
-use store::Store;
-use store::StoreRepoBackend;
-impl< State, Delta, D> ModelController for Store< D>
+impl<State, Delta, D> Storage for Store<D>
     where
         State: Debug + Hash + PartialEq,
         Delta: Debug + Hash + PartialEq,
         D: DatatypeMarker,
-        StoreRepoBackend< ::store::postgres::PostgresRepository, D>:
-            ModelController<StateType=State, DeltaType=Delta>,
-        // ::store::postgres::PostgresRepository: ModelController<StateType=State, DeltaType=Delta>,
+        StoreRepoBackend<::store::postgres::PostgresRepository, D>:
+            Storage<StateType=State, DeltaType=Delta>,
 {
     type StateType = State;
     type DeltaType = Delta;
@@ -351,19 +352,9 @@ impl< State, Delta, D> ModelController for Store< D>
     ) {
         match self {
             Store::Postgres(c) => c.compose_state(state, delta),
-        };
+        }
     }
 }
-
-// Previous implementation of state interfaces before moving to macro-generated
-// traits. Left here for reference.
-// pub trait StateInterface<I: ?Sized> {
-//     fn get_composite_interface(
-//         &self,
-//         repo: &mut ::repo::Repository,
-//         composition: &Composition,
-//     ) -> Result<Box<I>, Error>;
-// }
 
 
 pub enum StoreMetaController {

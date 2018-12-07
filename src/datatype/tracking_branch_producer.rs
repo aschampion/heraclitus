@@ -37,7 +37,7 @@ use ::datatype::artifact_graph::{
     ProductionPolicyRequirements,
     ProductionVersionSpecs,
 };
-use ::datatype::artifact_graph::ModelController as ArtifactGraphModelController;
+use ::datatype::artifact_graph::Storage as ArtifactGraphStorage;
 use ::datatype::interface::{
     CustomProductionPolicyController,
     ProducerController,
@@ -46,11 +46,11 @@ use ::datatype::interface::{
     ProductionStrategies,
 };
 use ::datatype::reference::{
-    ModelController as ReferenceModelController,
+    Storage as ReferenceStorage,
     Ref,
 };
 use ::repo::RepoController;
-use ::repo::Repository;
+use ::store::StoreRepoBackend;
 
 
 #[derive(Default)]
@@ -86,7 +86,7 @@ impl<T> Model<T> for TrackingBranchProducer
     datatype_controllers!(TrackingBranchProducer, (ProducerController, CustomProductionPolicyController));
 }
 
-impl< RC: ::repo::RepoController> MetaController for ::store::StoreRepoBackend< RC, TrackingBranchProducer> {}
+impl<RC: RepoController> MetaController for StoreRepoBackend<RC, TrackingBranchProducer> {}
 
 
 struct TrackingBranchProductionPolicy {
@@ -136,7 +136,7 @@ impl ProductionPolicy for TrackingBranchProductionPolicy {
 }
 
 
-impl< RC: ::repo::RepoController> CustomProductionPolicyController for ::store::StoreRepoBackend< RC, TrackingBranchProducer> {
+impl<RC: RepoController> CustomProductionPolicyController for StoreRepoBackend<RC, TrackingBranchProducer> {
     fn get_custom_production_policy(
         &self,
         repo: &::repo::Repository,
@@ -159,7 +159,7 @@ impl< RC: ::repo::RepoController> CustomProductionPolicyController for ::store::
     }
 }
 
-impl< RC: ::repo::RepoController> ProducerController for ::store::StoreRepoBackend< RC, TrackingBranchProducer> {
+impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, TrackingBranchProducer> {
     fn production_strategies(&self) -> ProductionStrategies {
         let mut rep = EnumSet::new();
         rep.insert(RepresentationKind::State);
