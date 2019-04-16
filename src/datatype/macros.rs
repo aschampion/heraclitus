@@ -159,8 +159,6 @@ macro_rules! datatype_controllers {
 #[macro_export]
 macro_rules! state_interface {
     ( $trait_name:ident, $iface:path ) => {
-        use $crate::datatype::interface::InterfaceMeta;
-
         #[heraclitus_macros::interface]
         pub trait $trait_name {
             fn get_composite_interface(

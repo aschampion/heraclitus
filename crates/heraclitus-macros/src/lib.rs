@@ -1,3 +1,4 @@
+extern crate heraclitus_core;
 extern crate proc_macro;
 extern crate proc_macro2;
 extern crate syn;
@@ -122,7 +123,7 @@ fn impl_interface(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
 
         pub type #gen_name = Box<Fn(&Repository) -> Box<dyn #name>>;
 
-        impl InterfaceMeta for #name {
+        impl ::heraclitus_core::InterfaceMeta for #name {
             type Generator = #gen_name;
         }
     }

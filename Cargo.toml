@@ -16,10 +16,12 @@ path = "src/bin.rs"
 
 [workspace]
 members = [
+	"crates/heraclitus-core",
 	"crates/heraclitus-macros",
 ]
 
 [dependencies]
+heraclitus-core = { path = "crates/heraclitus-core" }
 heraclitus-macros = { path = "crates/heraclitus-macros" }
 daggy = "0.6"
 enum-set = "*"

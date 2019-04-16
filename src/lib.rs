@@ -7,6 +7,7 @@
 extern crate daggy;
 extern crate enum_set;
 extern crate failure;
+extern crate heraclitus_core;
 extern crate heraclitus_macros;
 #[macro_use]
 extern crate lazy_static;
@@ -47,6 +48,8 @@ use uuid::Uuid;
 use datatype::{DatatypeEnum, DatatypesRegistry};
 use datatype::artifact_graph::{ArtifactGraphDescription};
 
+// Will need to be changed for 2018 edition. See:
+// https://github.com/rust-lang/rust/issues/54647
 mod heraclitus { pub use super::*; }
 
 

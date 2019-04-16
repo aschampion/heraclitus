@@ -18,6 +18,9 @@ use ::datatype::artifact_graph::ProductionPolicy;
 use ::repo::Repository;
 
 
+pub use heraclitus_core::InterfaceMeta;
+
+
 lazy_static! {
     pub static ref INTERFACE_PARTITIONING_DESC: InterfaceDescription = InterfaceDescription {
         interface: Interface {
@@ -41,11 +44,6 @@ lazy_static! {
         },
         extends: HashSet::new(),
     };
-}
-
-
-pub trait InterfaceMeta {
-    type Generator;
 }
 
 
