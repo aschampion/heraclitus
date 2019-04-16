@@ -339,6 +339,14 @@ Caches/Shallow Clones
 ---------------------
 Caching layers become necessary in several contexts. For example, the AG controller current assumes the entire AG is loaded in memory, although this may be impractical. Controllers and managers, like the arborescence manager, need to have sparse state copies of a version, while being able to request additional partitions. This could be implemented as just model controller requests, or a cache, or a memory-store shallow clone (since AGs are also datatypes).
 
+Volatile Artifacts and Snapshots
+--------------------------------
+For migrating systems into a versioned paradigm and interfacing with external systems, it would be useful to have volatile datastores, which use of by dependent artifacts can *snapshot*. Even if not state-persisting, a simpler timestamping snapshot is useful for provenance. Without snapshots, volatile datatypes should still be able to express dependencies on each other.
+
+It's not clear whether the volatile entities are a separate set of datatypes, or just a property of artifacts which are still of a stateful datatype, or a separate volatile source datatype that provide access to snapshotable stateful datatypes/interfaces (somethiing like a remote repo/submodule pattern).
+
+Example use: compare an internal, stateful datatype (point clouds of cell body detections) with known cell body locations from a volatile CATMAID instance.
+
 
 Solution Sketches
 =================
