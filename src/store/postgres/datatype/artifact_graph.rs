@@ -40,11 +40,13 @@ use ::datatype::{
 use ::datatype::artifact_graph::{
     ArtifactGraphDtype,
     Storage,
-    PolicyDependencyRequirements,
-    PolicyProducerRequirements,
-    ProductionPolicies,
-    ProductionPolicyRequirements,
-    ProductionStrategySpecs,
+    production::{
+        PolicyDependencyRequirements,
+        PolicyProducerRequirements,
+        ProductionPolicies,
+        ProductionPolicyRequirements,
+        ProductionStrategySpecs,
+    },
 };
 use ::datatype::interface::{
     CustomProductionPolicyController,

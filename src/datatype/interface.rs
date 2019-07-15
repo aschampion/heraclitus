@@ -14,7 +14,7 @@ use ::{
     VersionGraphIndex,
 };
 use ::datatype::{DependencyDescription, InterfaceDescription};
-use ::datatype::artifact_graph::ProductionPolicy;
+use ::datatype::artifact_graph::production::ProductionPolicy;
 use ::repo::Repository;
 
 

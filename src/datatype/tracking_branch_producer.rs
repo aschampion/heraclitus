@@ -29,7 +29,7 @@ use ::datatype::{
     Model,
     StoreMetaController,
 };
-use ::datatype::artifact_graph::{
+use ::datatype::artifact_graph::production::{
     ExtantProductionPolicy,
     PolicyDependencyRequirements,
     PolicyProducerRequirements,
