@@ -48,7 +48,6 @@ pub struct Description<T: InterfaceControllerEnum> {
 
 impl<T: InterfaceControllerEnum> Description<T> {
     fn into_datatype(self, interfaces: &InterfaceRegistry) -> Datatype {
-        use std::string::ToString;
         Datatype::new(
             self.name,
             self.version,

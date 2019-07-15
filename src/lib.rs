@@ -3,16 +3,10 @@
 #![feature(trivial_bounds)]
 #![feature(vec_remove_item)]
 
-extern crate daggy;
-extern crate enum_set;
-extern crate failure;
-extern crate heraclitus_core;
-extern crate heraclitus_macros;
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate maplit;
-extern crate petgraph;
 #[macro_use]
 extern crate postgres;
 extern crate postgres_array;
@@ -20,13 +14,8 @@ extern crate postgres_array;
 extern crate postgres_derive;
 #[macro_use]
 extern crate schemer;
-extern crate schemer_postgres;
-extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_json;
-extern crate url;
-extern crate uuid;
 
 
 use std::collections::{BTreeMap, HashSet};
