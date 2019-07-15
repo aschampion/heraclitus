@@ -3,19 +3,19 @@ use postgres::transaction::Transaction;
 use schemer;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
-use ::{
+use crate::{
     Error,
     PartitionIndex,
 };
-use ::datatype::{
+use crate::datatype::{
     MetaController,
 };
-use ::datatype::partitioning::{
+use crate::datatype::partitioning::{
     UnaryPartitioning,
 };
-use ::repo::Repository;
-use ::store::StoreRepoBackend;
-use ::store::postgres::{PostgresMigratable, PostgresRepository};
+use crate::repo::Repository;
+use crate::store::StoreRepoBackend;
+use crate::store::postgres::{PostgresMigratable, PostgresRepository};
 
 use super::PostgresMetaController;
 
@@ -32,14 +32,14 @@ pub mod arbitrary {
 
     use std::borrow::Borrow;
 
-    use ::{
+    use crate::{
         Hunk,
         RepresentationKind,
     };
-    use ::datatype::{
+    use crate::datatype::{
         Payload,
     };
-    use ::datatype::partitioning::arbitrary::{
+    use crate::datatype::partitioning::arbitrary::{
         ArbitraryPartitioning,
         ArbitraryPartitioningState,
         Storage,
@@ -76,9 +76,9 @@ pub mod arbitrary {
 
     impl PostgresMetaController for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {}
 
-    impl ::datatype::Storage for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {
+    impl crate::datatype::Storage for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {
         type StateType = ArbitraryPartitioningState;
-        type DeltaType = ::datatype::UnrepresentableType;
+        type DeltaType = crate::datatype::UnrepresentableType;
 
         fn write_hunk(
             &mut self,

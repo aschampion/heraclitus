@@ -44,8 +44,8 @@ use petgraph::visit::EdgeRef;
 use url::Url;
 use uuid::Uuid;
 
-use datatype::{DatatypeEnum, DatatypesRegistry};
-use datatype::artifact_graph::{ArtifactGraphDescription};
+use crate::datatype::{DatatypeEnum, DatatypesRegistry};
+use crate::datatype::artifact_graph::{ArtifactGraphDescription};
 
 // Will need to be changed for 2018 edition. See:
 // https://github.com/rust-lang/rust/issues/54647

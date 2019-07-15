@@ -1,12 +1,12 @@
 use heraclitus_macros::stored_controller;
 
-use ::Error;
-use ::datatype::{
+use crate::Error;
+use crate::datatype::{
     DatatypeEnum,
     DatatypesRegistry,
 };
-use ::store::Backend;
-use ::store::postgres::PostgresRepository;
+use crate::store::Backend;
+use crate::store::postgres::PostgresRepository;
 
 
 pub enum Repository {
@@ -66,7 +66,7 @@ pub mod testing {
             _ => unimplemented!()
         };
 
-        let repo = ::RepositoryLocation {
+        let repo = crate::RepositoryLocation {
             url,
         };
         let mut repo = Repository::new(&repo);
@@ -87,7 +87,7 @@ pub mod testing {
 
     #[test]
     fn test_postgres_repo_init() {
-        let dtypes_registry = ::datatype::testing::init_default_dtypes_registry();
+        let dtypes_registry = crate::datatype::testing::init_default_dtypes_registry();
         init_repo(Backend::Postgres, &dtypes_registry);
     }
 }

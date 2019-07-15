@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use ::{
+use crate::{
     ArtifactGraph,
     RepresentationKind,
     Error,
     VersionGraph,
     VersionGraphIndex,
 };
-use ::datatype::{
+use crate::datatype::{
     DatatypeMarker,
     Description,
     DependencyDescription,
@@ -19,17 +19,17 @@ use ::datatype::{
     Model,
     StoreMetaController,
 };
-use ::datatype::interface::{
+use crate::datatype::interface::{
     ProducerController,
     ProductionOutput,
     ProductionRepresentationCapability,
     ProductionStrategies,
 };
-use ::repo::{
+use crate::repo::{
     RepoController,
     Repository,
 };
-use ::store::{
+use crate::store::{
     StoreRepoBackend,
 };
 
@@ -105,12 +105,12 @@ pub(crate) mod tests {
     use petgraph::visit::EdgeRef;
     use uuid::Uuid;
 
-    use ::{
+    use crate::{
         ArtifactRelation, Hunk, Identity, IdentifiableGraph,
         PartCompletion, Version, VersionRelation};
-    use datatype::{Payload, Storage as DatatypeStorage};
-    use datatype::artifact_graph::Storage as ArtifactGraphStorage;
-    use ::store::Store;
+    use crate::datatype::{Payload, Storage as DatatypeStorage};
+    use crate::datatype::artifact_graph::Storage as ArtifactGraphStorage;
+    use crate::store::Store;
 
 
     #[derive(Default)]
@@ -239,9 +239,9 @@ pub(crate) mod tests {
                     VersionRelation::Parent)?;
             }
 
-            let mut ag_control = Store::<::datatype::artifact_graph::ArtifactGraphDtype>::new(repo);
+            let mut ag_control = Store::<crate::datatype::artifact_graph::ArtifactGraphDtype>::new(repo);
 
-            let production_specs = ag_control.get_production_specs(
+            let _production_specs = ag_control.get_production_specs(
                 repo,
                 &ver_graph[v_idx])?;
 
@@ -262,7 +262,7 @@ pub(crate) mod tests {
                     None).expect("TODO");
 
                 // Create output hunks computed from input hunks.
-                let mut blob_control = Store::<::datatype::blob::BlobDatatype>::new(repo);
+                let mut blob_control = Store::<crate::datatype::blob::BlobDatatype>::new(repo);
                 for input_hunk in &input_hunks {
                     let input_blob = blob_control.read_hunk(repo, input_hunk).expect("TODO");
                     let output_blob = match input_blob {

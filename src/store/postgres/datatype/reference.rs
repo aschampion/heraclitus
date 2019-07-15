@@ -8,17 +8,17 @@ use postgres::transaction::Transaction;
 use schemer;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
-use ::{
+use crate::{
     Artifact,
     HashType,
     Identity,
     Error,
     Version,
 };
-use ::datatype::{
+use crate::datatype::{
     MetaController,
 };
-use ::datatype::reference::{
+use crate::datatype::reference::{
     ArtifactSpecifier,
     BranchRevisionTip,
     Storage,
@@ -27,8 +27,8 @@ use ::datatype::reference::{
     UuidSpecifier,
     VersionSpecifier,
 };
-use ::store::StoreRepoBackend;
-use ::store::postgres::{PostgresMigratable, PostgresRepository};
+use crate::store::StoreRepoBackend;
+use crate::store::postgres::{PostgresMigratable, PostgresRepository};
 
 use super::PostgresMetaController;
 
@@ -67,7 +67,7 @@ impl PostgresMetaController for StoreRepoBackend< PostgresRepository, Ref> {}
 impl Storage for StoreRepoBackend< PostgresRepository, Ref> {
     fn get_branch_revision_tips(
         &self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         artifact: &Artifact,
     ) -> Result<HashMap<BranchRevisionTip, Identity>, Error> {
         let rc: &PostgresRepository = repo.borrow();
@@ -108,7 +108,7 @@ impl Storage for StoreRepoBackend< PostgresRepository, Ref> {
 
     fn set_branch_revision_tips(
         &mut self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         artifact: &Artifact,
         tip_versions: &HashMap<BranchRevisionTip, Identity>,
     ) -> Result<(), Error> {
@@ -154,7 +154,7 @@ impl Storage for StoreRepoBackend< PostgresRepository, Ref> {
 
     fn write_message(
         &mut self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         version: &Version,
         message: &Option<String>,
     ) -> Result<(), Error> {
@@ -183,7 +183,7 @@ impl Storage for StoreRepoBackend< PostgresRepository, Ref> {
 
     fn read_message(
         &self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         version: &Version,
     ) -> Result<Option<String>, Error> {
         let rc: &PostgresRepository = repo.borrow();
@@ -202,7 +202,7 @@ impl Storage for StoreRepoBackend< PostgresRepository, Ref> {
 
     fn create_branch(
         &mut self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         ref_version: &Version,
         name: &str,
     ) -> Result<(), Error> {
@@ -234,7 +234,7 @@ impl Storage for StoreRepoBackend< PostgresRepository, Ref> {
 
     fn get_version_id(
         &self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         specifier: &VersionSpecifier,
     ) -> Result<Identity, Error> {
         let rc: &PostgresRepository = repo.borrow();

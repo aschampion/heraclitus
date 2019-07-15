@@ -1,4 +1,4 @@
-use ::datatype::{
+use crate::datatype::{
     MetaController,
     StoreMetaController,
 };
@@ -12,7 +12,7 @@ pub mod reference;
 pub mod tracking_branch_producer;
 
 
-pub trait PostgresMetaController: MetaController + ::store::postgres::PostgresMigratable {}
+pub trait PostgresMetaController: MetaController + crate::store::postgres::PostgresMigratable {}
 
 impl Into<Box<dyn PostgresMetaController>> for StoreMetaController {
     fn into(self) -> Box<dyn PostgresMetaController> {

@@ -17,7 +17,7 @@ use uuid::{
     Uuid,
 };
 
-use ::{
+use crate::{
     Artifact,
     ArtifactGraph,
     ArtifactGraphIndex,
@@ -36,7 +36,6 @@ use ::{
     VersionRelation,
 };
 use super::{
-    Backend,
     DatatypeEnum,
     DatatypeMarker,
     DatatypesRegistry,
@@ -46,13 +45,13 @@ use super::{
     MetaController,
     StoreMetaController,
 };
-use ::datatype::interface::{
+use crate::datatype::interface::{
     CustomProductionPolicyController,
     ProducerController,
     ProductionOutput,
 };
-use ::repo::Repository;
-use ::repo::RepoController;
+use crate::repo::Repository;
+use crate::repo::RepoController;
 
 
 pub mod production;
@@ -84,7 +83,7 @@ impl<T: InterfaceControllerEnum> super::Model<T> for ArtifactGraphDtype {
 }
 
 
-#[stored_controller(::store::Store<ArtifactGraphDtype>)]
+#[stored_controller(crate::store::Store<ArtifactGraphDtype>)]
 pub trait Storage {
     fn list_graphs(&self) -> Vec<Identity>;
 
@@ -414,7 +413,7 @@ pub trait Storage {
     ) -> Result<CompositionMap<'a, 'b, 'c, 'd>, Error>  {
         // TODO: assumes whole version graph is loaded.
         // TODO: not backend-specific, but could be optimized to be so.
-        let ancestors = ::util::petgraph::induced_stream_toposort(
+        let ancestors = crate::util::petgraph::induced_stream_toposort(
             ver_graph.versions.graph(),
             &[v_idx],
             petgraph::Direction::Incoming,

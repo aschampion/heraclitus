@@ -7,14 +7,14 @@ use std::hash::{Hash, Hasher};
 use enum_set::EnumSet;
 use heraclitus_macros::stored_controller;
 
-use ::{Artifact, Composition, Datatype, Error, Hunk};
-use ::repo::Repository;
-use ::store::{
+use crate::{Artifact, Composition, Datatype, Error, Hunk};
+use crate::repo::Repository;
+use crate::store::{
     Backend,
     Store,
     StoreRepoBackend,
 };
-use ::store::postgres::datatype::PostgresMetaController;
+use crate::store::postgres::datatype::PostgresMetaController;
 use self::interface::{
     ProducerController,
     CustomProductionPolicyController,
@@ -40,7 +40,7 @@ pub trait Implements<I: ?Sized + interface::InterfaceMeta> {}
 pub struct Description<T: InterfaceControllerEnum> {
     pub name: String,
     pub version: u64,
-    pub representations: EnumSet<::RepresentationKind>,
+    pub representations: EnumSet<crate::RepresentationKind>,
     // TODO: Not yet clear that this reflection of interfaces is useful.
     pub implements: Vec<T>,
     pub dependencies: Vec<DependencyDescription>,
@@ -128,7 +128,7 @@ impl DependencyDescription {
 }
 
 pub struct InterfaceDescription {
-    pub interface: ::Interface,
+    pub interface: crate::Interface,
     pub extends: HashSet<&'static str>,
 }
 
@@ -154,7 +154,7 @@ pub trait Model<T: InterfaceControllerEnum> {
 
     fn info(&self) -> Description<T>;
 
-    fn meta_controller(&self, repo: ::store::Backend) -> StoreMetaController;
+    fn meta_controller(&self, repo: crate::store::Backend) -> StoreMetaController;
 
     /// If this datatype acts as a partitioning controller, construct one.
     fn interface_controller(&self, iface: T) -> Option<T>;
@@ -188,7 +188,7 @@ pub trait Storage {
     fn hash_payload(
         &self,
         payload: &Payload<Self::StateType, Self::DeltaType>,
-    ) -> ::HashType {
+    ) -> crate::HashType {
         let mut s = DefaultHasher::new();
         payload.hash(&mut s);
         s.finish()
@@ -242,7 +242,7 @@ pub trait Storage {
             let mut hunk_iter = composition.iter().rev();
 
             let mut state = match self.read_hunk(repo, hunk_iter.next().expect("TODO"))? {
-                Payload::State(mut state) => state,
+                Payload::State(state) => state,
                 _ => panic!("Composition rooted in non-state hunk"),
             };
 
@@ -285,7 +285,7 @@ impl<State, Delta, D> Storage for Store<D>
         State: Debug + Hash + PartialEq,
         Delta: Debug + Hash + PartialEq,
         D: DatatypeMarker,
-        StoreRepoBackend<::store::postgres::PostgresRepository, D>:
+        StoreRepoBackend<crate::store::postgres::PostgresRepository, D>:
             Storage<StateType=State, DeltaType=Delta>,
 {
     type StateType = State;
@@ -294,7 +294,7 @@ impl<State, Delta, D> Storage for Store<D>
     fn hash_payload(
         &self,
         payload: &Payload<Self::StateType, Self::DeltaType>,
-    ) -> ::HashType {
+    ) -> crate::HashType {
         match self {
             Store::Postgres(c) => c.hash_payload(payload),
         }
@@ -362,19 +362,19 @@ pub enum StoreMetaController {
 }
 
 impl StoreMetaController {
-    pub fn new<D: ::datatype::DatatypeMarker>(repo: &::repo::Repository) -> StoreMetaController
-            where ::store::StoreRepoBackend<::store::postgres::PostgresRepository, D>: PostgresMetaController {
+    pub fn new<D: crate::datatype::DatatypeMarker>(repo: &crate::repo::Repository) -> StoreMetaController
+            where crate::store::StoreRepoBackend<crate::store::postgres::PostgresRepository, D>: PostgresMetaController {
         match repo {
-            ::repo::Repository::Postgres(prc) => StoreMetaController::Postgres(Box::new(
-                ::store::StoreRepoBackend::<::store::postgres::PostgresRepository, D>::new(prc))),
+            crate::repo::Repository::Postgres(prc) => StoreMetaController::Postgres(Box::new(
+                crate::store::StoreRepoBackend::<crate::store::postgres::PostgresRepository, D>::new(prc))),
         }
     }
 
-    pub fn from_backend<D: ::datatype::DatatypeMarker>(backend: Backend) -> StoreMetaController
-            where ::store::StoreRepoBackend<::store::postgres::PostgresRepository, D>: PostgresMetaController {
+    pub fn from_backend<D: crate::datatype::DatatypeMarker>(backend: Backend) -> StoreMetaController
+            where crate::store::StoreRepoBackend<crate::store::postgres::PostgresRepository, D>: PostgresMetaController {
         match backend {
             Backend::Postgres => StoreMetaController::Postgres(Box::new(
-                ::store::StoreRepoBackend::<::store::postgres::PostgresRepository, D>::infer())),
+                crate::store::StoreRepoBackend::<crate::store::postgres::PostgresRepository, D>::infer())),
             _ => unimplemented!()
         }
     }
@@ -442,19 +442,19 @@ datatype_enum!(DefaultDatatypes, DefaultInterfaceController, (
 
 
 pub struct InterfaceRegistry {
-    extension: ::InterfaceExtension,
-    ifaces_idx: HashMap<&'static str, ::InterfaceIndex>,
+    extension: crate::InterfaceExtension,
+    ifaces_idx: HashMap<&'static str, crate::InterfaceIndex>,
 }
 
 impl InterfaceRegistry {
     pub fn new() -> InterfaceRegistry {
         InterfaceRegistry {
-            extension: ::InterfaceExtension::new(),
+            extension: crate::InterfaceExtension::new(),
             ifaces_idx: HashMap::new(),
         }
     }
 
-    pub fn get_index(&self, name: &str) -> ::InterfaceIndex {
+    pub fn get_index(&self, name: &str) -> crate::InterfaceIndex {
         *self.ifaces_idx.get(name).expect("Unknown interface")
     }
 

@@ -19,15 +19,15 @@ use schemer_postgres::{
 };
 use url::Url;
 
-use ::{
+use crate::{
     Error,
     RepositoryLocation,
 };
-use ::datatype::{
+use crate::datatype::{
     DatatypeEnum,
     DatatypesRegistry,
 };
-use ::repo::{
+use crate::repo::{
     RepoController,
     Repository,
 };
@@ -158,7 +158,7 @@ impl RepoController for PostgresRepository {
         Ok(trans.commit()?)
     }
 
-    fn backend(&self) -> ::store::Backend {
-        ::store::Backend::Postgres
+    fn backend(&self) -> crate::store::Backend {
+        crate::store::Backend::Postgres
     }
 }

@@ -7,14 +7,14 @@ use std::str::FromStr;
 use heraclitus_macros::stored_controller;
 use uuid::Uuid;
 
-use ::{
+use crate::{
     Artifact,
     Identity,
     RepresentationKind,
     Error,
     Version,
 };
-use ::datatype::{
+use crate::datatype::{
     DatatypeMarker,
     Description,
     DependencyDescription,
@@ -25,7 +25,7 @@ use ::datatype::{
     Model,
     StoreMetaController,
 };
-use ::repo::Repository;
+use crate::repo::Repository;
 
 
 // TODO: Will scrap all of this string spec format for something more git-like.
@@ -345,7 +345,7 @@ impl<T: InterfaceControllerEnum> Model<T> for Ref {
 }
 
 
-#[stored_controller(::store::Store<Ref>)]
+#[stored_controller(crate::store::Store<Ref>)]
 pub trait Storage {
     fn get_branch_revision_tips(
         &self,

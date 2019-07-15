@@ -13,7 +13,7 @@ use schemer;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
 
-use ::{
+use crate::{
     Artifact,
     ArtifactGraph,
     ArtifactGraphIndex,
@@ -32,12 +32,12 @@ use ::{
     VersionRelation,
     VersionStatus,
 };
-use ::datatype::{
+use crate::datatype::{
     DatatypeEnum,
     DatatypesRegistry,
     InterfaceController,
 };
-use ::datatype::artifact_graph::{
+use crate::datatype::artifact_graph::{
     ArtifactGraphDtype,
     Storage,
     production::{
@@ -48,13 +48,13 @@ use ::datatype::artifact_graph::{
         ProductionStrategySpecs,
     },
 };
-use ::datatype::interface::{
+use crate::datatype::interface::{
     CustomProductionPolicyController,
     ProducerController,
 };
-use ::repo::Repository;
-use ::store::StoreRepoBackend;
-use ::store::postgres::{
+use crate::repo::Repository;
+use crate::store::StoreRepoBackend;
+use crate::store::postgres::{
     PostgresMigratable,
     PostgresRepository,
 };
@@ -410,7 +410,7 @@ impl Storage for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
                 WHERE a.artifact_graph_id = $1;
             "#, &[&ag_row.get::<_, i64>(0)])?;
 
-        let mut artifacts = ::ArtifactGraphType::new();
+        let mut artifacts = crate::ArtifactGraphType::new();
         let mut idx_map = HashMap::new();
 
         for row in &nodes {

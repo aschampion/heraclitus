@@ -5,22 +5,22 @@ use postgres::transaction::Transaction;
 use schemer;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
-use ::{
+use crate::{
     RepresentationKind,
     Error,
     Hunk,
 };
-use ::datatype::{
+use crate::datatype::{
     MetaController,
     Payload,
 };
-use ::datatype::blob::{
+use crate::datatype::blob::{
     BlobDatatype,
     Storage,
 };
-use repo::Repository;
-use ::store::StoreRepoBackend;
-use ::store::postgres::{PostgresMigratable, PostgresRepository};
+use crate::repo::Repository;
+use crate::store::StoreRepoBackend;
+use crate::store::postgres::{PostgresMigratable, PostgresRepository};
 
 
 struct PGMigrationBlobs;
@@ -57,7 +57,7 @@ impl PostgresMigratable for StoreRepoBackend<PostgresRepository, BlobDatatype> {
 
 impl super::PostgresMetaController for StoreRepoBackend<PostgresRepository, BlobDatatype> {}
 
-impl ::datatype::Storage for StoreRepoBackend<PostgresRepository, BlobDatatype> {
+impl crate::datatype::Storage for StoreRepoBackend<PostgresRepository, BlobDatatype> {
     blob_common_model_controller_impl!();
 
     fn write_hunk(

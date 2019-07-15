@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet};
 
-use ::{
+use crate::{
     RepresentationKind,
     Error,
     PartitionIndex,
@@ -14,9 +14,9 @@ use super::{
     Model,
     StoreMetaController,
 };
-use ::datatype::interface::PartitioningController;
-use ::repo::Repository;
-use ::store::StoreRepoBackend;
+use crate::datatype::interface::PartitioningController;
+use crate::repo::Repository;
+use crate::store::StoreRepoBackend;
 
 
 pub trait Partitioning {
@@ -55,7 +55,7 @@ impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
 /// enough case that this is public for convenience.
 pub const UNARY_PARTITION_INDEX: PartitionIndex = 0;
 
-impl<RC: ::repo::RepoController> PartitioningController for StoreRepoBackend<RC, UnaryPartitioning> {
+impl<RC: crate::repo::RepoController> PartitioningController for StoreRepoBackend<RC, UnaryPartitioning> {
     fn get_partition_ids(
         &self,
         _repo: &mut Repository,
@@ -77,16 +77,16 @@ impl Partitioning for UnaryPartitioningState {
     }
 }
 
-impl<RC: ::repo::RepoController> super::MetaController for StoreRepoBackend<RC, UnaryPartitioning> {}
+impl<RC: crate::repo::RepoController> super::MetaController for StoreRepoBackend<RC, UnaryPartitioning> {}
 
-impl<RC: ::repo::RepoController> super::Storage for StoreRepoBackend<RC, UnaryPartitioning> {
+impl<RC: crate::repo::RepoController> super::Storage for StoreRepoBackend<RC, UnaryPartitioning> {
     type StateType = UnaryPartitioningState;
     type DeltaType = super::UnrepresentableType;
 
     fn read_hunk(
         &self,
         _repo: &Repository,
-        _hunk: &::Hunk,
+        _hunk: &crate::Hunk,
     ) -> Result<super::Payload<Self::StateType, Self::DeltaType>, Error> {
         Ok(super::Payload::State(UnaryPartitioningState))
     }
@@ -94,7 +94,7 @@ impl<RC: ::repo::RepoController> super::Storage for StoreRepoBackend<RC, UnaryPa
     fn write_hunk(
         &mut self,
         _repo: &Repository,
-        _hunk: &::Hunk,
+        _hunk: &crate::Hunk,
         _payload: &super::Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
         unimplemented!()
@@ -149,6 +149,6 @@ pub mod arbitrary {
     }
 
     pub trait Storage:
-        ::datatype::Storage<StateType = ArbitraryPartitioningState,
-                                    DeltaType = ::datatype::UnrepresentableType> {}
+        crate::datatype::Storage<StateType = ArbitraryPartitioningState,
+                                    DeltaType = crate::datatype::UnrepresentableType> {}
 }

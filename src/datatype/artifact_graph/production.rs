@@ -8,7 +8,7 @@ use daggy::{
 };
 use daggy::petgraph::visit::EdgeRef;
 
-use ::{
+use crate::{
     ArtifactGraph,
     ArtifactGraphIndex,
     ArtifactGraphEdgeIndex,
@@ -19,7 +19,7 @@ use ::{
     VersionGraphIndex,
     VersionRelation,
 };
-use ::datatype::interface::{
+use crate::datatype::interface::{
     ProductionStrategies,
     ProductionStrategyID,
 };

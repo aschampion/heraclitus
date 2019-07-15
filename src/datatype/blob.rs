@@ -1,6 +1,6 @@
 use heraclitus_macros::stored_controller;
 
-use ::RepresentationKind;
+use crate::RepresentationKind;
 use super::{
     DatatypeMarker,
     Description,
@@ -38,8 +38,8 @@ pub(crate) type DeltaType = (Vec<usize>, Vec<u8>);
 
 macro_rules! blob_common_model_controller_impl {
     () => (
-        type StateType = ::datatype::blob::StateType;
-        type DeltaType = ::datatype::blob::DeltaType;
+        type StateType = crate::datatype::blob::StateType;
+        type DeltaType = crate::datatype::blob::DeltaType;
 
         fn compose_state(
             &self,
@@ -53,6 +53,6 @@ macro_rules! blob_common_model_controller_impl {
     )
 }
 
-#[stored_controller(::store::Store<BlobDatatype>)]
+#[stored_controller(crate::store::Store<BlobDatatype>)]
 pub trait Storage: super::Storage<StateType=StateType, DeltaType=DeltaType> {
 }

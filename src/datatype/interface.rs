@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use enum_set::EnumSet;
 use heraclitus_macros::{interface, stored_controller};
 
-use ::{
+use crate::{
     ArtifactGraph,
     ArtifactGraphIndex,
     Error,
@@ -13,9 +13,9 @@ use ::{
     VersionGraph,
     VersionGraphIndex,
 };
-use ::datatype::{DependencyDescription, InterfaceDescription};
-use ::datatype::artifact_graph::production::ProductionPolicy;
-use ::repo::Repository;
+use crate::datatype::{DependencyDescription, InterfaceDescription};
+use crate::datatype::artifact_graph::production::ProductionPolicy;
+use crate::repo::Repository;
 
 
 pub use heraclitus_core::InterfaceMeta;
@@ -51,7 +51,7 @@ lazy_static! {
 pub trait PartitioningController {
     fn get_partition_ids(
         &self,
-        repo: &mut ::repo::Repository,
+        repo: &mut crate::repo::Repository,
         ver_graph: &VersionGraph,
         v_idx: VersionGraphIndex,
     ) -> BTreeSet<PartitionIndex>;
@@ -114,8 +114,8 @@ pub enum ProductionOutput {
 
 
 #[interface]
-#[stored_controller(<D: ::datatype::DatatypeMarker> ::store::Store<D>
-        where ::store::StoreRepoBackend<::store::postgres::PostgresRepository, D>: ProducerController)]
+#[stored_controller(<D: crate::datatype::DatatypeMarker> crate::store::Store<D>
+        where crate::store::StoreRepoBackend<crate::store::postgres::PostgresRepository, D>: ProducerController)]
 pub trait ProducerController {
     fn production_strategies(&self) -> ProductionStrategies;
 
@@ -123,7 +123,7 @@ pub trait ProducerController {
 
     fn notify_new_version<'a, 'b>(
         &self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -132,12 +132,12 @@ pub trait ProducerController {
 
 
 #[interface]
-#[stored_controller(<D: ::datatype::DatatypeMarker> ::store::Store<D>
-        where ::store::StoreRepoBackend<::store::postgres::PostgresRepository, D>: CustomProductionPolicyController)]
+#[stored_controller(<D: crate::datatype::DatatypeMarker> crate::store::Store<D>
+        where crate::store::StoreRepoBackend<crate::store::postgres::PostgresRepository, D>: CustomProductionPolicyController)]
 pub trait CustomProductionPolicyController {
     fn get_custom_production_policy(
         &self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         art_graph: &ArtifactGraph,
         prod_a_idx: ArtifactGraphIndex,
     ) -> Result<Box<dyn ProductionPolicy>, Error>;

@@ -4,7 +4,7 @@ use enum_set::EnumSet;
 use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 
-use ::{
+use crate::{
     ArtifactGraph,
     ArtifactGraphIndex,
     ArtifactRelation,
@@ -17,7 +17,7 @@ use ::{
     VersionGraphIndex,
     VersionRelation,
 };
-use ::datatype::{
+use crate::datatype::{
     DatatypeMarker,
     DependencyDescription,
     DependencyCardinalityRestriction,
@@ -29,7 +29,7 @@ use ::datatype::{
     Model,
     StoreMetaController,
 };
-use ::datatype::artifact_graph::production::{
+use crate::datatype::artifact_graph::production::{
     ExtantProductionPolicy,
     PolicyDependencyRequirements,
     PolicyProducerRequirements,
@@ -37,20 +37,20 @@ use ::datatype::artifact_graph::production::{
     ProductionPolicyRequirements,
     ProductionVersionSpecs,
 };
-use ::datatype::artifact_graph::Storage as ArtifactGraphStorage;
-use ::datatype::interface::{
+use crate::datatype::artifact_graph::Storage as ArtifactGraphStorage;
+use crate::datatype::interface::{
     CustomProductionPolicyController,
     ProducerController,
     ProductionOutput,
     ProductionRepresentationCapability,
     ProductionStrategies,
 };
-use ::datatype::reference::{
+use crate::datatype::reference::{
     Storage as ReferenceStorage,
     Ref,
 };
-use ::repo::RepoController;
-use ::store::StoreRepoBackend;
+use crate::repo::RepoController;
+use crate::store::StoreRepoBackend;
 
 
 #[derive(Default)]
@@ -139,7 +139,7 @@ impl ProductionPolicy for TrackingBranchProductionPolicy {
 impl<RC: RepoController> CustomProductionPolicyController for StoreRepoBackend<RC, TrackingBranchProducer> {
     fn get_custom_production_policy(
         &self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         art_graph: &ArtifactGraph,
         prod_a_idx: ArtifactGraphIndex,
     ) -> Result<Box<dyn ProductionPolicy>, Error> {
@@ -151,7 +151,7 @@ impl<RC: RepoController> CustomProductionPolicyController for StoreRepoBackend<R
         let ref_art = &art_graph[ref_art_idx];
 
         // Get ref model controller.
-        let ref_control = ::store::Store::<Ref>::new(repo);
+        let ref_control = crate::store::Store::<Ref>::new(repo);
 
         // Get branch heads from model controller.
         let tips = ref_control.get_branch_revision_tips(repo, ref_art)?.values().cloned().collect();
@@ -186,7 +186,7 @@ impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, TrackingBra
 
     fn notify_new_version<'a, 'b>(
         &self,
-        repo: &::repo::Repository,
+        repo: &crate::repo::Repository,
         art_graph: &'b ArtifactGraph<'a>,
         ver_graph: &mut VersionGraph<'a, 'b>,
         v_idx: VersionGraphIndex,
@@ -247,7 +247,7 @@ impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, TrackingBra
                 VersionRelation::Dependence(tracked_ref_rel))?;
         }
 
-        let mut ag_control = ::store::Store::<::datatype::artifact_graph::ArtifactGraphDtype>::new(repo);
+        let mut ag_control = crate::store::Store::<crate::datatype::artifact_graph::ArtifactGraphDtype>::new(repo);
         ag_control.create_staging_version(
             repo,
             ver_graph,
@@ -256,7 +256,7 @@ impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, TrackingBra
         // TODO: ref hash
 
         // Get ref model controller.
-        let mut ref_control = ::store::Store::<Ref>::new(repo);
+        let mut ref_control = crate::store::Store::<Ref>::new(repo);
 
         // Get branch heads from model controller.
         let old_tips = ref_control.get_branch_revision_tips(repo, ref_art)?;

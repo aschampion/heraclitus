@@ -1,7 +1,7 @@
-use store::StoreRepoBackend;
-use store::postgres::PostgresRepository;
-use ::datatype::producer::NoopProducer;
-use ::store::postgres::PostgresMigratable;
+use crate::store::StoreRepoBackend;
+use crate::store::postgres::PostgresRepository;
+use crate::datatype::producer::NoopProducer;
+use crate::store::postgres::PostgresMigratable;
 
 use super::PostgresMetaController;
 
@@ -15,7 +15,7 @@ impl PostgresMetaController for StoreRepoBackend< PostgresRepository, NoopProduc
 pub(crate) mod tests {
     use super::*;
 
-    use ::datatype::producer::tests::NegateBlobProducer;
+    use crate::datatype::producer::tests::NegateBlobProducer;
 
     impl PostgresMigratable for StoreRepoBackend< PostgresRepository, NegateBlobProducer> {}
 

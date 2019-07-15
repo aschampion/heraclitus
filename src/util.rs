@@ -11,7 +11,7 @@ pub mod petgraph {
         VisitMap,
     };
 
-    use ::Error;
+    use crate::Error;
 
     /// Perform a topological sort of a node's induced stream in a directed graph.
     ///
