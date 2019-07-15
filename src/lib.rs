@@ -1,7 +1,6 @@
 #![feature(never_type)]
 #![feature(specialization)]
 #![feature(trivial_bounds)]
-#![feature(underscore_imports)]
 #![feature(vec_remove_item)]
 
 extern crate daggy;

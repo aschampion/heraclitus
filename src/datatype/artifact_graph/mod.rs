@@ -159,7 +159,7 @@ pub trait Storage {
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
             where
                 <T as DatatypeEnum>::InterfaceControllerType :
-                    InterfaceController<dyn ProducerController> +
+                    InterfaceController<ProducerController> +
                     InterfaceController<CustomProductionPolicyController>
             {
         let outputs = self.notify_producers(
@@ -199,13 +199,13 @@ pub trait Storage {
                     InterfaceController<CustomProductionPolicyController>
             {
 
-        let default_production_policies: Vec<Box<ProductionPolicy>> = vec![
+        let default_production_policies: Vec<Box<dyn ProductionPolicy>> = vec![
             Box::new(ExtantProductionPolicy),
             Box::new(LeafBootstrapProductionPolicy),
         ];
 
         // TODO: should be configurable per-production artifact.
-        let production_strategy_policy: Box<ProductionStrategyPolicy> =
+        let production_strategy_policy: Box<dyn ProductionStrategyPolicy> =
             Box::new(ParsimoniousRepresentationProductionStrategyPolicy);
 
         let (ver_art_idx, _) = {
@@ -226,13 +226,13 @@ pub trait Storage {
                 .map(|gen| gen(&repo));
             if let Some(producer_controller) = producer_interface {
 
-                let production_policies: Option<Vec<Box<ProductionPolicy>>> =
+                let production_policies: Option<Vec<Box<dyn ProductionPolicy>>> =
                     self.get_production_policies(&repo, dependent)?
                     .map(|policies| policies.iter().filter_map(|p| match p {
                         ProductionPolicies::Extant =>
-                            Some(Box::new(ExtantProductionPolicy) as Box<ProductionPolicy>),
+                            Some(Box::new(ExtantProductionPolicy) as Box<dyn ProductionPolicy>),
                         ProductionPolicies::LeafBootstrap =>
-                            Some(Box::new(LeafBootstrapProductionPolicy) as Box<ProductionPolicy>),
+                            Some(Box::new(LeafBootstrapProductionPolicy) as Box<dyn ProductionPolicy>),
                         ProductionPolicies::Custom => {
                             let custom_policy_interface = dtypes_registry
                                 .get_model_interface::<CustomProductionPolicyController>(&dtype.name)

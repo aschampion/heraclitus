@@ -139,7 +139,7 @@ impl RepoController for PostgresRepository {
         let migrations = dtypes_registry.iter_dtypes()
             .flat_map(|dtype| {
                 let model = dtypes_registry.get_model(&dtype.name);
-                let smc: Box<PostgresMetaController> = model
+                let smc: Box<dyn PostgresMetaController> = model
                     .meta_controller(self.backend())
                     .into();
                 smc.migrations()

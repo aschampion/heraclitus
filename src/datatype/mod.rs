@@ -164,7 +164,7 @@ pub trait GetInterfaceController<T: ?Sized + interface::InterfaceMeta> {
     fn get_controller(&self) -> Option<T::Generator>;
 }
 
-impl<'a, T, IC> GetInterfaceController<T> for Model<IC> + 'a
+impl<'a, T, IC> GetInterfaceController<T> for dyn Model<IC> + 'a
         where
             T: ?Sized + interface::InterfaceMeta,
             IC: InterfaceController<T> {
@@ -414,7 +414,7 @@ pub trait DatatypeEnum: Sized {
 
     fn from_name(name: &str) -> Option<Self>;
 
-    fn as_model<'a>(&self) -> &(Model<Self::InterfaceControllerType> + 'a);
+    fn as_model<'a>(&self) -> &(dyn Model<Self::InterfaceControllerType> + 'a);
 
     fn all_variants() -> Vec<Self> {
         Self::variant_names()
@@ -495,7 +495,7 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
 
     // TODO: Kludge around Model/Interface controller mess
     // TODO: Unable to implement as Index trait because of trait obj lifetime?
-    pub fn get_model<'a>(&self, name: &str) -> &(Model<T::InterfaceControllerType> + 'a) {
+    pub fn get_model<'a>(&self, name: &str) -> &(dyn Model<T::InterfaceControllerType> + 'a) {
         self.models.get(name).expect("Datatype must be known").as_model()
     }
 

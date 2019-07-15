@@ -142,7 +142,7 @@ impl<RC: RepoController> CustomProductionPolicyController for StoreRepoBackend<R
         repo: &::repo::Repository,
         art_graph: &ArtifactGraph,
         prod_a_idx: ArtifactGraphIndex,
-    ) -> Result<Box<ProductionPolicy>, Error> {
+    ) -> Result<Box<dyn ProductionPolicy>, Error> {
         // Get output ref artifact.
         let ref_art_idx = art_graph.get_related_artifacts(
             prod_a_idx,

@@ -140,7 +140,7 @@ pub trait CustomProductionPolicyController {
         repo: &::repo::Repository,
         art_graph: &ArtifactGraph,
         prod_a_idx: ArtifactGraphIndex,
-    ) -> Result<Box<ProductionPolicy>, Error>;
+    ) -> Result<Box<dyn ProductionPolicy>, Error>;
 }
 
 

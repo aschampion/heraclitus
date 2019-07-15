@@ -55,7 +55,7 @@ macro_rules! interface_controller_enum {
         }
 
         $(
-            impl $crate::datatype::InterfaceController<$i_control> for $enum_name {
+            impl $crate::datatype::InterfaceController<dyn $i_control> for $enum_name {
                 const VARIANT: $enum_name = $enum_name::$i_name(None);
 
                 fn into_controller_generator(self) -> Option<<$i_control as $crate::datatype::interface::InterfaceMeta>::Generator> {
@@ -111,7 +111,7 @@ macro_rules! datatype_enum {
                 }
             }
 
-            fn as_model<'a>(&self) -> &($crate::datatype::Model<Self::InterfaceControllerType> + 'a) {
+            fn as_model<'a>(&self) -> &(dyn $crate::datatype::Model<Self::InterfaceControllerType> + 'a) {
                 match *self {
                     $(
                         $enum_name::$d_name(ref d) => d,
@@ -142,7 +142,7 @@ macro_rules! datatype_controllers {
                     let closure: <$i_control as $crate::datatype::interface::InterfaceMeta>::Generator =
                         Box::new(|repo| {
                             let store = $crate::store::Store::<$dtype>::new(repo);
-                            let control: Box<$i_control> = Box::new(store);
+                            let control: Box<dyn $i_control> = Box::new(store);
                             control
                         });
                     return Some(T::from(closure));
@@ -176,7 +176,7 @@ macro_rules! state_interface {
                 &self,
                 repo: &$crate::repo::Repository,
                 composition: &$crate::Composition,
-            ) -> Result<Box<$iface>, $crate::Error> {
+            ) -> Result<Box<dyn $iface>, $crate::Error> {
                 Ok(Box::new(self.get_composite_state(repo, composition)?))
             }
         }
