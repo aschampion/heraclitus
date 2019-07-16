@@ -17,6 +17,10 @@ extern crate schemer;
 #[macro_use]
 extern crate serde_derive;
 
+// Necessary for names to resolve when using heraclitus-macros within the
+// heraclitus crate itself;
+extern crate self as heraclitus;
+
 
 use std::collections::{BTreeMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
@@ -35,10 +39,6 @@ use uuid::Uuid;
 
 use crate::datatype::{DatatypeEnum, DatatypesRegistry};
 use crate::datatype::artifact_graph::{ArtifactGraphDescription};
-
-// Will need to be changed for 2018 edition. See:
-// https://github.com/rust-lang/rust/issues/54647
-mod heraclitus { pub use super::*; }
 
 
 #[macro_use]
