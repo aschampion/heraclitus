@@ -123,7 +123,7 @@ fn impl_interface(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
 
         pub type #gen_name = Box<dyn Fn(&Repository) -> Box<dyn #name>>;
 
-        impl ::heraclitus_core::InterfaceMeta for #name {
+        impl ::heraclitus_core::InterfaceMeta for dyn #name {
             type Generator = #gen_name;
         }
     }
