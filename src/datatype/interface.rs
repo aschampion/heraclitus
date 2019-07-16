@@ -18,7 +18,7 @@ use crate::datatype::artifact_graph::production::ProductionPolicy;
 use crate::repo::Repository;
 
 
-pub use heraclitus_core::InterfaceMeta;
+pub use heraclitus_core::datatype::interface::*;
 
 
 lazy_static! {
