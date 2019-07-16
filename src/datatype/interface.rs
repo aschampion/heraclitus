@@ -1,7 +1,9 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use heraclitus_core::enum_set;
 use enum_set::EnumSet;
 use heraclitus_macros::{interface, stored_controller};
+use maplit::hashmap;
 
 use crate::{
     ArtifactGraph,

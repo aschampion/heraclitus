@@ -6,4 +6,19 @@ edition = "2018"
 
 [lib]
 name = "heraclitus_core"
-path = "lib.rs"
+path = "src/lib.rs"
+
+[dependencies]
+heraclitus-macros = { path = "../heraclitus-macros" }
+daggy = "0.6"
+enum-set = "*"
+failure = "0.1"
+lazy_static = "*"
+petgraph = { version = "0.4.13", features = ["serde-1"] }
+postgres = { version = "0.15", features = ["with-uuid"] }
+postgres_array = "0.9"
+postgres-derive = "0.3"
+schemer = "0.1.2"
+schemer-postgres = "0.1.1"
+url = "*"
+uuid = { version = "0.5", features = ["use_std", "v4", "v5"] }

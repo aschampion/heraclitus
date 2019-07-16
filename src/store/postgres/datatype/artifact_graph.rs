@@ -2,14 +2,21 @@ use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::iter::FromIterator;
 
+use heraclitus_core::{
+    daggy,
+    enum_set,
+    petgraph,
+    postgres,
+    schemer,
+    schemer_postgres,
+    uuid,
+};
 use daggy::petgraph::visit::EdgeRef;
 use daggy::Walker;
 use enum_set::EnumSet;
-use petgraph;
-use postgres;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
-use schemer;
+use schemer::migration;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 use uuid::Uuid;
 
@@ -285,11 +292,11 @@ impl PostgresMigration for PGMigrationArtifactGraphs {
 }
 
 
-impl super::MetaController for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
-    // fn register_with_repo(&self, repoler: &PostgresRepository) {
-    //     repoler.register_postgres_migratable(Box::new(*self));
-    // }
-}
+// impl super::MetaController for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
+//     // fn register_with_repo(&self, repoler: &PostgresRepository) {
+//     //     repoler.register_postgres_migratable(Box::new(*self));
+//     // }
+// }
 
 impl PostgresMigratable for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {

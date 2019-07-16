@@ -1,8 +1,13 @@
 use std::borrow::Borrow;
 
+use heraclitus_core::{
+    postgres,
+    schemer,
+    schemer_postgres,
+};
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
-use schemer;
+use schemer::migration;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
 use crate::{
@@ -11,7 +16,7 @@ use crate::{
     Hunk,
 };
 use crate::datatype::{
-    MetaController,
+    // MetaController,
     Payload,
 };
 use crate::datatype::blob::{
@@ -41,11 +46,11 @@ impl PostgresMigration for PGMigrationBlobs {
 }
 
 
-impl MetaController for StoreRepoBackend<PostgresRepository, BlobDatatype> {
-    // fn register_with_repo(&self, repoler: &mut PostgresRepository) {
-    //     repoler.register_postgres_migratable(Box::new(*self));
-    // }
-}
+// impl MetaController for StoreRepoBackend<PostgresRepository, BlobDatatype> {
+//     // fn register_with_repo(&self, repoler: &mut PostgresRepository) {
+//     //     repoler.register_postgres_migratable(Box::new(*self));
+//     // }
+// }
 
 impl PostgresMigratable for StoreRepoBackend<PostgresRepository, BlobDatatype> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {

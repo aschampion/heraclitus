@@ -1,5 +1,7 @@
 use std::collections::{BTreeSet};
 
+use maplit::btreeset;
+
 use crate::{
     RepresentationKind,
     Error,
@@ -77,7 +79,7 @@ impl Partitioning for UnaryPartitioningState {
     }
 }
 
-impl<RC: crate::repo::RepoController> super::MetaController for StoreRepoBackend<RC, UnaryPartitioning> {}
+// impl<RC: crate::repo::RepoController> super::MetaController for StoreRepoBackend<RC, UnaryPartitioning> {}
 
 impl<RC: crate::repo::RepoController> super::Storage for StoreRepoBackend<RC, UnaryPartitioning> {
     type StateType = UnaryPartitioningState;

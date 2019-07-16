@@ -2,10 +2,16 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use heraclitus_core::{
+    postgres,
+    schemer,
+    schemer_postgres,
+    uuid,
+};
 use uuid::Uuid;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
-use schemer;
+use schemer::migration;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
 use crate::{
@@ -15,9 +21,9 @@ use crate::{
     Error,
     Version,
 };
-use crate::datatype::{
-    MetaController,
-};
+// use crate::datatype::{
+//     MetaController,
+// };
 use crate::datatype::reference::{
     ArtifactSpecifier,
     BranchRevisionTip,
@@ -52,7 +58,7 @@ impl PostgresMigration for PGMigrationRefs {
     }
 }
 
-impl MetaController for StoreRepoBackend< PostgresRepository, Ref> {}
+// impl MetaController for StoreRepoBackend< PostgresRepository, Ref> {}
 
 impl PostgresMigratable for StoreRepoBackend< PostgresRepository, Ref> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {

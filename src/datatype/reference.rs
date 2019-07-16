@@ -4,6 +4,7 @@ use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
+use heraclitus_core::uuid;
 use heraclitus_macros::stored_controller;
 use uuid::Uuid;
 

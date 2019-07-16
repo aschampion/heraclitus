@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use maplit::hashmap;
+
 use crate::{
     ArtifactGraph,
     RepresentationKind,
@@ -15,7 +17,6 @@ use crate::datatype::{
     DependencyCardinalityRestriction,
     DependencyStoreRestriction,
     InterfaceController,
-    MetaController,
     Model,
     StoreMetaController,
 };
@@ -64,7 +65,7 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
     datatype_controllers!(NoopProducer, (ProducerController));
 }
 
-impl<RC: RepoController> MetaController for StoreRepoBackend<RC, NoopProducer> {}
+// impl<RC: RepoController> MetaController for StoreRepoBackend<RC, NoopProducer> {}
 
 impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, NoopProducer> {
     fn production_strategies(&self) -> ProductionStrategies {
@@ -100,7 +101,13 @@ pub(crate) mod tests {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
+    use heraclitus_core::{
+        enum_set,
+        petgraph,
+        uuid,
+    };
     use enum_set::EnumSet;
+    use maplit::hashset;
     use petgraph::Direction;
     use petgraph::visit::EdgeRef;
     use uuid::Uuid;
@@ -143,7 +150,7 @@ pub(crate) mod tests {
         datatype_controllers!(NegateBlobProducer, (ProducerController));
     }
 
-    impl<RC: RepoController> MetaController for StoreRepoBackend<RC, NegateBlobProducer> {}
+    // impl<RC: RepoController> MetaController for StoreRepoBackend<RC, NegateBlobProducer> {}
 
     impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, NegateBlobProducer> {
         fn production_strategies(&self) -> ProductionStrategies {

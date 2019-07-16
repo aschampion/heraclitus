@@ -1,15 +1,20 @@
+use heraclitus_core::{
+    postgres,
+    schemer,
+    schemer_postgres,
+};
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
-use schemer;
+use schemer::migration;
 use schemer_postgres::{PostgresAdapter, PostgresMigration};
 
 use crate::{
     Error,
     PartitionIndex,
 };
-use crate::datatype::{
-    MetaController,
-};
+// use crate::datatype::{
+//     MetaController,
+// };
 use crate::datatype::partitioning::{
     UnaryPartitioning,
 };
@@ -20,7 +25,7 @@ use crate::store::postgres::{PostgresMigratable, PostgresRepository};
 use super::PostgresMetaController;
 
 
-impl MetaController for StoreRepoBackend<PostgresRepository, UnaryPartitioning> {}
+// impl MetaController for StoreRepoBackend<PostgresRepository, UnaryPartitioning> {}
 
 impl PostgresMigratable for StoreRepoBackend<PostgresRepository, UnaryPartitioning> {}
 
@@ -64,7 +69,7 @@ pub mod arbitrary {
     }
 
 
-    impl MetaController for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {}
+    // impl MetaController for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {}
 
     impl PostgresMigratable for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {
         fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {

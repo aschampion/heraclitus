@@ -24,22 +24,10 @@ members = [
 [dependencies]
 heraclitus-core = { path = "crates/heraclitus-core" }
 heraclitus-macros = { path = "crates/heraclitus-macros" }
-daggy = "0.6"
-enum-set = "*"
-failure = "0.1"
-lazy_static = "*"
 maplit = "*"
-petgraph = { version = "0.4.13", features = ["serde-1"] }
-postgres = { version = "0.15", features = ["with-uuid"] }
-postgres_array = "0.9"
-postgres-derive = "0.3"
-schemer = "0.1.2"
-schemer-postgres = "0.1.1"
 serde = "*"
 serde_derive = "*"
 serde_json = "*"
-url = "*"
-uuid = { version = "0.5", features = ["use_std", "v4", "v5"] }
 
 [patch.crates-io]
 schemer = { path = "../schemer/schemer" }

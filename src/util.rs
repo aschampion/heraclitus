@@ -1,4 +1,5 @@
 pub mod petgraph {
+    use heraclitus_core::petgraph;
     use petgraph::prelude::*;
     use petgraph::Direction;
     use petgraph::visit::{

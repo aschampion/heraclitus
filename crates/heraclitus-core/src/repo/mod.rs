@@ -87,7 +87,7 @@ pub mod testing {
 
     #[test]
     fn test_postgres_repo_init() {
-        let dtypes_registry = crate::datatype::testing::init_default_dtypes_registry();
+        let dtypes_registry = crate::datatype::testing::init_empty_dtypes_registry();
         init_repo(Backend::Postgres, &dtypes_registry);
     }
 }
