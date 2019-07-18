@@ -7,12 +7,14 @@ use heraclitus_core::{
     daggy,
     enum_set,
     petgraph,
-    postgres,
 };
 use daggy::{
     Walker,
 };
 use daggy::petgraph::visit::EdgeRef;
+#[cfg(feature="backend-postgres")]
+use heraclitus_core::postgres;
+#[cfg(feature="backend-postgres")]
 use postgres::to_sql_checked;
 
 use crate::{
@@ -267,15 +269,16 @@ impl ProductionPolicy for LeafBootstrapProductionPolicy {
 }
 
 
-#[derive(Clone, Copy, Debug, ToSql, FromSql)]
+#[derive(Clone, Copy, Debug)]
 #[repr(u32)]
-#[postgres(name = "production_policy")]
+#[cfg_attr(feature="backend-postgres", derive(ToSql, FromSql))]
+#[cfg_attr(feature="backend-postgres", postgres(name = "production_policy"))]
 pub enum ProductionPolicies {
-    #[postgres(name = "extant")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "extant"))]
     Extant,
-    #[postgres(name = "leaf_bootstrap")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "leaf_bootstrap"))]
     LeafBootstrap,
-    #[postgres(name = "custom")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "custom"))]
     Custom,
 }
 

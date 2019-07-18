@@ -21,7 +21,9 @@ use std::ops::{Index, IndexMut};
 use daggy::Walker;
 use petgraph::Direction;
 use petgraph::visit::EdgeRef;
+#[cfg(feature="backend-postgres")]
 use postgres::to_sql_checked;
+#[cfg(feature="backend-postgres")]
 use postgres_derive::{ToSql, FromSql};
 use serde_derive::{Serialize, Deserialize};
 use uuid::Uuid;
@@ -465,12 +467,13 @@ pub enum VersionRelation<'b>{
     // SufficientAncestor,
 }
 
-#[derive(Debug, ToSql, FromSql)]
-#[postgres(name = "version_status")]
+#[derive(Debug)]
+#[cfg_attr(feature="backend-postgres", derive(ToSql, FromSql))]
+#[cfg_attr(feature="backend-postgres", postgres(name = "version_status"))]
 pub enum VersionStatus {
-    #[postgres(name = "staging")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "staging"))]
     Staging,
-    #[postgres(name = "committed")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "committed"))]
     Committed,
 }
 
@@ -517,12 +520,13 @@ pub struct Partition<'a: 'b, 'b: 'c, 'c> {
     // TODO: also need to be able to handle partition types (leaf v. neighborhood, level, arbitrary)
 }
 
-#[derive(Debug, ToSql, FromSql)]
-#[postgres(name = "part_completion")]
+#[derive(Debug)]
+#[cfg_attr(feature="backend-postgres", derive(ToSql, FromSql))]
+#[cfg_attr(feature="backend-postgres", postgres(name = "part_completion"))]
 pub enum PartCompletion {
-    #[postgres(name = "complete")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "complete"))]
     Complete,
-    #[postgres(name = "ragged")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "ragged"))]
     Ragged,
 }
 

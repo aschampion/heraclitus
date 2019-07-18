@@ -6,32 +6,27 @@ use crate::datatype::{
     DatatypesRegistry,
 };
 use crate::store::Backend;
+#[cfg(feature="backend-postgres")]
 use crate::store::postgres::PostgresRepository;
 
 
 pub enum Repository {
+    #[cfg(feature="backend-postgres")]
     Postgres(PostgresRepository),
 }
 
 impl Repository {
     fn new(repo: &super::RepositoryLocation) -> Repository {
+        #[allow(unused_imports)]
         use self::Repository::*;
+
         match repo.url.scheme() {
+            #[cfg(feature="backend-postgres")]
             "postgres" | "postgresql" => Postgres(PostgresRepository::new(repo)),
             _ => unimplemented!()
         }
     }
-
-    // fn controller(&self) -> Repository {
-    //     match self {
-    //         StoreRepo::Postgres(ref c) => Repository::Postgres(c),
-    //     }
-    // }
 }
-
-// pub enum Repository {
-//     Postgres(&'store PostgresRepository),
-// }
 
 #[stored_controller(Repository)]
 pub trait RepoController {
@@ -51,6 +46,7 @@ pub trait RepoController {
 pub mod testing {
     use super::*;
 
+    #[cfg(feature="backend-postgres")]
     use url::Url;
 
     pub fn init_repo<T: DatatypeEnum>(
@@ -59,6 +55,7 @@ pub mod testing {
         ) -> Repository {
 
         let url = match backend {
+            #[cfg(feature="backend-postgres")]
             Backend::Postgres =>
                 // Url::parse("postgresql://hera_test:hera_test@localhost/hera_test").unwrap(),
                 Url::parse("postgresql://postgres@localhost/?search_path=pg_temp").unwrap(),
@@ -74,16 +71,7 @@ pub mod testing {
         repo
     }
 
-    // pub fn init_default_context(backend: Backend) -> Context<::datatype::DefaultDatatypes> {
-    //     let dtypes_registry = ::datatype::testing::init_default_dtypes_registry();
-    //     let repo = init_repo(backend, &dtypes_registry);
-
-    //     Context {
-    //         dtypes_registry,
-    //         repo,
-    //     }
-    // }
-
+    #[cfg(feature="backend-postgres")]
     #[test]
     fn test_postgres_repo_init() {
         let dtypes_registry = crate::datatype::testing::init_empty_dtypes_registry();

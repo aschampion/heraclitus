@@ -8,6 +8,16 @@ edition = "2018"
 name = "heraclitus_core"
 path = "src/lib.rs"
 
+[features]
+backend-postgres = [
+	"heraclitus-macros/backend-postgres",
+	"postgres",
+	"postgres-derive",
+	"postgres_array",
+	"schemer",
+	"schemer-postgres",
+]
+
 [dependencies]
 heraclitus-macros = { path = "../heraclitus-macros" }
 daggy = "0.6"
@@ -15,10 +25,11 @@ enum-set = "*"
 failure = "0.1"
 lazy_static = "*"
 petgraph = { version = "0.4.13", features = ["serde-1"] }
-postgres = { version = "0.15", features = ["with-uuid"] }
-postgres_array = "0.9"
-postgres-derive = "0.3"
-schemer = "0.1.2"
-schemer-postgres = "0.1.1"
 url = "*"
 uuid = { version = "0.5", features = ["use_std", "v4", "v5"] }
+
+postgres = { version = "0.15", features = ["with-uuid"], optional = true }
+postgres_array = { version = "0.9", optional = true }
+postgres-derive = { version = "0.3", optional = true }
+schemer = { version = "0.1.2", optional = true }
+schemer-postgres = { version = "0.1.1", optional = true }

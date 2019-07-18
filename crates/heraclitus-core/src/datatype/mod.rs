@@ -6,6 +6,8 @@ use enum_set::EnumSet;
 use crate::Datatype;
 use crate::repo::{Repository, RepoController};
 use crate::store::Backend;
+
+#[cfg(feature="backend-postgres")]
 use crate::store::postgres::datatype::PostgresMetaController;
 
 
@@ -21,6 +23,7 @@ pub trait StoreBackend {
 }
 
 pub trait Store: Sized {
+    #[cfg(feature="backend-postgres")]
     type BackendPostgres: StoreBackend;
 
     fn backend(&self) -> Backend;
@@ -161,6 +164,7 @@ impl<'a, T, IC> GetInterfaceController<T> for dyn Model<IC> + 'a
 
 
 pub enum StoreMetaController {
+    #[cfg(feature="backend-postgres")]
     Postgres(Box<dyn PostgresMetaController>),
 }
 

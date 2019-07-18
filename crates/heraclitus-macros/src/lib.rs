@@ -13,6 +13,13 @@ use syn::parse::{
     Result,
 };
 
+fn backends() -> Vec<&'static str> {
+    vec![
+        #[cfg(feature="backend-postgres")]
+        "Postgres",
+    ]
+}
+
 struct StoreType {
     impl_generics: syn::Generics,
     self_ty: syn::Type,
@@ -103,6 +110,11 @@ fn impl_slow_stored_controller(mc: &syn::ItemTrait, etype: &StoreType) -> proc_m
     let ty_generics = &etype.ty_generics;
     let where_clause = &etype.where_clause;
     let trait_items = etype.trait_items.iter();
+    let backend = std::iter::repeat(backends().into_iter()
+        .map(|b| proc_macro2::Ident::new(b, name.span())));
+    let backend_assoc = std::iter::repeat(backends().into_iter()
+        .map(|b| proc_macro2::Ident::new(&format!("Backend{}", b), name.span())));
+    let method_calls_rep = method_calls.map(|m| std::iter::repeat(m));
 
     quote! {
         #mc
@@ -118,7 +130,9 @@ fn impl_slow_stored_controller(mc: &syn::ItemTrait, etype: &StoreType) -> proc_m
                     use heraclitus::datatype::StoreBackend;
 
                     match self.backend() {
-                        Postgres => <Self as heraclitus::datatype::Store>::BackendPostgres::new().#method_calls,
+                        #(
+                            #backend => <Self as heraclitus::datatype::Store>::#backend_assoc::new().#method_calls_rep,
+                        )*
                         _ => unimplemented!(),
                     }
                 }
@@ -164,6 +178,9 @@ fn impl_stored_controller(mc: &syn::ItemTrait, etype: &StoreType) -> proc_macro2
     let impl_generics = &etype.impl_generics;
     let ty_generics = &etype.ty_generics;
     let where_clause = &etype.where_clause;
+    let backend = std::iter::repeat(backends().into_iter()
+        .map(|b| proc_macro2::Ident::new(b, name.span())));
+    let method_calls_rep = method_calls.map(|m| std::iter::repeat(m));
 
     quote! {
         #mc
@@ -172,7 +189,10 @@ fn impl_stored_controller(mc: &syn::ItemTrait, etype: &StoreType) -> proc_macro2
             #(
                 #methods {
                     match self {
-                        Self::Postgres(c) => c.#method_calls,
+                        #(
+                            Self::#backend(c) => c.#method_calls_rep,
+                        )*
+                        _ => unreachable!(),
                     }
                 }
             )*
@@ -236,16 +256,58 @@ pub fn stored_interface_controller(_attr: proc_macro::TokenStream, item: proc_ma
 }
 
 fn impl_stored_interface_controller(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
-    let name = &mc.ident;
+    let name = std::iter::repeat(&mc.ident);
+    let backend_assoc = backends().into_iter()
+        .map(|b| proc_macro2::Ident::new(&format!("Backend{}", b), mc.ident.span()));
 
     quote! {
         #[heraclitus_macros::slow_stored_controller(<S: heraclitus::datatype::Store>
             S
-            where S::BackendPostgres: #name)]
+            where #(
+                S::#backend_assoc: #name,
+            )*
+        )]
         #mc
     }
 }
 
+
+/// Special macro just for setting the appropriate `S::Backend*: Storage<...>`
+/// constraints for `datatype::Storage`. This could be generalized into
+/// `slow_stored_controller`/`stored_controller` with some work.
+#[proc_macro_attribute]
+pub fn stored_storage_controller(_attr: proc_macro::TokenStream, item: proc_macro::TokenStream)
+        -> proc_macro::TokenStream {
+    let ast = syn::parse_macro_input!(item as syn::ItemTrait);
+
+    let gen = impl_stored_storage_controller(&ast);
+
+    gen.into()
+}
+
+fn impl_stored_storage_controller(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
+    let name = std::iter::repeat(&mc.ident);
+    let backend_assoc = backends().into_iter()
+        .map(|b| proc_macro2::Ident::new(&format!("Backend{}", b), mc.ident.span()));
+
+    quote! {
+        #[heraclitus_macros::slow_stored_controller(
+            <State, Delta, S> S
+            where
+                State: Debug + Hash + PartialEq,
+                Delta: Debug + Hash + PartialEq,
+                S: heraclitus::datatype::Store,
+                #(
+                    S::#backend_assoc: #name<StateType=State, DeltaType=Delta>,
+                )*
+            {
+                type StateType = State;
+                type DeltaType = Delta;
+            }
+        )]
+        #mc
+    }
+}
 
 #[proc_macro_derive(DatatypeMarker)]
 pub fn datatype_marker_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -283,6 +345,7 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
             }
         }
 
+        #[cfg(feature="backend-postgres")]
         impl From<#store_name> for #store_backend_name<heraclitus::store::postgres::PostgresRepository> {
             fn from(store: #store_name) -> Self {
                 match store {
@@ -293,17 +356,20 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
         }
 
         pub enum #store_name {
+            #[cfg(feature="backend-postgres")]
             Postgres(#store_backend_name::<heraclitus::store::postgres::PostgresRepository>),
         }
 
         // Must do this until GATs are available.
         impl heraclitus::datatype::Store for #store_name {
+            #[cfg(feature="backend-postgres")]
             type BackendPostgres = #store_backend_name::<heraclitus::store::postgres::PostgresRepository>;
 
             fn backend(&self) -> heraclitus::store::Backend {
                 use heraclitus::store::Backend::*;
 
-                match self {
+                match *self {
+                    #[cfg(feature="backend-postgres")]
                     Self::Postgres(_) => Postgres,
                 }
             }
@@ -312,6 +378,7 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                 use heraclitus::store::Backend::*;
 
                 match backend {
+                    #[cfg(feature="backend-postgres")]
                     Postgres => Self::Postgres(
                         #store_backend_name::<heraclitus::store::postgres::PostgresRepository>::new()),
                     _ => unimplemented!()
@@ -322,6 +389,7 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
         impl Into<heraclitus::datatype::StoreMetaController> for #store_name {
             fn into(self) -> heraclitus::datatype::StoreMetaController {
                 match self {
+                    #[cfg(feature="backend-postgres")]
                     Self::Postgres(c) => heraclitus::datatype::StoreMetaController::Postgres(Box::new(c)),
                 }
             }

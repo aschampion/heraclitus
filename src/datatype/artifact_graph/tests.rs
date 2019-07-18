@@ -621,4 +621,5 @@ macro_rules! backend_test_suite {
     }
 }
 
+#[cfg(feature="backend-postgres")]
 backend_test_suite!(postgres, Backend::Postgres);

@@ -4,15 +4,23 @@ pub extern crate daggy;
 pub extern crate enum_set;
 pub extern crate lazy_static;
 pub extern crate petgraph;
-#[macro_use]
-pub extern crate postgres;
-pub extern crate postgres_array;
-pub extern crate postgres_derive;
+#[cfg(any(feature="backend-postgres"))]
 #[macro_use]
 pub extern crate schemer;
-pub extern crate schemer_postgres;
 pub extern crate url;
 pub extern crate uuid;
+
+
+#[cfg(feature="backend-postgres")]
+#[macro_use]
+pub extern crate postgres;
+#[cfg(feature="backend-postgres")]
+pub extern crate postgres_array;
+#[cfg(feature="backend-postgres")]
+pub extern crate postgres_derive;
+#[cfg(feature="backend-postgres")]
+pub extern crate schemer_postgres;
+
 
 // Necessary for names to resolve when using heraclitus-macros within the
 // heraclitus-core crate itself;
@@ -28,7 +36,7 @@ use std::mem;
 
 use enum_set::EnumSet;
 use lazy_static::lazy_static;
-// pub use postgres;
+#[cfg(feature="backend-postgres")]
 use postgres_derive::{ToSql, FromSql};
 use url::Url;
 use uuid::Uuid;
@@ -83,22 +91,23 @@ type InterfaceIndexType = petgraph::graph::DefaultIx;
 pub type InterfaceIndex = petgraph::graph::NodeIndex<InterfaceIndexType>;
 type InterfaceExtension = daggy::Dag<Interface, (), InterfaceIndexType>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ToSql, FromSql)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
-#[postgres(name = "representation_kind")]
+#[cfg_attr(feature="backend-postgres", derive(ToSql, FromSql))]
+#[cfg_attr(feature="backend-postgres", postgres(name = "representation_kind"))]
 pub enum RepresentationKind {
     /// Contains independent representation of the state of its datatype.
     /// That is, a single hunk per partition is sufficient.
-    #[postgres(name = "state")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "state"))]
     State,
     /// Contains a dependent representation given a *single* prior state of a
     /// datatype. That is, a single state hunk and this delta is sufficient.
-    #[postgres(name = "cumulative_delta")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "cumulative_delta"))]
     CumulativeDelta,
     /// Contains a dependent representation given prior state of a datatype.
     /// This dependent representation may be a sequence of multiple prior
     /// representations.
-    #[postgres(name = "delta")]
+    #[cfg_attr(feature="backend-postgres", postgres(name = "delta"))]
     Delta,
 }
 

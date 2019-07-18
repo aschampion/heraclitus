@@ -48,6 +48,7 @@ trait TestDatatypeStorage {}
 mod store {
     use super::*;
 
+    #[cfg(feature="backend-postgres")]
     mod postgres {
         use heraclitus_core::store::postgres::{
             datatype::PostgresMetaController,

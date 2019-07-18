@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
 use heraclitus_macros::{
-    slow_stored_controller,
+    stored_storage_controller,
 };
 
 pub use heraclitus_core::datatype::*;
@@ -36,18 +36,7 @@ pub enum Payload<S, D> {
 }
 
 /// Common interface to all datatypes that involves state.
-#[slow_stored_controller(
-    <State, Delta, S> S
-    where
-        State: Debug + Hash + PartialEq,
-        Delta: Debug + Hash + PartialEq,
-        S: heraclitus::datatype::Store,
-        S::BackendPostgres: Storage<StateType=State, DeltaType=Delta>,
-    {
-        type StateType = State;
-        type DeltaType = Delta;
-    }
-)]
+#[stored_storage_controller] // This will only compile if some backend is enabled
 pub trait Storage {
     type StateType: Debug + Hash + PartialEq;
     type DeltaType: Debug + Hash + PartialEq;

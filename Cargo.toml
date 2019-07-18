@@ -21,6 +21,10 @@ members = [
 	"crates/heraclitus-macros",
 ]
 
+[features]
+default = ["backend-postgres"]  # At least one backend must be enabled to compile.
+backend-postgres = ["heraclitus-core/backend-postgres", "heraclitus-macros/backend-postgres"]
+
 [dependencies]
 heraclitus-core = { path = "crates/heraclitus-core" }
 heraclitus-macros = { path = "crates/heraclitus-macros" }

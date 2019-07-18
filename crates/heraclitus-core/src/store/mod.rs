@@ -3,14 +3,15 @@ use std::mem;
 use enum_set;
 
 
+#[cfg(feature="backend-postgres")]
 pub mod postgres;
 
 
 #[derive(Clone, Copy)]
 #[repr(u32)]
 pub enum Backend {
-    Filesystem,
     Memory,
+    #[cfg(feature="backend-postgres")]
     Postgres,
 }
 
