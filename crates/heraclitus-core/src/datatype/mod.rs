@@ -1,29 +1,40 @@
-pub mod interface {
-    pub trait InterfaceMeta {
-        type Generator;
-    }
-}
-
 use std;
 use std::collections::{HashMap, HashSet};
 
 use enum_set::EnumSet;
 
 use crate::Datatype;
-use crate::repo::Repository;
-use crate::store::{
-    Backend,
-    StoreRepoBackend,
-};
+use crate::repo::{Repository, RepoController};
+use crate::store::Backend;
 use crate::store::postgres::datatype::PostgresMetaController;
 
 
 #[macro_use]
 pub mod macros;
-// pub mod interface;
 
 
-pub trait DatatypeMarker: 'static {}
+pub trait StoreBackend {
+    type Datatype: DatatypeMarker;
+    type Base: Store;
+
+    fn new() -> Self;
+}
+
+pub trait Store: Sized {
+    type BackendPostgres: StoreBackend;
+
+    fn backend(&self) -> Backend;
+
+    fn for_backend(backend: Backend) -> Self;
+
+    fn new(repo: &Repository) -> Self {
+        Self::for_backend(repo.backend())
+    }
+}
+
+pub trait DatatypeMarker: 'static {
+    type Store: Store;
+}
 
 pub trait Implements<I: ?Sized + interface::InterfaceMeta> {}
 
@@ -153,37 +164,6 @@ pub enum StoreMetaController {
     Postgres(Box<dyn PostgresMetaController>),
 }
 
-impl StoreMetaController {
-    pub fn new<D: crate::datatype::DatatypeMarker>(repo: &Repository) -> StoreMetaController
-            where StoreRepoBackend<crate::store::postgres::PostgresRepository, D>: PostgresMetaController {
-        match repo {
-            Repository::Postgres(prc) => StoreMetaController::Postgres(Box::new(
-                StoreRepoBackend::<crate::store::postgres::PostgresRepository, D>::new(prc))),
-        }
-    }
-
-    pub fn from_backend<D: crate::datatype::DatatypeMarker>(backend: Backend) -> StoreMetaController
-            where StoreRepoBackend<crate::store::postgres::PostgresRepository, D>: PostgresMetaController {
-        match backend {
-            Backend::Postgres => StoreMetaController::Postgres(Box::new(
-                StoreRepoBackend::<crate::store::postgres::PostgresRepository, D>::infer())),
-            _ => unimplemented!()
-        }
-    }
-}
-
-// TODO: ugly kludge, but getting deref/borrow to work for variants is fraught.
-// impl MetaController for StoreMetaController {
-//     fn init_artifact(
-//         &mut self,
-//         artifact: &Artifact,
-//     ) -> Result<(), Error> {
-//         match *self {
-//             StoreMetaController::Postgres(ref mut pmc) => pmc.init_artifact(artifact),
-//         }
-//     }
-// }
-
 pub trait InterfaceController<T: ?Sized + interface::InterfaceMeta> :
         From<T::Generator> +
         // Into<T::Generator> +
@@ -305,6 +285,13 @@ interface_controller_enum!(EmptyInterfaceController, ());
 datatype_enum!(EmptyDatatypes, EmptyInterfaceController, ());
 
 
+pub mod interface {
+    pub trait InterfaceMeta {
+        type Generator;
+    }
+}
+
+
 /// Testing utilities.
 ///
 /// This module is public so dependent libraries can reuse these utilities to
@@ -320,9 +307,6 @@ pub mod testing {
         let mut dtypes_registry = DatatypesRegistry::new();
         dtypes_registry.register_interfaces(&<T as DatatypeEnum>::InterfaceControllerType::all_descriptions());
         let models = T::all_variants();
-            // .iter()
-            // .map(|v| v.as_model())
-            // .collect();
         dtypes_registry.register_datatype_models(models);
         dtypes_registry
     }

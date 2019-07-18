@@ -129,20 +129,24 @@ macro_rules! datatype_controllers {
         fn meta_controller(
             &self,
             backend: $crate::store::Backend,
-        ) -> StoreMetaController {
-            StoreMetaController::from_backend::<$dtype>(backend)
+        ) -> $crate::datatype::StoreMetaController {
+            use $crate::datatype::Store;
+
+            <$dtype as $crate::datatype::DatatypeMarker>::Store::for_backend(backend).into()
+            // $crate::datatype::StoreMetaController::from_backend::<$dtype>(backend)
         }
 
         fn interface_controller(
             &self,
             iface: T,
         ) -> Option<T> {
+            use $crate::datatype::Store;
 
             $(
                 if iface == <T as InterfaceController<$i_control>>::VARIANT {
                     let closure: <$i_control as $crate::datatype::interface::InterfaceMeta>::Generator =
                         Box::new(|repo| {
-                            let store = $crate::store::Store::<$dtype>::new(repo);
+                            let store = <$dtype as $crate::datatype::DatatypeMarker>::Store::new(repo);
                             let control: Box<dyn $i_control> = Box::new(store);
                             control
                         });

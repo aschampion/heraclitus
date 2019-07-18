@@ -4,11 +4,19 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 
+use maplit::{
+    btreeset,
+    hashmap,
+};
 use uuid::Uuid;
 
 use crate::{
     Partition,
     PartCompletion,
+};
+use crate::datatype::{
+    DatatypeMarker,
+    Store,
 };
 use crate::datatype::partitioning::{
     Partitioning,
@@ -21,7 +29,7 @@ use crate::datatype::partitioning::arbitrary::{
 };
 use crate::datatype::producer::tests::NegateBlobProducer;
 
-use crate::store::{Backend, Store};
+use crate::store::{Backend};
 
 
 datatype_enum!(TestDatatypes, crate::datatype::DefaultInterfaceController, (
@@ -163,7 +171,7 @@ fn test_create_get_artifact_graph(backend: Backend) {
 
     let (ag, _) = simple_blob_prod_ag_fixture(&dtypes_registry, None);
 
-    let mut model_ctrl = Store::<ArtifactGraphDtype>::new(&repo);
+    let mut model_ctrl = <ArtifactGraphDtype as DatatypeMarker>::Store::new(&repo);
 
     model_ctrl.create_artifact_graph(&dtypes_registry, &repo, &ag).unwrap();
 
@@ -179,7 +187,7 @@ fn test_create_get_version_graph(backend: Backend) {
 
     let (ag, idxs) = simple_blob_prod_ag_fixture(&dtypes_registry, None);
 
-    let mut model_ctrl = Store::<ArtifactGraphDtype>::new(&repo);
+    let mut model_ctrl = <ArtifactGraphDtype as DatatypeMarker>::Store::new(&repo);
 
     model_ctrl.create_artifact_graph(&dtypes_registry, &repo, &ag).unwrap();
 
@@ -237,13 +245,13 @@ fn test_create_get_version_graph(backend: Backend) {
         ver_part_idx,
         crate::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
         .expect("UP comp map").into_iter().last().expect("UP state hunk").1;
-    let ver_part_control: Box<crate::datatype::partitioning::PartitioningState> =
+    let ver_part_control: Box<dyn PartitioningState> =
             dtypes_registry
-                .get_model_interface::<crate::datatype::partitioning::PartitioningState>(&ver_partitioning.artifact.dtype.name)
+                .get_model_interface::<dyn PartitioningState>(&ver_partitioning.artifact.dtype.name)
                 .map(|gen| gen(&repo))
                 .expect("Partitioning must have controller for backend");
 
-    let mut blob_control = Store::<crate::datatype::blob::BlobDatatype>::new(&repo);
+    let mut blob_control = <crate::datatype::blob::BlobDatatype as DatatypeMarker>::Store::new(&repo);
     let ver_blob_real = &ver_graph[blob1_ver_idx];
     let fake_blob = crate::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
     let ver_hunks = ver_part_control
@@ -300,7 +308,7 @@ fn test_production(backend: Backend) {
     };
     let (ag, idxs) = simple_blob_prod_ag_fixture(&dtypes_registry, Some(partitioning));
 
-    let mut model_ctrl = Store::<ArtifactGraphDtype>::new(&repo);
+    let mut model_ctrl = <ArtifactGraphDtype as DatatypeMarker>::Store::new(&repo);
 
 
     model_ctrl.create_artifact_graph(&dtypes_registry, &repo, &ag).unwrap();
@@ -325,7 +333,7 @@ fn test_production(backend: Backend) {
 
     // Create arbitrary partitions.
     {
-        let mut part_control = Store::<crate::datatype::partitioning::arbitrary::ArbitraryPartitioning>::new(&repo);
+        let mut part_control = <crate::datatype::partitioning::arbitrary::ArbitraryPartitioning as DatatypeMarker>::Store::new(&repo);
 
         model_ctrl.create_staging_version(
             &repo,
@@ -378,13 +386,13 @@ fn test_production(backend: Backend) {
             ver_part_idx,
             crate::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
             .expect("Composition map failed").into_iter().last().expect("No maps").1;
-        let ver_part_control: Box<crate::datatype::partitioning::PartitioningState> =
+        let ver_part_control: Box<dyn PartitioningState> =
                 dtypes_registry
-                    .get_model_interface::<crate::datatype::partitioning::PartitioningState>(&ver_partitioning.artifact.dtype.name)
+                    .get_model_interface::<dyn PartitioningState>(&ver_partitioning.artifact.dtype.name)
                     .map(|gen| gen(&repo))
                     .expect("Partitioning must have controller for backend");
 
-        let mut blob_control = Store::<crate::datatype::blob::BlobDatatype>::new(&repo);
+        let mut blob_control = <crate::datatype::blob::BlobDatatype as DatatypeMarker>::Store::new(&repo);
         let ver_blob_real = &ver_graph[blob1_ver_idx];
         let fake_blob = crate::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
         let ver_hunks = ver_part_control
@@ -469,13 +477,13 @@ fn test_production(backend: Backend) {
             ver_part_idx,
             crate::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
             .unwrap().into_iter().last().unwrap().1;
-        let ver_part_control: Box<crate::datatype::partitioning::PartitioningState> =
+        let ver_part_control: Box<dyn PartitioningState> =
                 dtypes_registry
-                    .get_model_interface::<crate::datatype::partitioning::PartitioningState>(&ver_partitioning.artifact.dtype.name)
+                    .get_model_interface::<dyn PartitioningState>(&ver_partitioning.artifact.dtype.name)
                     .map(|gen| gen(&repo))
                     .expect("Partitioning must have controller for backend");
 
-        let mut blob_control = Store::<crate::datatype::blob::BlobDatatype>::new(&repo);
+        let mut blob_control = <crate::datatype::blob::BlobDatatype as DatatypeMarker>::Store::new(&repo);
         let ver_blob_real = &ver_graph[blob1_ver2_idx];
         let fake_blob = crate::datatype::Payload::Delta((vec![1, 6], vec![7, 8]));
         let ver_hunks = ver_part_control
@@ -540,7 +548,7 @@ fn test_production(backend: Backend) {
         );
 
     {
-        let part_control = Store::<crate::datatype::partitioning::arbitrary::ArbitraryPartitioning>::new(&repo);
+        let part_control = <crate::datatype::partitioning::arbitrary::ArbitraryPartitioning as DatatypeMarker>::Store::new(&repo);
         let (ver_part_idx, _) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
         let ver_part_comp = model_ctrl.get_composition_map(
             &repo,
@@ -564,7 +572,7 @@ fn test_production(backend: Backend) {
             blob3_vg3_idxs[1],
             part_ids,
         ).unwrap();
-        let blob_control = Store::<crate::datatype::blob::BlobDatatype>::new(&repo);
+        let blob_control = <crate::datatype::blob::BlobDatatype as DatatypeMarker>::Store::new(&repo);
 
         for (p_id, blob1_comp) in &map1 {
             let blob3_comp = &map3[p_id];
@@ -580,7 +588,7 @@ fn test_production(backend: Backend) {
         use std::str::FromStr;
         use crate::datatype::reference::VersionSpecifier;
         use crate::datatype::reference::Storage as RefStorage;
-        let ref_control = Store::<crate::datatype::reference::Ref>::new(&repo);
+        let ref_control = <crate::datatype::reference::Ref as DatatypeMarker>::Store::new(&repo);
         assert_eq!(
             vg3[blob3_vg3_idxs[1]].id,
             ref_control.get_version_id(

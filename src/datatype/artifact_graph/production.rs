@@ -13,7 +13,6 @@ use daggy::{
     Walker,
 };
 use daggy::petgraph::visit::EdgeRef;
-use maplit::btreeset;
 use postgres::to_sql_checked;
 
 use crate::{
@@ -372,6 +371,8 @@ pub struct ProductionStrategySpecs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use maplit::btreeset;
 
     #[test]
     fn test_production_version_specs() {

@@ -1,18 +1,16 @@
+#![feature(const_fn)]
+
 pub extern crate daggy;
-// pub use daggy;
 pub extern crate enum_set;
 pub extern crate lazy_static;
 pub extern crate petgraph;
 #[macro_use]
 pub extern crate postgres;
 pub extern crate postgres_array;
-// #[macro_use]
 pub extern crate postgres_derive;
 #[macro_use]
 pub extern crate schemer;
 pub extern crate schemer_postgres;
-// #[macro_use]
-// pub extern crate serde_derive;
 pub extern crate url;
 pub extern crate uuid;
 

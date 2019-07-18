@@ -6,46 +6,24 @@
 #[macro_use]
 extern crate heraclitus_core;
 
-// #[macro_use]
-// extern crate lazy_static;
-// #[macro_use]
-// extern crate maplit;
-// #[macro_use]
-// extern crate postgres;
-// extern crate postgres_array;
-// #[macro_use]
-// extern crate postgres_derive;
-// #[macro_use]
-// extern crate schemer;
-// #[macro_use]
-// extern crate serde_derive;
 pub use heraclitus_core::*;
-// pub use heraclitus_core::petgraph as petgraph;
-// pub use heraclitus_core::daggy;
-// use heraclitus_core::maplit;
 
 // Necessary for names to resolve when using heraclitus-macros within the
 // heraclitus crate itself;
 extern crate self as heraclitus;
 
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::fmt::Debug;
-use std::io;
-use std::mem;
 use std::ops::{Index, IndexMut};
 
 use daggy::Walker;
-use enum_set::EnumSet;
 use petgraph::Direction;
 use petgraph::visit::EdgeRef;
 use postgres::to_sql_checked;
-// use postgres;
 use postgres_derive::{ToSql, FromSql};
 use serde_derive::{Serialize, Deserialize};
-use url::Url;
 use uuid::Uuid;
 
 use heraclitus_core::datatype::{DatatypeEnum, DatatypesRegistry};
@@ -54,7 +32,6 @@ use crate::datatype::artifact_graph::{ArtifactGraphDescription};
 
 #[macro_use]
 pub mod datatype;
-// pub mod repo;
 pub mod store;
 mod util;
 
@@ -328,7 +305,9 @@ impl<'a> Identifiable for Artifact<'a> {
 
 impl<'a> Hash for Artifact<'a> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dtype.id.hash.hash(state);
+        // TODO: is there a reason I had this hash the id directly, rather than
+        // use the dtype hash? If there is, it should be commented!
+        self.dtype.id().hash.hash(state);
         self.name.hash(state);
         self.self_partitioning.hash(state);
     }

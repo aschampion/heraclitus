@@ -2,6 +2,10 @@ use std::collections::{BTreeSet};
 
 use maplit::btreeset;
 
+use heraclitus_macros::{
+    DatatypeMarker,
+};
+
 use crate::{
     RepresentationKind,
     Error,
@@ -10,15 +14,12 @@ use crate::{
     VersionGraphIndex,
 };
 use super::{
-    DatatypeMarker,
     Description,
     InterfaceController,
     Model,
-    StoreMetaController,
 };
 use crate::datatype::interface::PartitioningController;
 use crate::repo::Repository;
-use crate::store::StoreRepoBackend;
 
 
 pub trait Partitioning {
@@ -29,10 +30,8 @@ pub trait Partitioning {
 
 state_interface!(PartitioningState, Partitioning);
 
-#[derive(Default)]
+#[derive(Default, DatatypeMarker)]
 pub struct UnaryPartitioning;
-
-impl DatatypeMarker for UnaryPartitioning {}
 
 impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
     fn info(&self) -> Description<T> {
@@ -57,7 +56,7 @@ impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
 /// enough case that this is public for convenience.
 pub const UNARY_PARTITION_INDEX: PartitionIndex = 0;
 
-impl<RC: crate::repo::RepoController> PartitioningController for StoreRepoBackend<RC, UnaryPartitioning> {
+impl<RC: crate::repo::RepoController> PartitioningController for UnaryPartitioningBackend<RC> {
     fn get_partition_ids(
         &self,
         _repo: &mut Repository,
@@ -81,7 +80,7 @@ impl Partitioning for UnaryPartitioningState {
 
 // impl<RC: crate::repo::RepoController> super::MetaController for StoreRepoBackend<RC, UnaryPartitioning> {}
 
-impl<RC: crate::repo::RepoController> super::Storage for StoreRepoBackend<RC, UnaryPartitioning> {
+impl<RC: crate::repo::RepoController> super::Storage for UnaryPartitioningBackend<RC> {
     type StateType = UnaryPartitioningState;
     type DeltaType = super::UnrepresentableType;
 
@@ -115,11 +114,11 @@ impl<RC: crate::repo::RepoController> super::Storage for StoreRepoBackend<RC, Un
 pub mod arbitrary {
     use super::*;
 
+    use heraclitus_macros::stored_datatype_controller;
 
-    #[derive(Default)]
+
+    #[derive(Default, DatatypeMarker)]
     pub struct ArbitraryPartitioning;
-
-    impl DatatypeMarker for ArbitraryPartitioning {}
 
     impl<T: InterfaceController<PartitioningState>> Model<T> for ArbitraryPartitioning {
         fn info(&self) -> Description<T> {
@@ -150,6 +149,7 @@ pub mod arbitrary {
         }
     }
 
+    #[stored_datatype_controller(ArbitraryPartitioning)]
     pub trait Storage:
         crate::datatype::Storage<StateType = ArbitraryPartitioningState,
                                     DeltaType = crate::datatype::UnrepresentableType> {}

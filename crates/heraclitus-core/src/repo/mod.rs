@@ -33,8 +33,7 @@ impl Repository {
 //     Postgres(&'store PostgresRepository),
 // }
 
-#[stored_controller( Repository)]
-// #[stored_controller(< D: ::datatype::DatatypeMarker> Store< D>)]
+#[stored_controller(Repository)]
 pub trait RepoController {
     fn init<T: DatatypeEnum>(&mut self, dtypes_registry: &DatatypesRegistry<T>) -> Result<(), Error>;
 

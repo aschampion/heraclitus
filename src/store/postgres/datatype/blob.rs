@@ -16,15 +16,13 @@ use crate::{
     Hunk,
 };
 use crate::datatype::{
-    // MetaController,
     Payload,
 };
 use crate::datatype::blob::{
-    BlobDatatype,
+    BlobDatatypeBackend,
     Storage,
 };
 use crate::repo::Repository;
-use crate::store::StoreRepoBackend;
 use crate::store::postgres::{PostgresMigratable, PostgresRepository};
 
 
@@ -46,13 +44,7 @@ impl PostgresMigration for PGMigrationBlobs {
 }
 
 
-// impl MetaController for StoreRepoBackend<PostgresRepository, BlobDatatype> {
-//     // fn register_with_repo(&self, repoler: &mut PostgresRepository) {
-//     //     repoler.register_postgres_migratable(Box::new(*self));
-//     // }
-// }
-
-impl PostgresMigratable for StoreRepoBackend<PostgresRepository, BlobDatatype> {
+impl PostgresMigratable for BlobDatatypeBackend<PostgresRepository> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
             Box::new(PGMigrationBlobs),
@@ -60,9 +52,9 @@ impl PostgresMigratable for StoreRepoBackend<PostgresRepository, BlobDatatype> {
     }
 }
 
-impl super::PostgresMetaController for StoreRepoBackend<PostgresRepository, BlobDatatype> {}
+impl super::PostgresMetaController for BlobDatatypeBackend<PostgresRepository> {}
 
-impl crate::datatype::Storage for StoreRepoBackend<PostgresRepository, BlobDatatype> {
+impl crate::datatype::Storage for BlobDatatypeBackend<PostgresRepository> {
     blob_common_model_controller_impl!();
 
     fn write_hunk(
@@ -155,4 +147,4 @@ impl crate::datatype::Storage for StoreRepoBackend<PostgresRepository, BlobDatat
     }
 }
 
-impl Storage for StoreRepoBackend<PostgresRepository, BlobDatatype> {}
+impl Storage for BlobDatatypeBackend<PostgresRepository> {}

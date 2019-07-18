@@ -16,20 +16,19 @@ use crate::{
 //     MetaController,
 // };
 use crate::datatype::partitioning::{
-    UnaryPartitioning,
+    UnaryPartitioningBackend,
 };
 use crate::repo::Repository;
-use crate::store::StoreRepoBackend;
 use crate::store::postgres::{PostgresMigratable, PostgresRepository};
 
 use super::PostgresMetaController;
 
 
-// impl MetaController for StoreRepoBackend<PostgresRepository, UnaryPartitioning> {}
+// impl MetaController for UnaryPartitioningBackend<PostgresRepository> {}
 
-impl PostgresMigratable for StoreRepoBackend<PostgresRepository, UnaryPartitioning> {}
+impl PostgresMigratable for UnaryPartitioningBackend<PostgresRepository> {}
 
-impl super::PostgresMetaController for StoreRepoBackend<PostgresRepository, UnaryPartitioning> {}
+impl super::PostgresMetaController for UnaryPartitioningBackend<PostgresRepository> {}
 
 
 pub mod arbitrary {
@@ -45,7 +44,7 @@ pub mod arbitrary {
         Payload,
     };
     use crate::datatype::partitioning::arbitrary::{
-        ArbitraryPartitioning,
+        ArbitraryPartitioningBackend,
         ArbitraryPartitioningState,
         Storage,
     };
@@ -69,9 +68,9 @@ pub mod arbitrary {
     }
 
 
-    // impl MetaController for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {}
+    // impl MetaController for ArbitraryPartitioningBackend<PostgresRepository> {}
 
-    impl PostgresMigratable for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {
+    impl PostgresMigratable for ArbitraryPartitioningBackend<PostgresRepository> {
         fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
             vec![
                 Box::new(PGMigrationArbitraryPartitioning),
@@ -79,9 +78,9 @@ pub mod arbitrary {
         }
     }
 
-    impl PostgresMetaController for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {}
+    impl PostgresMetaController for ArbitraryPartitioningBackend<PostgresRepository> {}
 
-    impl crate::datatype::Storage for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {
+    impl crate::datatype::Storage for ArbitraryPartitioningBackend<PostgresRepository> {
         type StateType = ArbitraryPartitioningState;
         type DeltaType = crate::datatype::UnrepresentableType;
 
@@ -155,5 +154,5 @@ pub mod arbitrary {
         }
     }
 
-    impl Storage for StoreRepoBackend<PostgresRepository, ArbitraryPartitioning> {}
+    impl Storage for ArbitraryPartitioningBackend<PostgresRepository> {}
 }

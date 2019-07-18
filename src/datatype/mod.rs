@@ -3,16 +3,14 @@ use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
-use heraclitus_macros::stored_controller;
+use heraclitus_macros::{
+    slow_stored_controller,
+};
 
 pub use heraclitus_core::datatype::*;
 
-use crate::{Artifact, Composition, Error, Hunk};
+use crate::{Composition, Error, Hunk};
 use crate::repo::Repository;
-use crate::store::{
-    Store,
-    StoreRepoBackend,
-};
 use self::interface::{
     ProducerController,
     CustomProductionPolicyController,
@@ -31,20 +29,6 @@ pub mod reference;
 pub mod tracking_branch_producer;
 
 
-// /// Common interface to all datatypes that does not involve their state or
-// /// types associated with their state.
-// #[stored_controller(StoreMetaController)]
-// pub trait MetaController {
-//     /// This allows the model controller to initialize any structures necessary
-//     /// for a new version (without involving state for that version).
-//     fn init_artifact(
-//         &mut self,
-//         _artifact: &Artifact,
-//     ) -> Result<(), Error> {
-//         Ok(())
-//     }
-// }
-
 #[derive(Debug, Hash, PartialEq)]
 pub enum Payload<S, D> {
     State(S),
@@ -52,6 +36,18 @@ pub enum Payload<S, D> {
 }
 
 /// Common interface to all datatypes that involves state.
+#[slow_stored_controller(
+    <State, Delta, S> S
+    where
+        State: Debug + Hash + PartialEq,
+        Delta: Debug + Hash + PartialEq,
+        S: heraclitus::datatype::Store,
+        S::BackendPostgres: Storage<StateType=State, DeltaType=Delta>,
+    {
+        type StateType = State;
+        type DeltaType = Delta;
+    }
+)]
 pub trait Storage {
     type StateType: Debug + Hash + PartialEq;
     type DeltaType: Debug + Hash + PartialEq;
@@ -151,83 +147,9 @@ impl Hash for UnrepresentableType {
     }
 }
 
-impl<State, Delta, D> Storage for Store<D>
-    where
-        State: Debug + Hash + PartialEq,
-        Delta: Debug + Hash + PartialEq,
-        D: DatatypeMarker,
-        StoreRepoBackend<crate::store::postgres::PostgresRepository, D>:
-            Storage<StateType=State, DeltaType=Delta>,
-{
-    type StateType = State;
-    type DeltaType = Delta;
-
-    fn hash_payload(
-        &self,
-        payload: &Payload<Self::StateType, Self::DeltaType>,
-    ) -> crate::HashType {
-        match self {
-            Store::Postgres(c) => c.hash_payload(payload),
-        }
-    }
-
-    fn write_hunk(
-        &mut self,
-        repo: &Repository,
-        hunk: &Hunk,
-        payload: &Payload<Self::StateType, Self::DeltaType>,
-    ) -> Result<(), Error> {
-        match self {
-            Store::Postgres(c) => c.write_hunk(repo, hunk, payload),
-        }
-    }
-
-    fn write_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H, P>(
-        &mut self,
-        repo: &Repository,
-        hunks: &[H],
-        payloads: &[P],
-    ) -> Result<(), Error>
-            where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>,
-                P: std::borrow::Borrow<Payload<Self::StateType, Self::DeltaType>> {
-        match self {
-            Store::Postgres(c) => c.write_hunks(repo, hunks, payloads),
-        }
-    }
-
-    fn read_hunk(
-        &self,
-        repo: &Repository,
-        hunk: &Hunk,
-    ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error> {
-        match self {
-            Store::Postgres(c) => c.read_hunk(repo, hunk),
-        }
-
-    }
-
-    fn get_composite_state(
-        &self,
-        repo: &Repository,
-        composition: &Composition,
-    ) -> Result<Self::StateType, Error> {
-        match self {
-            Store::Postgres(c) => c.get_composite_state(repo, composition),
-        }
-    }
-
-    fn compose_state(
-        &self,
-        state: &mut Self::StateType,
-        delta: &Self::DeltaType,
-    ) {
-        match self {
-            Store::Postgres(c) => c.compose_state(state, delta),
-        }
-    }
-}
 
 interface_controller_enum!(DefaultInterfaceController, (
+        (ArtifactMeta, artifact_graph::ArtifactMeta, &*artifact_graph::INTERFACE_ARTIFACT_META_DESC),
         (Partitioning, partitioning::PartitioningState, &*interface::INTERFACE_PARTITIONING_DESC),
         (Producer, ProducerController, &*interface::INTERFACE_PRODUCER_DESC),
         (CustomProductionPolicy, CustomProductionPolicyController, &*interface::INTERFACE_CUSTOM_PRODUCTION_POLICY_DESC)
@@ -250,6 +172,8 @@ datatype_enum!(DefaultDatatypes, DefaultInterfaceController, (
 /// test custom datatypes.
 pub mod testing {
     use super::*;
+
+    pub use heraclitus_core::datatype::testing::*;
 
     pub fn init_default_dtypes_registry() -> DatatypesRegistry<DefaultDatatypes> {
         heraclitus_core::datatype::testing::init_dtypes_registry::<DefaultDatatypes>()

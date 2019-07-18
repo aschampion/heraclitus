@@ -2,8 +2,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use heraclitus_core::enum_set;
 use enum_set::EnumSet;
-use heraclitus_macros::{interface, stored_controller};
-use maplit::hashmap;
+use heraclitus_macros::{interface, stored_interface_controller};
 
 use crate::{
     ArtifactGraph,
@@ -17,7 +16,6 @@ use crate::{
 };
 use crate::datatype::{DependencyDescription, InterfaceDescription};
 use crate::datatype::artifact_graph::production::ProductionPolicy;
-use crate::repo::Repository;
 
 
 pub use heraclitus_core::datatype::interface::*;
@@ -116,8 +114,7 @@ pub enum ProductionOutput {
 
 
 #[interface]
-#[stored_controller(<D: crate::datatype::DatatypeMarker> crate::store::Store<D>
-        where crate::store::StoreRepoBackend<crate::store::postgres::PostgresRepository, D>: ProducerController)]
+#[stored_interface_controller]
 pub trait ProducerController {
     fn production_strategies(&self) -> ProductionStrategies;
 
@@ -134,8 +131,7 @@ pub trait ProducerController {
 
 
 #[interface]
-#[stored_controller(<D: crate::datatype::DatatypeMarker> crate::store::Store<D>
-        where crate::store::StoreRepoBackend<crate::store::postgres::PostgresRepository, D>: CustomProductionPolicyController)]
+#[stored_interface_controller]
 pub trait CustomProductionPolicyController {
     fn get_custom_production_policy(
         &self,
@@ -149,6 +145,8 @@ pub trait CustomProductionPolicyController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use maplit::hashmap;
 
     #[test]
     fn test_production_representation_capability_matching() {

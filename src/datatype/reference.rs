@@ -5,7 +5,10 @@ use std::num::ParseIntError;
 use std::str::FromStr;
 
 use heraclitus_core::uuid;
-use heraclitus_macros::stored_controller;
+use heraclitus_macros::{
+    DatatypeMarker,
+    stored_datatype_controller,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -16,7 +19,6 @@ use crate::{
     Version,
 };
 use crate::datatype::{
-    DatatypeMarker,
     Description,
     DependencyDescription,
     DependencyTypeRestriction,
@@ -24,7 +26,6 @@ use crate::datatype::{
     DependencyStoreRestriction,
     InterfaceControllerEnum,
     Model,
-    StoreMetaController,
 };
 use crate::repo::Repository;
 
@@ -315,10 +316,8 @@ impl FromStr for VersionSpecifier {
 }
 
 
-#[derive(Default)]
+#[derive(Default, DatatypeMarker)]
 pub struct Ref;
-
-impl DatatypeMarker for Ref {}
 
 impl<T: InterfaceControllerEnum> Model<T> for Ref {
     fn info(&self) -> Description<T> {
@@ -346,7 +345,7 @@ impl<T: InterfaceControllerEnum> Model<T> for Ref {
 }
 
 
-#[stored_controller(crate::store::Store<Ref>)]
+#[stored_datatype_controller(Ref)]
 pub trait Storage {
     fn get_branch_revision_tips(
         &self,

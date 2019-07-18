@@ -45,7 +45,7 @@ use crate::datatype::{
     InterfaceController,
 };
 use crate::datatype::artifact_graph::{
-    ArtifactGraphDtype,
+    ArtifactGraphDtypeBackend,
     Storage,
     production::{
         PolicyDependencyRequirements,
@@ -60,14 +60,13 @@ use crate::datatype::interface::{
     ProducerController,
 };
 use crate::repo::Repository;
-use crate::store::StoreRepoBackend;
 use crate::store::postgres::{
     PostgresMigratable,
     PostgresRepository,
 };
 
 
-impl StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
+impl ArtifactGraphDtypeBackend<PostgresRepository> {
     /// Load version rows from a query result into a version graph.
     fn load_version_rows<'a, 'b>(
         &self,
@@ -292,13 +291,7 @@ impl PostgresMigration for PGMigrationArtifactGraphs {
 }
 
 
-// impl super::MetaController for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
-//     // fn register_with_repo(&self, repoler: &PostgresRepository) {
-//     //     repoler.register_postgres_migratable(Box::new(*self));
-//     // }
-// }
-
-impl PostgresMigratable for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
+impl PostgresMigratable for ArtifactGraphDtypeBackend<PostgresRepository> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
             Box::new(PGMigrationArtifactGraphs),
@@ -306,9 +299,9 @@ impl PostgresMigratable for StoreRepoBackend< PostgresRepository, ArtifactGraphD
     }
 }
 
-impl super::PostgresMetaController for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {}
+impl super::PostgresMetaController for ArtifactGraphDtypeBackend<PostgresRepository> {}
 
-impl Storage for StoreRepoBackend< PostgresRepository, ArtifactGraphDtype> {
+impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
     fn list_graphs(&self) -> Vec<Identity> {
         unimplemented!()
     }

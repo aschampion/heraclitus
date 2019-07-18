@@ -28,12 +28,11 @@ use crate::datatype::reference::{
     ArtifactSpecifier,
     BranchRevisionTip,
     Storage,
-    Ref,
+    RefBackend,
     RevisionPath,
     UuidSpecifier,
     VersionSpecifier,
 };
-use crate::store::StoreRepoBackend;
 use crate::store::postgres::{PostgresMigratable, PostgresRepository};
 
 use super::PostgresMetaController;
@@ -58,9 +57,9 @@ impl PostgresMigration for PGMigrationRefs {
     }
 }
 
-// impl MetaController for StoreRepoBackend< PostgresRepository, Ref> {}
+// impl MetaController for RefBackend<PostgresRepository> {}
 
-impl PostgresMigratable for StoreRepoBackend< PostgresRepository, Ref> {
+impl PostgresMigratable for RefBackend<PostgresRepository> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
             Box::new(PGMigrationRefs),
@@ -68,9 +67,9 @@ impl PostgresMigratable for StoreRepoBackend< PostgresRepository, Ref> {
     }
 }
 
-impl PostgresMetaController for StoreRepoBackend< PostgresRepository, Ref> {}
+impl PostgresMetaController for RefBackend<PostgresRepository> {}
 
-impl Storage for StoreRepoBackend< PostgresRepository, Ref> {
+impl Storage for RefBackend<PostgresRepository> {
     fn get_branch_revision_tips(
         &self,
         repo: &crate::repo::Repository,

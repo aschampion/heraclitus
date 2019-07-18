@@ -2,6 +2,7 @@ use std::collections::{
     BTreeSet,
     BTreeMap,
     HashMap,
+    HashSet,
 };
 
 use heraclitus_core::{
@@ -13,7 +14,11 @@ use heraclitus_core::{
 use daggy::{
     Walker,
 };
-use heraclitus_macros::stored_controller;
+use heraclitus_macros::{
+    DatatypeMarker,
+    interface,
+    stored_datatype_controller,
+};
 use enum_set::{
     EnumSet,
 };
@@ -34,6 +39,7 @@ use crate::{
     Hunk,
     Identity,
     IdentifiableGraph,
+    Interface,
     PartitionIndex,
     Version,
     VersionGraph,
@@ -42,13 +48,10 @@ use crate::{
 };
 use super::{
     DatatypeEnum,
-    DatatypeMarker,
     DatatypesRegistry,
     Description,
     InterfaceController,
-    InterfaceControllerEnum,
-    // MetaController,
-    StoreMetaController,
+    InterfaceDescription,
 };
 use crate::datatype::interface::{
     CustomProductionPolicyController,
@@ -56,7 +59,6 @@ use crate::datatype::interface::{
     ProductionOutput,
 };
 use crate::repo::Repository;
-use crate::repo::RepoController;
 
 
 pub mod production;
@@ -66,12 +68,32 @@ use self::production::*;
 mod tests;
 
 
-#[derive(Default)]
+lazy_static! {
+    pub static ref INTERFACE_ARTIFACT_META_DESC: InterfaceDescription = InterfaceDescription {
+        interface: Interface {
+            name: "ArtifactMeta",
+        },
+        extends: HashSet::new(),
+    };
+}
+
+#[interface]
+pub trait ArtifactMeta {
+    /// This allows the model controller to initialize any structures necessary
+    /// for a new version (without involving state for that version).
+    fn init_artifact(
+        &mut self,
+        _artifact: &Artifact,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+
+#[derive(Default, DatatypeMarker)]
 pub struct ArtifactGraphDtype;
 
-impl DatatypeMarker for ArtifactGraphDtype {}
-
-impl<T: InterfaceControllerEnum> super::Model<T> for ArtifactGraphDtype {
+impl<T: InterfaceController<ArtifactMeta>> super::Model<T> for ArtifactGraphDtype {
     fn info(&self) -> Description<T> {
         Description {
             name: "ArtifactGraph".into(),
@@ -88,7 +110,7 @@ impl<T: InterfaceControllerEnum> super::Model<T> for ArtifactGraphDtype {
 }
 
 
-#[stored_controller(crate::store::Store<ArtifactGraphDtype>)]
+#[stored_datatype_controller(ArtifactGraphDtype)]
 pub trait Storage {
     fn list_graphs(&self) -> Vec<Identity>;
 
@@ -97,15 +119,19 @@ pub trait Storage {
         dtypes_registry: &'a DatatypesRegistry<T>,
         repo: &Repository,
         art_graph: &ArtifactGraph,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Error>
+        where T::InterfaceControllerType: InterfaceController<ArtifactMeta>
+    {
         self.write_artifact_graph(repo, art_graph)?;
 
         for idx in art_graph.artifacts.graph().node_indices() {
             let art = &art_graph[idx];
-            let mut meta_controller = dtypes_registry
-                .get_model(&art.dtype.name)
-                .meta_controller(repo.backend());
-            meta_controller.init_artifact(art)?;
+            let meta_controller = dtypes_registry
+                .get_model_interface::<ArtifactMeta>(&art.dtype.name)
+                .map(|gen| gen(&repo));
+            if let Some(mut meta_controller) = meta_controller {
+                meta_controller.init_artifact(art)?;
+            }
         }
 
         Ok(())

@@ -4,6 +4,9 @@ use heraclitus_core::{
     enum_set,
     petgraph,
 };
+use heraclitus_macros::{
+    DatatypeMarker,
+};
 use enum_set::EnumSet;
 use maplit::{hashmap, hashset};
 use petgraph::Direction;
@@ -30,9 +33,8 @@ use crate::datatype::{
     DependencyTypeRestriction,
     Description,
     InterfaceController,
-    // MetaController,
     Model,
-    StoreMetaController,
+    Store,
 };
 use crate::datatype::artifact_graph::production::{
     ExtantProductionPolicy,
@@ -55,13 +57,10 @@ use crate::datatype::reference::{
     Ref,
 };
 use crate::repo::RepoController;
-use crate::store::StoreRepoBackend;
 
 
-#[derive(Default)]
+#[derive(Default, DatatypeMarker)]
 pub struct TrackingBranchProducer;
-
-impl DatatypeMarker for TrackingBranchProducer {}
 
 impl<T> Model<T> for TrackingBranchProducer
         where T: InterfaceController<ProducerController> +
@@ -91,7 +90,7 @@ impl<T> Model<T> for TrackingBranchProducer
     datatype_controllers!(TrackingBranchProducer, (ProducerController, CustomProductionPolicyController));
 }
 
-// impl<RC: RepoController> MetaController for StoreRepoBackend<RC, TrackingBranchProducer> {}
+// impl<RC: RepoController> MetaController for TrackingBranchProducerBackend<RC> {}
 
 
 struct TrackingBranchProductionPolicy {
@@ -141,7 +140,7 @@ impl ProductionPolicy for TrackingBranchProductionPolicy {
 }
 
 
-impl<RC: RepoController> CustomProductionPolicyController for StoreRepoBackend<RC, TrackingBranchProducer> {
+impl<RC: RepoController> CustomProductionPolicyController for TrackingBranchProducerBackend<RC> {
     fn get_custom_production_policy(
         &self,
         repo: &crate::repo::Repository,
@@ -156,7 +155,7 @@ impl<RC: RepoController> CustomProductionPolicyController for StoreRepoBackend<R
         let ref_art = &art_graph[ref_art_idx];
 
         // Get ref model controller.
-        let ref_control = crate::store::Store::<Ref>::new(repo);
+        let ref_control = <Ref as DatatypeMarker>::Store::new(repo);
 
         // Get branch heads from model controller.
         let tips = ref_control.get_branch_revision_tips(repo, ref_art)?.values().cloned().collect();
@@ -164,7 +163,7 @@ impl<RC: RepoController> CustomProductionPolicyController for StoreRepoBackend<R
     }
 }
 
-impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, TrackingBranchProducer> {
+impl<RC: RepoController> ProducerController for TrackingBranchProducerBackend<RC> {
     fn production_strategies(&self) -> ProductionStrategies {
         let mut rep = EnumSet::new();
         rep.insert(RepresentationKind::State);
@@ -252,7 +251,7 @@ impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, TrackingBra
                 VersionRelation::Dependence(tracked_ref_rel))?;
         }
 
-        let mut ag_control = crate::store::Store::<crate::datatype::artifact_graph::ArtifactGraphDtype>::new(repo);
+        let mut ag_control = <crate::datatype::artifact_graph::ArtifactGraphDtype as DatatypeMarker>::Store::new(repo);
         ag_control.create_staging_version(
             repo,
             ver_graph,
@@ -261,7 +260,7 @@ impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, TrackingBra
         // TODO: ref hash
 
         // Get ref model controller.
-        let mut ref_control = crate::store::Store::<Ref>::new(repo);
+        let mut ref_control = <Ref as DatatypeMarker>::Store::new(repo);
 
         // Get branch heads from model controller.
         let old_tips = ref_control.get_branch_revision_tips(repo, ref_art)?;

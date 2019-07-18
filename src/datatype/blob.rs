@@ -1,18 +1,17 @@
-use heraclitus_macros::stored_controller;
+use heraclitus_macros::{
+    DatatypeMarker,
+    stored_datatype_controller,
+};
 
 use crate::RepresentationKind;
 use super::{
-    DatatypeMarker,
     Description,
     InterfaceControllerEnum,
-    StoreMetaController,
 };
 
 
-#[derive(Default)]
+#[derive(Default, DatatypeMarker)]
 pub struct BlobDatatype;
-
-impl DatatypeMarker for BlobDatatype {}
 
 impl<T: InterfaceControllerEnum> super::Model<T> for BlobDatatype {
     fn info(&self) -> Description<T> {
@@ -53,6 +52,6 @@ macro_rules! blob_common_model_controller_impl {
     )
 }
 
-#[stored_controller(crate::store::Store<BlobDatatype>)]
+#[stored_datatype_controller(BlobDatatype)]
 pub trait Storage: super::Storage<StateType=StateType, DeltaType=DeltaType> {
 }

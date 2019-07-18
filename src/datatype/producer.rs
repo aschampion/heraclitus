@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use maplit::hashmap;
 
+use heraclitus_macros::DatatypeMarker;
+
 use crate::{
     ArtifactGraph,
     RepresentationKind,
@@ -10,7 +12,6 @@ use crate::{
     VersionGraphIndex,
 };
 use crate::datatype::{
-    DatatypeMarker,
     Description,
     DependencyDescription,
     DependencyTypeRestriction,
@@ -18,7 +19,6 @@ use crate::datatype::{
     DependencyStoreRestriction,
     InterfaceController,
     Model,
-    StoreMetaController,
 };
 use crate::datatype::interface::{
     ProducerController,
@@ -30,15 +30,10 @@ use crate::repo::{
     RepoController,
     Repository,
 };
-use crate::store::{
-    StoreRepoBackend,
-};
 
 
-#[derive(Default)]
+#[derive(Default, DatatypeMarker)]
 pub struct NoopProducer;
-
-impl DatatypeMarker for NoopProducer {}
 
 impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
     fn info(&self) -> Description<T> {
@@ -67,7 +62,7 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
 
 // impl<RC: RepoController> MetaController for StoreRepoBackend<RC, NoopProducer> {}
 
-impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, NoopProducer> {
+impl<RC: RepoController> ProducerController for NoopProducerBackend<RC> {
     fn production_strategies(&self) -> ProductionStrategies {
     // fn representation_capabilities(&self) -> Vec<ProductionRepresentationCapability> {
         hashmap!{
@@ -115,15 +110,12 @@ pub(crate) mod tests {
     use crate::{
         ArtifactRelation, Hunk, Identity, IdentifiableGraph,
         PartCompletion, Version, VersionRelation};
-    use crate::datatype::{Payload, Storage as DatatypeStorage};
+    use crate::datatype::{DatatypeMarker, Store, Payload, Storage as DatatypeStorage};
     use crate::datatype::artifact_graph::Storage as ArtifactGraphStorage;
-    use crate::store::Store;
 
 
-    #[derive(Default)]
+    #[derive(Default, DatatypeMarker)]
     pub struct NegateBlobProducer;
-
-    impl DatatypeMarker for NegateBlobProducer {}
 
     impl<T: InterfaceController<ProducerController>> Model<T> for NegateBlobProducer {
         fn info(&self) -> Description<T> {
@@ -152,7 +144,7 @@ pub(crate) mod tests {
 
     // impl<RC: RepoController> MetaController for StoreRepoBackend<RC, NegateBlobProducer> {}
 
-    impl<RC: RepoController> ProducerController for StoreRepoBackend<RC, NegateBlobProducer> {
+    impl<RC: RepoController> ProducerController for NegateBlobProducerBackend<RC> {
         fn production_strategies(&self) -> ProductionStrategies {
             let mut rep = EnumSet::new();
             rep.insert(RepresentationKind::State);
@@ -246,7 +238,7 @@ pub(crate) mod tests {
                     VersionRelation::Parent)?;
             }
 
-            let mut ag_control = Store::<crate::datatype::artifact_graph::ArtifactGraphDtype>::new(repo);
+            let mut ag_control = <crate::datatype::artifact_graph::ArtifactGraphDtype as DatatypeMarker>::Store::new(repo);
 
             let _production_specs = ag_control.get_production_specs(
                 repo,
@@ -269,7 +261,7 @@ pub(crate) mod tests {
                     None).expect("TODO");
 
                 // Create output hunks computed from input hunks.
-                let mut blob_control = Store::<crate::datatype::blob::BlobDatatype>::new(repo);
+                let mut blob_control = <crate::datatype::blob::BlobDatatype as DatatypeMarker>::Store::new(repo);
                 for input_hunk in &input_hunks {
                     let input_blob = blob_control.read_hunk(repo, input_hunk).expect("TODO");
                     let output_blob = match input_blob {
