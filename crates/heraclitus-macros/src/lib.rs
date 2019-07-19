@@ -243,7 +243,7 @@ fn impl_interface(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
 
         impl heraclitus::datatype::interface::InterfaceMeta for #name {
             // type Generator = #gen_name;
-            type Generator = Box<dyn Fn(&heraclitus::repo::Repository) -> Box<dyn #name>>;
+            type Generator = fn(&heraclitus::repo::Repository) -> Box<dyn #name>;
         }
     }
 }
