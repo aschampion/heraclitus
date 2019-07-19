@@ -18,6 +18,7 @@ use heraclitus_macros::{
     DatatypeMarker,
     interface,
     stored_datatype_controller,
+    stored_interface_controller,
 };
 use enum_set::{
     EnumSet,
@@ -78,11 +79,13 @@ lazy_static! {
 }
 
 #[interface]
+#[stored_interface_controller]
 pub trait ArtifactMeta {
     /// This allows the model controller to initialize any structures necessary
     /// for a new version (without involving state for that version).
     fn init_artifact(
         &mut self,
+        _repo: &Repository,
         _artifact: &Artifact,
     ) -> Result<(), Error> {
         Ok(())
@@ -130,7 +133,7 @@ pub trait Storage {
                 .get_model_interface::<ArtifactMeta>(&art.dtype.name)
                 .map(|gen| gen(&repo));
             if let Some(mut meta_controller) = meta_controller {
-                meta_controller.init_artifact(art)?;
+                meta_controller.init_artifact(repo, art)?;
             }
         }
 

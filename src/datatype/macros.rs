@@ -10,7 +10,7 @@ macro_rules! state_interface {
                 &self,
                 repo: &$crate::repo::Repository,
                 composition: &$crate::Composition,
-            ) -> Result<Box<$iface>, $crate::Error>;
+            ) -> Result<Box<dyn $iface>, $crate::Error>;
         }
 
         impl<S: 'static, MC> $trait_name for MC

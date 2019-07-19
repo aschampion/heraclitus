@@ -4,7 +4,7 @@
 #![feature(vec_remove_item)]
 
 #[macro_use]
-extern crate heraclitus_core;
+pub extern crate heraclitus_core;
 
 pub use heraclitus_core::*;
 

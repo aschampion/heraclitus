@@ -67,8 +67,17 @@ macro_rules! interface_controller_enum {
                 }
             }
 
-            impl std::convert::From<<$i_control as $crate::datatype::interface::InterfaceMeta>::Generator> for $enum_name {
-                fn from(inner: <$i_control as $crate::datatype::interface::InterfaceMeta>::Generator) -> $enum_name {
+            // impl std::convert::From<<dyn $i_control as $crate::datatype::interface::InterfaceMeta>::Generator> for $enum_name {
+            //     fn from(inner: <dyn $i_control as $crate::datatype::interface::InterfaceMeta>::Generator) -> $enum_name {
+            //         $enum_name::$i_name(Some(inner))
+            //     }
+            // }
+
+            // Can't do the avove because of an error in type interference, so
+            // must do the below.
+            // Bug: https://github.com/rust-lang/rust/issues/51445
+            impl std::convert::From<Box<dyn Fn(&::heraclitus::repo::Repository) -> Box<dyn $i_control>>> for $enum_name {
+                fn from(inner: Box<dyn Fn(&::heraclitus::repo::Repository) -> Box<dyn $i_control>>) -> $enum_name {
                     $enum_name::$i_name(Some(inner))
                 }
             }

@@ -144,15 +144,18 @@ fn impl_slow_stored_controller(mc: &syn::ItemTrait, etype: &StoreType) -> proc_m
 #[proc_macro_attribute]
 pub fn stored_controller(attr: proc_macro::TokenStream, item: proc_macro::TokenStream)
         -> proc_macro::TokenStream {
-    let ast = syn::parse_macro_input!(item as syn::ItemTrait);
+    // Cloning the token stream prevents a problem where associated types are
+    // silently removed from the output.
+    let fork = item.clone();
+    let ast = syn::parse_macro_input!(fork as syn::ItemTrait);
     let etype = syn::parse_macro_input!(attr as StoreType);
 
-    let gen = impl_stored_controller(&ast, &etype);
+    let gen = impl_stored_controller(item.into(), &ast, &etype);
 
     gen.into()
 }
 
-fn impl_stored_controller(mc: &syn::ItemTrait, etype: &StoreType) -> proc_macro2::TokenStream {
+fn impl_stored_controller(item: proc_macro2::TokenStream, mc: &syn::ItemTrait, etype: &StoreType) -> proc_macro2::TokenStream {
     let name = &mc.ident;
     let methods = mc.items.iter().filter_map(|i| match i {
         syn::TraitItem::Method(m) => Some(&m.sig),
@@ -183,7 +186,7 @@ fn impl_stored_controller(mc: &syn::ItemTrait, etype: &StoreType) -> proc_macro2
     let method_calls_rep = method_calls.map(|m| std::iter::repeat(m));
 
     quote! {
-        #mc
+        #item
 
         impl #impl_generics #name for #etype_ty #ty_generics #where_clause {
             #(
@@ -231,15 +234,16 @@ pub fn interface(_attr: proc_macro::TokenStream, item: proc_macro::TokenStream)
 
 fn impl_interface(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
     let name = &mc.ident;
-    let gen_name = proc_macro2::Ident::new(&format!("{}Generator", name), name.span());
+    // let gen_name = proc_macro2::Ident::new(&format!("{}Generator", name), name.span());
 
     quote! {
         #mc
 
-        pub type #gen_name = Box<dyn Fn(&heraclitus::repo::Repository) -> Box<dyn #name>>;
+        // pub type #gen_name = Box<dyn Fn(&heraclitus::repo::Repository) -> Box<dyn #name>>;
 
-        impl heraclitus::datatype::interface::InterfaceMeta for dyn #name {
-            type Generator = #gen_name;
+        impl heraclitus::datatype::interface::InterfaceMeta for #name {
+            // type Generator = #gen_name;
+            type Generator = Box<dyn Fn(&heraclitus::repo::Repository) -> Box<dyn #name>>;
         }
     }
 }
