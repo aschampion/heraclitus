@@ -155,7 +155,7 @@ impl<RC: RepoController> CustomProductionPolicyController for TrackingBranchProd
         let ref_art = &art_graph[ref_art_idx];
 
         // Get ref model controller.
-        let ref_control = <Ref as DatatypeMarker>::Store::new(repo);
+        let ref_control = Ref::store(repo);
 
         // Get branch heads from model controller.
         let tips = ref_control.get_branch_revision_tips(repo, ref_art)?.values().cloned().collect();
@@ -251,7 +251,7 @@ impl<RC: RepoController> ProducerController for TrackingBranchProducerBackend<RC
                 VersionRelation::Dependence(tracked_ref_rel))?;
         }
 
-        let mut ag_control = <crate::datatype::artifact_graph::ArtifactGraphDtype as DatatypeMarker>::Store::new(repo);
+        let mut ag_control = crate::datatype::artifact_graph::ArtifactGraphDtype::store(repo);
         ag_control.create_staging_version(
             repo,
             ver_graph,
@@ -260,7 +260,7 @@ impl<RC: RepoController> ProducerController for TrackingBranchProducerBackend<RC
         // TODO: ref hash
 
         // Get ref model controller.
-        let mut ref_control = <Ref as DatatypeMarker>::Store::new(repo);
+        let mut ref_control = Ref::store(repo);
 
         // Get branch heads from model controller.
         let old_tips = ref_control.get_branch_revision_tips(repo, ref_art)?;

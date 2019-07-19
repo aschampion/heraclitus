@@ -37,6 +37,10 @@ pub trait Store: Sized {
 
 pub trait DatatypeMarker: 'static {
     type Store: Store;
+
+    fn store(repo: &Repository) -> Self::Store {
+        Self::Store::new(repo)
+    }
 }
 
 pub trait Implements<I: ?Sized + interface::InterfaceMeta> {}

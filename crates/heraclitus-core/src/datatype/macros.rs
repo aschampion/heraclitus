@@ -149,13 +149,13 @@ macro_rules! datatype_controllers {
             &self,
             iface: T,
         ) -> Option<T> {
-            use $crate::datatype::Store;
+            use $crate::datatype::DatatypeMarker;
 
             $(
                 if iface == <T as InterfaceController<$i_control>>::VARIANT {
                     let closure: <$i_control as $crate::datatype::interface::InterfaceMeta>::Generator =
                         Box::new(|repo| {
-                            let store = <$dtype as $crate::datatype::DatatypeMarker>::Store::new(repo);
+                            let store = $dtype::store(repo);
                             let control: Box<dyn $i_control> = Box::new(store);
                             control
                         });

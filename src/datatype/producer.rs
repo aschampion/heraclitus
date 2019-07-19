@@ -238,7 +238,7 @@ pub(crate) mod tests {
                     VersionRelation::Parent)?;
             }
 
-            let mut ag_control = <crate::datatype::artifact_graph::ArtifactGraphDtype as DatatypeMarker>::Store::new(repo);
+            let mut ag_control = crate::datatype::artifact_graph::ArtifactGraphDtype::store(repo);
 
             let _production_specs = ag_control.get_production_specs(
                 repo,
@@ -261,7 +261,7 @@ pub(crate) mod tests {
                     None).expect("TODO");
 
                 // Create output hunks computed from input hunks.
-                let mut blob_control = <crate::datatype::blob::BlobDatatype as DatatypeMarker>::Store::new(repo);
+                let mut blob_control = crate::datatype::blob::BlobDatatype::store(repo);
                 for input_hunk in &input_hunks {
                     let input_blob = blob_control.read_hunk(repo, input_hunk).expect("TODO");
                     let output_blob = match input_blob {
