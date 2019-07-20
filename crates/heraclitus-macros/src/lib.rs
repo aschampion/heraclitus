@@ -13,12 +13,10 @@ use syn::parse::{
     Result,
 };
 
-fn backends() -> Vec<&'static str> {
-    vec![
-        #[cfg(feature="backend-postgres")]
-        "Postgres",
-    ]
-}
+const BACKENDS: &'static [&'static str] = &[
+    #[cfg(feature="backend-postgres")]
+    "Postgres",
+];
 
 struct StoreType {
     impl_generics: syn::Generics,
@@ -110,9 +108,9 @@ fn impl_slow_stored_controller(mc: &syn::ItemTrait, etype: &StoreType) -> proc_m
     let ty_generics = &etype.ty_generics;
     let where_clause = &etype.where_clause;
     let trait_items = etype.trait_items.iter();
-    let backend = std::iter::repeat(backends().into_iter()
+    let backend = std::iter::repeat(BACKENDS.into_iter()
         .map(|b| proc_macro2::Ident::new(b, name.span())));
-    let backend_assoc = std::iter::repeat(backends().into_iter()
+    let backend_assoc = std::iter::repeat(BACKENDS.into_iter()
         .map(|b| proc_macro2::Ident::new(&format!("Backend{}", b), name.span())));
     let method_calls_rep = method_calls.map(|m| std::iter::repeat(m));
 
@@ -181,7 +179,7 @@ fn impl_stored_controller(item: proc_macro2::TokenStream, mc: &syn::ItemTrait, e
     let impl_generics = &etype.impl_generics;
     let ty_generics = &etype.ty_generics;
     let where_clause = &etype.where_clause;
-    let backend = std::iter::repeat(backends().into_iter()
+    let backend = std::iter::repeat(BACKENDS.into_iter()
         .map(|b| proc_macro2::Ident::new(b, name.span())));
     let method_calls_rep = method_calls.map(|m| std::iter::repeat(m));
 
@@ -261,7 +259,7 @@ pub fn stored_interface_controller(_attr: proc_macro::TokenStream, item: proc_ma
 
 fn impl_stored_interface_controller(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
     let name = std::iter::repeat(&mc.ident);
-    let backend_assoc = backends().into_iter()
+    let backend_assoc = BACKENDS.into_iter()
         .map(|b| proc_macro2::Ident::new(&format!("Backend{}", b), mc.ident.span()));
 
     quote! {
@@ -291,7 +289,7 @@ pub fn stored_storage_controller(_attr: proc_macro::TokenStream, item: proc_macr
 
 fn impl_stored_storage_controller(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
     let name = std::iter::repeat(&mc.ident);
-    let backend_assoc = backends().into_iter()
+    let backend_assoc = BACKENDS.into_iter()
         .map(|b| proc_macro2::Ident::new(&format!("Backend{}", b), mc.ident.span()));
 
     quote! {
