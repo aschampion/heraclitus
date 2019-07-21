@@ -1,0 +1,14 @@
+[package]
+name = "heracli"
+version = "0.1.0"
+authors = ["Andrew Champion <andrew.champion@gmail.com>"]
+description = "A command line interface for the heraclitus dependent data framework."
+edition = "2018"
+
+[[bin]]
+name = "hera"
+path = "src/main.rs"
+
+[dependencies]
+heraclitus = { path = "../../" }
+structopt = "0.2"

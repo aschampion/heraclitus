@@ -37,10 +37,6 @@ pub mod datatype;
 pub mod store;
 mod util;
 
-pub fn noop() {
-    println!("Test");
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct DatatypeRelation {
     pub name: String,

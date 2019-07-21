@@ -11,14 +11,11 @@ edition = "2018"
 name = "heraclitus"
 path = "src/lib.rs"
 
-[[bin]]
-name = "hera"
-path = "src/bin.rs"
-
 [workspace]
 members = [
-	"crates/heraclitus-core",
-	"crates/heraclitus-macros",
+  "crates/heraclitus-core",
+  "crates/heraclitus-macros",
+  "crates/heracli",
 ]
 
 [features]

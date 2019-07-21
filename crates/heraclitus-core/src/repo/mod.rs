@@ -16,7 +16,7 @@ pub enum Repository {
 }
 
 impl Repository {
-    fn new(repo: &super::RepositoryLocation) -> Repository {
+    pub fn new(repo: &super::RepositoryLocation) -> Repository {
         #[allow(unused_imports)]
         use self::Repository::*;
 

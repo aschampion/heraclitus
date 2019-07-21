@@ -186,6 +186,7 @@ impl Hash for Datatype {
     }
 }
 
-struct RepositoryLocation {
-    url: Url,
+// TODO: not clear this is necessary
+pub struct RepositoryLocation {
+    pub url: Url,
 }
