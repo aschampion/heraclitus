@@ -78,11 +78,19 @@ impl Partitioning for UnaryPartitioningState {
     }
 }
 
-// impl<RC: crate::repo::RepoController> super::MetaController for StoreRepoBackend<RC, UnaryPartitioning> {}
-
-impl<RC: crate::repo::RepoController> super::Storage for UnaryPartitioningBackend<RC> {
+impl crate::datatype::ComposableState for UnaryPartitioning {
     type StateType = UnaryPartitioningState;
     type DeltaType = super::UnrepresentableType;
+
+    fn compose_state(
+        _state: &mut Self::StateType,
+        _delta: &Self::DeltaType,
+    ) {
+        unimplemented!()
+    }
+}
+
+impl<RC: crate::repo::RepoController> super::Storage for UnaryPartitioningBackend<RC> {
 
     fn read_hunk(
         &self,
@@ -98,14 +106,6 @@ impl<RC: crate::repo::RepoController> super::Storage for UnaryPartitioningBacken
         _hunk: &crate::Hunk,
         _payload: &super::Payload<Self::StateType, Self::DeltaType>,
     ) -> Result<(), Error> {
-        unimplemented!()
-    }
-
-    fn compose_state(
-        &self,
-        _state: &mut Self::StateType,
-        _delta: &Self::DeltaType,
-    ) {
         unimplemented!()
     }
 }
@@ -146,6 +146,18 @@ pub mod arbitrary {
     impl Partitioning for ArbitraryPartitioningState {
         fn get_partition_ids(&self) -> BTreeSet<PartitionIndex> {
             self.partition_ids.clone()
+        }
+    }
+
+    impl crate::datatype::ComposableState for ArbitraryPartitioning {
+        type StateType = ArbitraryPartitioningState;
+        type DeltaType = crate::datatype::UnrepresentableType;
+
+        fn compose_state(
+            _state: &mut Self::StateType,
+            _delta: &Self::DeltaType,
+        ) {
+            unimplemented!()
         }
     }
 

@@ -280,34 +280,35 @@ fn impl_stored_interface_controller(mc: &syn::ItemTrait) -> proc_macro2::TokenSt
 #[proc_macro_attribute]
 pub fn stored_storage_controller(_attr: proc_macro::TokenStream, item: proc_macro::TokenStream)
         -> proc_macro::TokenStream {
-    let ast = syn::parse_macro_input!(item as syn::ItemTrait);
 
-    let gen = impl_stored_storage_controller(&ast);
+    // Cloning the token stream prevents a problem where associated types are
+    // silently removed from the output.
+    let fork = item.clone();
+    let ast = syn::parse_macro_input!(fork as syn::ItemTrait);
+
+    let gen = impl_stored_storage_controller(item.into(), &ast);
 
     gen.into()
 }
 
-fn impl_stored_storage_controller(mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
+fn impl_stored_storage_controller(item: proc_macro2::TokenStream, mc: &syn::ItemTrait) -> proc_macro2::TokenStream {
     let name = std::iter::repeat(&mc.ident);
     let backend_assoc = BACKENDS.into_iter()
         .map(|b| proc_macro2::Ident::new(&format!("Backend{}", b), mc.ident.span()));
 
     quote! {
         #[heraclitus_macros::slow_stored_controller(
-            <State, Delta, S> S
+            <S, D>
+            S
             where
-                State: Debug + Hash + PartialEq,
-                Delta: Debug + Hash + PartialEq,
                 S: heraclitus::datatype::Store,
+                S: heraclitus::datatype::StoreOrBackend<Datatype=D>,
+                D: heraclitus::datatype::DatatypeMarker + heraclitus::datatype::ComposableState,
                 #(
-                    S::#backend_assoc: #name<StateType=State, DeltaType=Delta>,
+                    S::#backend_assoc: #name + heraclitus::datatype::StoreOrBackend<Datatype=D>,
                 )*
-            {
-                type StateType = State;
-                type DeltaType = Delta;
-            }
         )]
-        #mc
+        #item
     }
 }
 
@@ -338,8 +339,11 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
             }
         }
 
-        impl<RC: heraclitus::repo::RepoController> heraclitus::datatype::StoreBackend for #store_backend_name<RC> {
+        impl<RC: heraclitus::repo::RepoController> heraclitus::datatype::StoreOrBackend for #store_backend_name<RC> {
             type Datatype = #name;
+        }
+
+        impl<RC: heraclitus::repo::RepoController> heraclitus::datatype::StoreBackend for #store_backend_name<RC> {
             type Base = #store_name;
 
             fn new() -> Self {
@@ -360,6 +364,10 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
         pub enum #store_name {
             #[cfg(feature="backend-postgres")]
             Postgres(#store_backend_name::<heraclitus::store::postgres::PostgresRepository>),
+        }
+
+        impl heraclitus::datatype::StoreOrBackend for #store_name {
+            type Datatype = #name;
         }
 
         // Must do this until GATs are available.

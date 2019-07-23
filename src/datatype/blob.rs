@@ -35,21 +35,18 @@ impl<T: InterfaceControllerEnum> super::Model<T> for BlobDatatype {
 pub(crate) type StateType = Vec<u8>;
 pub(crate) type DeltaType = (Vec<usize>, Vec<u8>);
 
-macro_rules! blob_common_model_controller_impl {
-    () => (
-        type StateType = crate::datatype::blob::StateType;
-        type DeltaType = crate::datatype::blob::DeltaType;
+impl crate::datatype::ComposableState for BlobDatatype {
+    type StateType = crate::datatype::blob::StateType;
+    type DeltaType = crate::datatype::blob::DeltaType;
 
-        fn compose_state(
-            &self,
-            state: &mut Self::StateType,
-            delta: &Self::DeltaType,
-        ) {
-            for (&idx, &val) in delta.0.iter().zip(delta.1.iter()) {
-                state[idx] = val;
-            }
+    fn compose_state(
+        state: &mut Self::StateType,
+        delta: &Self::DeltaType,
+    ) {
+        for (&idx, &val) in delta.0.iter().zip(delta.1.iter()) {
+            state[idx] = val;
         }
-    )
+    }
 }
 
 #[stored_datatype_controller(BlobDatatype)]

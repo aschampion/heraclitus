@@ -14,15 +14,17 @@ use crate::store::postgres::datatype::PostgresMetaController;
 #[macro_use]
 pub mod macros;
 
-
-pub trait StoreBackend {
+pub trait StoreOrBackend {
     type Datatype: DatatypeMarker;
+}
+
+pub trait StoreBackend: StoreOrBackend {
     type Base: Store;
 
     fn new() -> Self;
 }
 
-pub trait Store: Sized {
+pub trait Store: Sized + StoreOrBackend {
     #[cfg(feature="backend-postgres")]
     type BackendPostgres: StoreBackend;
 

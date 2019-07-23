@@ -55,8 +55,6 @@ impl PostgresMigratable for BlobDatatypeBackend<PostgresRepository> {
 impl super::PostgresMetaController for BlobDatatypeBackend<PostgresRepository> {}
 
 impl crate::datatype::Storage for BlobDatatypeBackend<PostgresRepository> {
-    blob_common_model_controller_impl!();
-
     fn write_hunk(
         &mut self,
         repo: &Repository,

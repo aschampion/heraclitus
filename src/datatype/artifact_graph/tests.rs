@@ -15,9 +15,10 @@ use crate::{
     PartCompletion,
 };
 use crate::datatype::{
+    ComposableState,
     DatatypeMarker,
-    Store,
 };
+use crate::datatype::blob::BlobDatatype;
 use crate::datatype::partitioning::{
     Partitioning,
     PartitioningState,
@@ -25,6 +26,7 @@ use crate::datatype::partitioning::{
 };
 use crate::datatype::Storage as DatatypeStorage;
 use crate::datatype::partitioning::arbitrary::{
+    ArbitraryPartitioning,
     ArbitraryPartitioningState,
 };
 use crate::datatype::producer::tests::NegateBlobProducer;
@@ -251,7 +253,7 @@ fn test_create_get_version_graph(backend: Backend) {
                 .map(|gen| gen(&repo))
                 .expect("Partitioning must have controller for backend");
 
-    let mut blob_control = crate::datatype::blob::BlobDatatype::store(&repo);
+    let mut blob_control = BlobDatatype::store(&repo);
     let ver_blob_real = &ver_graph[blob1_ver_idx];
     let fake_blob = crate::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
     let ver_hunks = ver_part_control
@@ -261,7 +263,7 @@ fn test_create_get_version_graph(backend: Backend) {
             .map(|partition_id| Hunk {
                 id: Identity {
                     uuid: Uuid::new_v4(),
-                    hash: blob_control.hash_payload(&fake_blob),
+                    hash: BlobDatatype::hash_payload(&fake_blob),
                 },
                 version: ver_blob_real,
                 partition: Partition {
@@ -333,7 +335,7 @@ fn test_production(backend: Backend) {
 
     // Create arbitrary partitions.
     {
-        let mut part_control = crate::datatype::partitioning::arbitrary::ArbitraryPartitioning::store(&repo);
+        let mut part_control = ArbitraryPartitioning::store(&repo);
 
         model_ctrl.create_staging_version(
             &repo,
@@ -344,7 +346,7 @@ fn test_production(backend: Backend) {
         let hunk = Hunk {
             id: Identity {
                 uuid: Uuid::new_v4(),
-                hash: part_control.hash_payload(&part_state),
+                hash: ArbitraryPartitioning::hash_payload(&part_state),
             },
             version: &ver_graph[part_idx],
             partition: Partition {
@@ -392,7 +394,7 @@ fn test_production(backend: Backend) {
                     .map(|gen| gen(&repo))
                     .expect("Partitioning must have controller for backend");
 
-        let mut blob_control = crate::datatype::blob::BlobDatatype::store(&repo);
+        let mut blob_control = BlobDatatype::store(&repo);
         let ver_blob_real = &ver_graph[blob1_ver_idx];
         let fake_blob = crate::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
         let ver_hunks = ver_part_control
@@ -404,7 +406,7 @@ fn test_production(backend: Backend) {
                 .map(|partition_id| Hunk {
                     id: Identity {
                         uuid: Uuid::new_v4(),
-                        hash: blob_control.hash_payload(&fake_blob),
+                        hash: BlobDatatype::hash_payload(&fake_blob),
                     },
                     version: ver_blob_real,
                     partition: Partition {
@@ -483,7 +485,7 @@ fn test_production(backend: Backend) {
                     .map(|gen| gen(&repo))
                     .expect("Partitioning must have controller for backend");
 
-        let mut blob_control = crate::datatype::blob::BlobDatatype::store(&repo);
+        let mut blob_control = BlobDatatype::store(&repo);
         let ver_blob_real = &ver_graph[blob1_ver2_idx];
         let fake_blob = crate::datatype::Payload::Delta((vec![1, 6], vec![7, 8]));
         let ver_hunks = ver_part_control
@@ -496,7 +498,7 @@ fn test_production(backend: Backend) {
                 .map(|partition_id| Hunk {
                     id: Identity {
                         uuid: Uuid::new_v4(),
-                        hash: blob_control.hash_payload(&fake_blob),
+                        hash: BlobDatatype::hash_payload(&fake_blob),
                     },
                     version: ver_blob_real,
                     partition: Partition {

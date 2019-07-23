@@ -1,3 +1,4 @@
+#![feature(associated_type_bounds)]
 #![feature(never_type)]
 #![feature(specialization)]
 #![feature(trivial_bounds)]

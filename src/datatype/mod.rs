@@ -35,20 +35,28 @@ pub enum Payload<S, D> {
     Delta(D),
 }
 
-/// Common interface to all datatypes that involves state.
-#[stored_storage_controller] // This will only compile if some backend is enabled
-pub trait Storage {
+pub trait ComposableState {
     type StateType: Debug + Hash + PartialEq;
     type DeltaType: Debug + Hash + PartialEq;
 
     fn hash_payload(
-        &self,
         payload: &Payload<Self::StateType, Self::DeltaType>,
     ) -> crate::HashType {
         let mut s = DefaultHasher::new();
         payload.hash(&mut s);
         s.finish()
     }
+
+    fn compose_state(
+        state: &mut Self::StateType,
+        delta: &Self::DeltaType,
+    );
+}
+
+/// Common interface to all datatypes that involves state.
+#[stored_storage_controller] // This will only compile if some backend is enabled
+pub trait Storage: StoreOrBackend<Datatype: ComposableState> {
+    // type StateType = <<Self as StoreBackend>::Datatype as ComposableState>::StateType;
 
     fn write_hunk(
         &mut self,
@@ -106,19 +114,13 @@ pub trait Storage {
                 match self.read_hunk(repo, hunk)? {
                     Payload::State(_) => panic!("TODO: shouldn't have non-root state"),
                     Payload::Delta(ref delta) => {
-                        self.compose_state(&mut state, delta);
+                        Self::Datatype::compose_state(&mut state, delta);
                     }
                 }
             }
 
             Ok(state)
         }
-
-    fn compose_state(
-        &self,
-        state: &mut Self::StateType,
-        delta: &Self::DeltaType,
-    );
 }
 
 /// A type for a representation kind that is not supported by a model. This

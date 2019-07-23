@@ -12,9 +12,6 @@ use crate::{
     Error,
     PartitionIndex,
 };
-// use crate::datatype::{
-//     MetaController,
-// };
 use crate::datatype::partitioning::{
     UnaryPartitioningBackend,
 };
@@ -23,8 +20,6 @@ use crate::store::postgres::{PostgresMigratable, PostgresRepository};
 
 use super::PostgresMetaController;
 
-
-// impl MetaController for UnaryPartitioningBackend<PostgresRepository> {}
 
 impl PostgresMigratable for UnaryPartitioningBackend<PostgresRepository> {}
 
@@ -68,8 +63,6 @@ pub mod arbitrary {
     }
 
 
-    // impl MetaController for ArbitraryPartitioningBackend<PostgresRepository> {}
-
     impl PostgresMigratable for ArbitraryPartitioningBackend<PostgresRepository> {
         fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
             vec![
@@ -81,9 +74,6 @@ pub mod arbitrary {
     impl PostgresMetaController for ArbitraryPartitioningBackend<PostgresRepository> {}
 
     impl crate::datatype::Storage for ArbitraryPartitioningBackend<PostgresRepository> {
-        type StateType = ArbitraryPartitioningState;
-        type DeltaType = crate::datatype::UnrepresentableType;
-
         fn write_hunk(
             &mut self,
             repo: &Repository,
@@ -143,14 +133,6 @@ pub mod arbitrary {
                 .collect();
 
             Ok(Payload::State(ArbitraryPartitioningState {partition_ids}))
-        }
-
-        fn compose_state(
-            &self,
-            _state: &mut Self::StateType,
-            _delta: &Self::DeltaType,
-        ) {
-            unimplemented!()
         }
     }
 

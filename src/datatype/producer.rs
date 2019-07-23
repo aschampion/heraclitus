@@ -110,8 +110,14 @@ pub(crate) mod tests {
     use crate::{
         ArtifactRelation, Hunk, Identity, IdentifiableGraph,
         PartCompletion, Version, VersionRelation};
-    use crate::datatype::{DatatypeMarker, Store, Payload, Storage as DatatypeStorage};
+    use crate::datatype::{
+        ComposableState,
+        DatatypeMarker,
+        Payload,
+        Storage as DatatypeStorage,
+    };
     use crate::datatype::artifact_graph::Storage as ArtifactGraphStorage;
+    use crate::datatype::blob::BlobDatatype;
 
 
     #[derive(Default, DatatypeMarker)]
@@ -261,7 +267,7 @@ pub(crate) mod tests {
                     None).expect("TODO");
 
                 // Create output hunks computed from input hunks.
-                let mut blob_control = crate::datatype::blob::BlobDatatype::store(repo);
+                let mut blob_control = BlobDatatype::store(repo);
                 for input_hunk in &input_hunks {
                     let input_blob = blob_control.read_hunk(repo, input_hunk).expect("TODO");
                     let output_blob = match input_blob {
@@ -276,7 +282,7 @@ pub(crate) mod tests {
                     let output_hunk = Hunk {
                         id: Identity {
                             uuid: Uuid::new_v4(),
-                            hash: blob_control.hash_payload(&output_blob),
+                            hash: BlobDatatype::hash_payload(&output_blob),
                         },
                         version: &ver_graph[ver_blob_idx],
                         representation: input_hunk.representation,
