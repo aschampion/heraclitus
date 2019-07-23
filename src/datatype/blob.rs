@@ -50,5 +50,4 @@ impl crate::datatype::ComposableState for BlobDatatype {
 }
 
 #[stored_datatype_controller(BlobDatatype)]
-pub trait Storage: super::Storage<StateType=StateType, DeltaType=DeltaType> {
-}
+pub trait Storage: super::Storage {}

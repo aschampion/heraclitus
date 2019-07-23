@@ -78,16 +78,8 @@ impl Partitioning for UnaryPartitioningState {
     }
 }
 
-impl crate::datatype::ComposableState for UnaryPartitioning {
-    type StateType = UnaryPartitioningState;
-    type DeltaType = super::UnrepresentableType;
-
-    fn compose_state(
-        _state: &mut Self::StateType,
-        _delta: &Self::DeltaType,
-    ) {
-        unimplemented!()
-    }
+impl crate::datatype::StateOnly for UnaryPartitioning {
+    type StateOnlyType = UnaryPartitioningState;
 }
 
 impl<RC: crate::repo::RepoController> super::Storage for UnaryPartitioningBackend<RC> {
@@ -149,20 +141,10 @@ pub mod arbitrary {
         }
     }
 
-    impl crate::datatype::ComposableState for ArbitraryPartitioning {
-        type StateType = ArbitraryPartitioningState;
-        type DeltaType = crate::datatype::UnrepresentableType;
-
-        fn compose_state(
-            _state: &mut Self::StateType,
-            _delta: &Self::DeltaType,
-        ) {
-            unimplemented!()
-        }
+    impl crate::datatype::StateOnly for ArbitraryPartitioning {
+        type StateOnlyType = ArbitraryPartitioningState;
     }
 
     #[stored_datatype_controller(ArbitraryPartitioning)]
-    pub trait Storage:
-        crate::datatype::Storage<StateType = ArbitraryPartitioningState,
-                                    DeltaType = crate::datatype::UnrepresentableType> {}
+    pub trait Storage: crate::datatype::Storage {}
 }

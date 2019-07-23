@@ -53,6 +53,24 @@ pub trait ComposableState {
     );
 }
 
+pub trait StateOnly {
+    // Note this is named differently than `ComposableState::StateType` to avoid
+    // ambiguous associated type errors requiring verbose trait expansion.
+    type StateOnlyType: Debug + Hash + PartialEq;
+}
+
+impl<T> ComposableState for T where T: StateOnly {
+    type StateType = <Self as StateOnly>::StateOnlyType;
+    type DeltaType = UnrepresentableType;
+
+    fn compose_state(
+        _state: &mut Self::StateType,
+        _delta: &Self::DeltaType,
+    ) {
+        unimplemented!()
+    }
+}
+
 /// Common interface to all datatypes that involves state.
 #[stored_storage_controller] // This will only compile if some backend is enabled
 pub trait Storage: StoreOrBackend<Datatype: ComposableState> {
