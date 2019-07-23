@@ -210,10 +210,7 @@ fn test_create_get_version_graph(backend: Backend) {
     // composition map).
     for part_id in crate::datatype::partitioning::UnaryPartitioningState.get_partition_ids() {
         let hunk = Hunk {
-            id: Identity {
-                uuid: Uuid::new_v4(),
-                hash: 0,
-            },
+            id: 0.into(),
             version: &ver_graph[up_idx],
             partition: Partition {
                 partitioning: &ver_graph[up_idx],
@@ -261,10 +258,7 @@ fn test_create_get_version_graph(backend: Backend) {
             .get_partition_ids()
             .iter()
             .map(|partition_id| Hunk {
-                id: Identity {
-                    uuid: Uuid::new_v4(),
-                    hash: BlobDatatype::hash_payload(&fake_blob),
-                },
+                id: BlobDatatype::hash_payload(&fake_blob).into(),
                 version: ver_blob_real,
                 partition: Partition {
                     partitioning: ver_partitioning,
@@ -344,10 +338,7 @@ fn test_production(backend: Backend) {
         let part_state = crate::datatype::Payload::State(
             ArbitraryPartitioningState { partition_ids: btreeset![0, 1] });
         let hunk = Hunk {
-            id: Identity {
-                uuid: Uuid::new_v4(),
-                hash: ArbitraryPartitioning::hash_payload(&part_state),
-            },
+            id: ArbitraryPartitioning::hash_payload(&part_state).into(),
             version: &ver_graph[part_idx],
             partition: Partition {
                 partitioning: &ver_graph[up_idx],
@@ -404,10 +395,7 @@ fn test_production(backend: Backend) {
                 .get_partition_ids()
                 .iter()
                 .map(|partition_id| Hunk {
-                    id: Identity {
-                        uuid: Uuid::new_v4(),
-                        hash: BlobDatatype::hash_payload(&fake_blob),
-                    },
+                    id: BlobDatatype::hash_payload(&fake_blob).into(),
                     version: ver_blob_real,
                     partition: Partition {
                         partitioning: ver_partitioning,
@@ -496,10 +484,7 @@ fn test_production(backend: Backend) {
                 .iter()
                 .take(1)
                 .map(|partition_id| Hunk {
-                    id: Identity {
-                        uuid: Uuid::new_v4(),
-                        hash: BlobDatatype::hash_payload(&fake_blob),
-                    },
+                    id: BlobDatatype::hash_payload(&fake_blob).into(),
                     version: ver_blob_real,
                     partition: Partition {
                         partitioning: ver_partitioning,

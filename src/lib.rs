@@ -183,10 +183,7 @@ impl<'a> ArtifactGraph<'a> {
         }
 
         (ArtifactGraph {
-            id: Identity {
-                uuid: Uuid::new_v4(),
-                hash: ag_hash.finish(),
-            },
+            id: ag_hash.finish().into(),
             artifacts,
         }, idx_map)
     }

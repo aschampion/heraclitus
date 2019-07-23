@@ -280,10 +280,7 @@ pub(crate) mod tests {
                             )),
                     };
                     let output_hunk = Hunk {
-                        id: Identity {
-                            uuid: Uuid::new_v4(),
-                            hash: BlobDatatype::hash_payload(&output_blob),
-                        },
+                        id: BlobDatatype::hash_payload(&output_blob).into(),
                         version: &ver_graph[ver_blob_idx],
                         representation: input_hunk.representation,
                         partition: input_hunk.partition.clone(),

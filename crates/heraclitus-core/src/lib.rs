@@ -78,6 +78,15 @@ pub struct Identity {
     //internal: InternalId,
 }
 
+impl From<HashType> for Identity {
+    fn from(hash: HashType) -> Self {
+        Identity {
+            uuid: Uuid::new_v4(),
+            hash
+        }
+    }
+}
+
 pub trait Identifiable {
     fn id(&self) -> &Identity;
 }
