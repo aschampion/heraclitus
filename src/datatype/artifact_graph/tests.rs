@@ -150,17 +150,17 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
     let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry);
 
     let mut idxs = hashmap![
-        "UP" => *idx_map.get(&up_idx).unwrap(),
-        "Test Blob 1" => *idx_map.get(&blob1_node_idx).unwrap(),
-        "Test Producer 1" => *idx_map.get(&prod1_node_idx).unwrap(),
-        "Test Blob 2" => *idx_map.get(&blob2_node_idx).unwrap(),
-        "Test Producer 2" => *idx_map.get(&prod2_node_idx).unwrap(),
-        "Test Blob 3" => *idx_map.get(&blob3_node_idx).unwrap(),
-        "TBP" => *idx_map.get(&tbp_node_idx).unwrap(),
-        "blobs" => *idx_map.get(&ref_node_idx).unwrap(),
+        "UP"                => idx_map[&up_idx],
+        "Test Blob 1"       => idx_map[&blob1_node_idx],
+        "Test Producer 1"   => idx_map[&prod1_node_idx],
+        "Test Blob 2"       => idx_map[&blob2_node_idx],
+        "Test Producer 2"   => idx_map[&prod2_node_idx],
+        "Test Blob 3"       => idx_map[&blob3_node_idx],
+        "TBP"               => idx_map[&tbp_node_idx],
+        "blobs"             => idx_map[&ref_node_idx],
     ];
     if let Some(ref idx) = part_idx {
-        idxs.insert("Partitioning", *idx_map.get(idx).unwrap());
+        idxs.insert("Partitioning", idx_map[idx]);
     }
 
     (ag, idxs)
