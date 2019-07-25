@@ -26,7 +26,7 @@ failure = "0.1"
 lazy_static = "*"
 petgraph = { version = "0.4.13", features = ["serde-1"] }
 url = "*"
-uuid = { version = "0.5", features = ["use_std", "v4", "v5"] }
+uuid = { version = "0.5", features = ["use_std", "v4", "v5", "serde"] }
 
 postgres = { version = "0.15", features = ["with-uuid"], optional = true }
 postgres_array = { version = "0.9", optional = true }

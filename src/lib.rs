@@ -121,7 +121,6 @@ impl<'a> ArtifactGraph<'a> {
             ag_hash: &mut DefaultHasher,
             node_idx: ArtifactGraphIndex,
         ) -> ArtifactGraphIndex {
-            let id = Identity { uuid: Uuid::new_v4(), hash: 0 };
             let mut s = DefaultHasher::new();
 
             // TODO: replace with petgraph neighbors
@@ -140,6 +139,7 @@ impl<'a> ArtifactGraph<'a> {
             }
 
             let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
+            let id = Identity { uuid: a_desc.id.unwrap_or_else(|| Uuid::new_v4()), hash: 0 };
             let artifact = {
                 let mut art = Artifact {
                     id,

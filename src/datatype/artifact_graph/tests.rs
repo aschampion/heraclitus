@@ -55,6 +55,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
 
     // Blob 1
     let blob1_node = ArtifactDescription {
+        id: None,
         name: Some("Test Blob 1".into()),
         dtype: "Blob".into(),
         self_partitioning: false,
@@ -62,6 +63,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
     let blob1_node_idx = artifacts.add_node(blob1_node);
     // Prod 1
     let prod1_node = ArtifactDescription {
+        id: None,
         name: Some("Test Producer 1".into()),
         dtype: "NegateBlobProducer".into(),
         self_partitioning: false,
@@ -73,6 +75,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         ArtifactRelation::ProducedFrom("input".into())).unwrap();
     // Blob 2
     let blob2_node = ArtifactDescription {
+        id: None,
         name: Some("Test Blob 2".into()),
         dtype: "Blob".into(),
         self_partitioning: false,
@@ -84,6 +87,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         ArtifactRelation::ProducedFrom("output".into())).unwrap();
     // Prod 2
     let prod2_node = ArtifactDescription {
+        id: None,
         name: Some("Test Producer 2".into()),
         dtype: "NegateBlobProducer".into(),
         self_partitioning: false,
@@ -95,6 +99,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         ArtifactRelation::ProducedFrom("input".into())).unwrap();
     // Blob 3
     let blob3_node = ArtifactDescription {
+        id: None,
         name: Some("Test Blob 3".into()),
         dtype: "Blob".into(),
         self_partitioning: false,
@@ -115,6 +120,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
     // Do not set up partitioning for these.
     // Tracking Branch Producer
     let tbp_node = ArtifactDescription {
+        id: None,
         name: Some("TBP".into()),
         dtype: "TrackingBranchProducer".into(),
         self_partitioning: false,
@@ -129,6 +135,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
     }
     // Tracking ref
     let ref_node = ArtifactDescription {
+        id: None,
         name: Some("blobs".into()),
         dtype: "Ref".into(),
         self_partitioning: false,
@@ -298,6 +305,7 @@ fn test_production(backend: Backend) {
     let mut repo = crate::repo::testing::init_repo(backend, &dtypes_registry);
 
     let partitioning = ArtifactDescription {
+        id: None,
         name: Some("Arbitrary Partitioning".into()),
         dtype: "ArbitraryPartitioning".into(),
         self_partitioning: false,

@@ -549,6 +549,7 @@ impl ArtifactGraphDescription {
 
     pub fn add_unary_partitioning(&mut self) -> daggy::NodeIndex {
         self.add_uniform_partitioning(ArtifactDescription{
+                    id: None,
                     name: Some("Unary Partitioning Singleton".into()),
                     dtype: "UnaryPartitioning".into(),
                     self_partitioning: true,
@@ -581,6 +582,7 @@ impl ArtifactGraphDescription {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ArtifactDescription {
+    pub id: Option<Uuid>,
     pub name: Option<String>,
     pub dtype: String,
     pub self_partitioning: bool,
