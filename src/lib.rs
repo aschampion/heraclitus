@@ -516,7 +516,7 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
         }
 
         let partitioning_art_relation = ArtifactRelation::DtypeDepends(DatatypeRelation {
-                name: datatype::interface::PARTITIONING_RELATION_NAME.clone(),
+                name: datatype::interface::PARTITIONING_RELATION_NAME.to_owned(),
             });
         let partitioning_relation = VersionRelation::Dependence(&partitioning_art_relation);
         self.get_related_versions(

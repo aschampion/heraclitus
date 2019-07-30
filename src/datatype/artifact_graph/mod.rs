@@ -1010,12 +1010,15 @@ impl ArtifactGraphDescription {
             let has_partitioning = self.artifacts.parents(node_idx).iter(&self.artifacts)
                 .fold(false, |hp, (e_idx, _p_idx)| {
                     hp || match self.artifacts[e_idx] {
-                        ArtifactRelation::DtypeDepends(ref rel) => rel.name == "Partitioning",
+                        ArtifactRelation::DtypeDepends(ref rel) =>
+                            rel.name == crate::datatype::interface::PARTITIONING_RELATION_NAME,
                         _ => false,
                     }
                 });
             if !has_partitioning {
-                let edge = ArtifactRelation::DtypeDepends(DatatypeRelation {name: "Partitioning".into()});
+                let edge = ArtifactRelation::DtypeDepends(DatatypeRelation {
+                    name: crate::datatype::interface::PARTITIONING_RELATION_NAME.to_owned(),
+                });
                 self.artifacts.add_edge(part_idx, node_idx, edge).expect("Graph is malformed.");
             }
         }

@@ -21,15 +21,15 @@ use crate::datatype::artifact_graph::production::ProductionPolicy;
 pub use heraclitus_core::datatype::interface::*;
 
 
+pub const PARTITIONING_RELATION_NAME: &'static str = "Partitioning";
+
 lazy_static! {
     pub static ref INTERFACE_PARTITIONING_DESC: InterfaceDescription = InterfaceDescription {
         interface: Interface {
-            name: "Partitioning",
+            name: PARTITIONING_RELATION_NAME,
         },
         extends: HashSet::new(),
     };
-
-    pub static ref PARTITIONING_RELATION_NAME: String = "Partitioning".into();
 
     pub static ref INTERFACE_PRODUCER_DESC: InterfaceDescription = InterfaceDescription {
         interface: Interface {
