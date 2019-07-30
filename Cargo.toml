@@ -26,6 +26,7 @@ backend-postgres = ["heraclitus-core/backend-postgres", "heraclitus-macros/backe
 heraclitus-core = { path = "crates/heraclitus-core" }
 heraclitus-macros = { path = "crates/heraclitus-macros" }
 maplit = "*"
+# Serde does not reexport well, so must depend on it in both core and heraclitus.
 serde = "*"
 serde_derive = "*"
 serde_json = "*"

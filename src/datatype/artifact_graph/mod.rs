@@ -4,6 +4,7 @@ use std::collections::{
     HashMap,
     HashSet,
 };
+use std::hash::Hash;
 
 use heraclitus_core::{
     daggy,
@@ -32,6 +33,7 @@ use crate::{
     Artifact,
     ArtifactGraph,
     ArtifactGraphIndex,
+    ArtifactIndexMap,
     ArtifactRelation,
     CompositionMap,
     DatatypeRelation,
@@ -41,11 +43,20 @@ use crate::{
     Identity,
     IdentifiableGraph,
     Interface,
+    ModelError,
+    PartCompletion,
+    Partition,
     PartitionIndex,
     Version,
     VersionGraph,
     VersionGraphIndex,
     VersionRelation,
+    VersionStatus,
+};
+use crate::datatype::{
+    ComposableState,
+    partitioning::Partitioning,
+    Payload,
 };
 use super::{
     DatatypeEnum,
@@ -101,7 +112,10 @@ impl<T: InterfaceController<ArtifactMeta>> super::Model<T> for ArtifactGraphDtyp
         Description {
             name: "ArtifactGraph".into(),
             version: 1,
-            representations: vec![RepresentationKind::State]
+            representations: vec![
+                        RepresentationKind::State,
+                        RepresentationKind::Delta,
+                    ]
                     .into_iter()
                     .collect(),
             implements: vec![], // TODO: should artifact graph be an interface?
@@ -113,20 +127,416 @@ impl<T: InterfaceController<ArtifactMeta>> super::Model<T> for ArtifactGraphDtyp
 }
 
 
-#[stored_datatype_controller(ArtifactGraphDtype)]
-pub trait Storage {
-    fn list_graphs(&self) -> Vec<Identity>;
+impl crate::datatype::ComposableState for ArtifactGraphDtype {
+    type StateType = ArtifactGraphDescription;
+    type DeltaType = ArtifactGraphDelta;
 
-    fn create_artifact_graph<'a, T: DatatypeEnum>(
+    fn compose_state(
+        state: &mut Self::StateType,
+        delta: &Self::DeltaType,
+    ) {
+        state.compose(delta).expect("TODO");
+    }
+}
+
+struct OriginGraphTemplate<'d> {
+    artifact_graph: ArtifactGraph<'d>,
+    origin_idx: ArtifactGraphIndex,
+    root_idx: ArtifactGraphIndex,
+    up_idx: ArtifactGraphIndex,
+}
+
+/// An origin artifact graph which contains:
+/// - Unary partitioning
+/// - Recursive AG artifact itself
+/// - Root AG artifact
+impl<'d> OriginGraphTemplate<'d> {
+    fn new<T: DatatypeEnum>(dtypes_registry: &'d DatatypesRegistry<T>) -> OriginGraphTemplate<'d> {
+        let mut origin_ag = ArtifactGraphDescriptionType::new();
+
+        let origin_art = ArtifactDescription::New {
+            id: None,
+            name: Some("origin".into()),
+            dtype: "ArtifactGraph".into(),
+            self_partitioning: false,
+        };
+        let root_art = ArtifactDescription::New {
+            id: None,
+            name: Some("root".into()),
+            dtype: "ArtifactGraph".into(),
+            self_partitioning: false,
+        };
+        let origin_desc_idx = origin_ag.add_node(origin_art);
+        let root_desc_idx = origin_ag.add_node(root_art);
+        let mut origin_ag_desc = ArtifactGraphDescription {
+            artifacts: origin_ag,
+        };
+        let up_desc_idx = origin_ag_desc.add_unary_partitioning();
+
+        // TODO: having to do this cycle because of inconsistency of hash between
+        // AG and AG description.
+        let (origin_ag, idx_map) = ArtifactGraph::from_description(
+            &origin_ag_desc,
+            dtypes_registry);
+
+        OriginGraphTemplate {
+            artifact_graph: origin_ag,
+            origin_idx: idx_map[&origin_desc_idx],
+            root_idx: idx_map[&root_desc_idx],
+            up_idx: idx_map[&up_desc_idx],
+        }
+    }
+
+    fn origin(&self) -> &Artifact {
+        &self.artifact_graph[self.origin_idx]
+    }
+
+    fn root(&self) -> &Artifact {
+        &self.artifact_graph[self.root_idx]
+    }
+
+    fn up(&self) -> &Artifact {
+        &self.artifact_graph[self.up_idx]
+    }
+}
+
+#[stored_datatype_controller(ArtifactGraphDtype)]
+pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription, DeltaType = ArtifactGraphDelta> {
+    fn get_or_create_origin_root<'d, T: DatatypeEnum>(
+        &mut self,
+        dtypes_registry: &'d DatatypesRegistry<T>,
+        repo: &Repository,
+    ) -> Result<(ArtifactGraph<'d>, ArtifactGraph<'d>), Error> {
+        let origin_hunk_uuid = match self.read_origin_hunk_uuid(repo)? {
+            Some(uuid) => uuid,
+            None => {
+                self.create_origin_root(dtypes_registry, repo)?.uuid
+            }
+        };
+
+        let origin_ag = self.read_origin_artifact_graph(dtypes_registry, repo, origin_hunk_uuid)?;
+        // TODO: many temporary hacks
+        // - using names instead of refs
+        // - assuming unary root versions
+        // - assuming tip of root versions
+        let root_art_idx = origin_ag.find_by_name("root").expect("TODO: malformed origin AG");
+
+        let origin_vg = self.get_version_graph(repo, &origin_ag)?;
+        let root_tip_v_idx = origin_vg.artifact_tips(&origin_ag[root_art_idx])[0];
+
+        let root_ag = self.get_artifact_graph(dtypes_registry, repo, &origin_vg, root_tip_v_idx)?;
+
+        Ok((origin_ag, root_ag))
+    }
+
+    fn read_origin_artifact_graph<'d, T: DatatypeEnum>(
+        &self,
+        dtypes_registry: &'d DatatypesRegistry<T>,
+        repo: &Repository,
+        origin_hunk_uuid: Uuid,
+    ) -> Result<ArtifactGraph<'d>, Error> {
+
+        let fake_origin = OriginGraphTemplate::new(dtypes_registry);
+        let fake_vg = VersionGraph::new_from_source_artifacts(&fake_origin.artifact_graph);
+        let fake_origin_version = Version::new(fake_origin.origin(), RepresentationKind::State);
+        let fake_origin_hunk = Hunk {
+            id: Identity {uuid: origin_hunk_uuid, hash: 0},
+            version: &fake_origin_version,
+            partition: Partition {
+                partitioning: &fake_vg[fake_vg.artifact_versions(fake_origin.up())[0]],
+                index: crate::datatype::partitioning::UNARY_PARTITION_INDEX,
+            },
+            representation: RepresentationKind::State,
+            completion: PartCompletion::Complete,
+            precedence: None,
+        };
+        let comp = vec![fake_origin_hunk];
+        let ag_desc = self.get_composite_state(repo, &comp)?;
+
+        let (origin_ag, _) = ArtifactGraph::from_description(&ag_desc, dtypes_registry);
+
+        Ok(origin_ag)
+    }
+
+    fn read_origin_hunk_uuid(
+        &self,
+        repo: &Repository,
+    ) -> Result<Option<Uuid>, Error>;
+
+    fn create_origin_root<'a, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &'a DatatypesRegistry<T>,
         repo: &Repository,
-        art_graph: &ArtifactGraph,
-    ) -> Result<(), Error>
-        where T::InterfaceControllerType: InterfaceController<ArtifactMeta>
-    {
-        self.write_artifact_graph(repo, art_graph)?;
+    ) -> Result<Identity, Error> {
 
+        let origin = OriginGraphTemplate::new(dtypes_registry);
+        let origin_art_id = origin.origin().id;
+
+        // Create version graph for the origin AG.
+        let mut ver_graph = VersionGraph::new_from_source_artifacts(&origin.artifact_graph);
+        ver_graph.versions.node_weights_mut()
+            .for_each(|n| n.status = VersionStatus::Committed);
+        let up_ver_idx = ver_graph.artifact_versions(origin.up())[0];
+        let part_id = crate::datatype::partitioning::UnaryPartitioningState
+            .get_partition_ids().iter().cloned().nth(0).unwrap();
+
+        // Create origin version.
+        let (origin_ver_idx, origin_hunk_id) = {
+            let mut origin_version = Version::new(
+                origin.origin(),
+                RepresentationKind::State);
+            origin_version.status = VersionStatus::Committed;
+            let origin_ver_idx = ver_graph.versions.add_node(origin_version);
+            let up_origin_art_edge = origin.artifact_graph.artifacts.find_edge(
+                origin.up_idx, origin.origin_idx).unwrap();
+            ver_graph.versions.add_edge(up_ver_idx, origin_ver_idx,
+                VersionRelation::Dependence(&origin.artifact_graph[up_origin_art_edge])).unwrap();
+
+            // Create origin hunk.
+            let origin_ag_complete = origin.artifact_graph.as_description();
+            let complete_payload = Payload::State(origin_ag_complete);
+            let origin_hunk = Hunk {
+                id: ArtifactGraphDtype::hash_payload(&complete_payload).into(),
+                version: &ver_graph[origin_ver_idx],
+                partition: Partition {
+                    partitioning: &ver_graph[up_ver_idx],
+                    index: part_id,
+                },
+                representation: RepresentationKind::State,
+                completion: PartCompletion::Complete,
+                precedence: None,
+            };
+
+            self.bootstrap_origin(repo, &origin_hunk)?;
+
+            // Adjust AG descrition so that origin artifact is existing reference.
+            // HACK: Not only is this delta-like descript graph being used as a
+            // state, it is not a valid delta either as the partitioning artifact
+            // will have a relation with this existing origin artifact.
+            let mut origin_ag_delta = origin.artifact_graph.as_description();
+            let origin_art_idx = origin_ag_delta.get_by_uuid(&origin_art_id.uuid).unwrap().0;
+            origin_ag_delta.artifacts[origin_art_idx] = ArtifactDescription::Existing(origin_art_id.uuid);
+            let payload = Payload::State(origin_ag_delta);
+
+            // Write AG description hunk.
+            // HACK: This is violating many contracts, including that a state
+            // hunk has a reference to an existing artifact.
+            self.write_hunk(repo, &origin_hunk, &payload)?;
+
+            (origin_ver_idx, origin_hunk.id)
+        };
+
+        // Write out remaining AG versions and hunks.
+        // This should only be the UP version:
+        self.create_staging_version(
+            &repo,
+            &ver_graph,
+            up_ver_idx)?;
+        for part_id in crate::datatype::partitioning::UnaryPartitioningState.get_partition_ids() {
+            let hunk = Hunk {
+                id: 0.into(),
+                version: &ver_graph[up_ver_idx],
+                partition: Partition {
+                    partitioning: &ver_graph[up_ver_idx],
+                    index: part_id,
+                },
+                representation: RepresentationKind::State,
+                completion: PartCompletion::Complete,
+                precedence: None,
+            };
+            self.create_hunk(repo, &hunk)?;
+        }
+
+        let mut root_ag_ver = Version::new(
+            origin.root(),
+            RepresentationKind::State);
+        root_ag_ver.status = VersionStatus::Committed;
+        let root_ag_ver_idx = ver_graph.versions.add_node(root_ag_ver);
+        let up_root_art_edge = origin.artifact_graph.artifacts.find_edge(
+            origin.up_idx, origin.root_idx).unwrap();
+        ver_graph.versions.add_edge(up_ver_idx, root_ag_ver_idx,
+            VersionRelation::Dependence(&origin.artifact_graph[up_root_art_edge])).unwrap();
+        self.create_staging_version(
+            repo,
+            &ver_graph,
+            root_ag_ver_idx.clone())?;
+
+        // Empty root AG.
+        let (root_ag, _) = ArtifactGraph::from_description(
+            &ArtifactGraphDescription::new(),
+            dtypes_registry);
+        let root_ag_payload = Payload::State(root_ag.as_description());
+        let root_ag_hunk = Hunk {
+            id: ArtifactGraphDtype::hash_payload(&root_ag_payload).into(),
+            version: &ver_graph[root_ag_ver_idx],
+            partition: Partition {
+                partitioning: &ver_graph[up_ver_idx],
+                index: part_id,
+            },
+            representation: RepresentationKind::State,
+            completion: PartCompletion::Complete,
+            precedence: None,
+        };
+        self.create_hunk(repo, &root_ag_hunk)?;
+        self.write_hunk(repo, &root_ag_hunk, &root_ag_payload)?;
+
+        // Do any final cleanup necessary, e.g., adding version relations from
+        // partitioning to origin artifact and marking commits.
+        self.tie_off_origin(repo, &ver_graph, origin_ver_idx)?;
+
+        Ok(origin_hunk_id)
+    }
+
+    /// Given an origin hunk, create a reference self-loop such that the
+    /// hunk's artifact is in the graph specified by the hunk.
+    ///
+    /// # Warning
+    ///
+    /// This method is a hook called by heraclitus internals to be implemented
+    /// by backends, and should never be called from client code.
+    fn bootstrap_origin(
+        &self,
+        repo: &Repository,
+        hunk: &Hunk,
+    ) -> Result<(), Error>;
+
+    /// When creating the origin, after the origin has been bootstrapped and
+    /// the graph has been written, perform any cleanup. This must include
+    /// relating the origin AG to its partitioning, and may include backend-
+    /// specific hacks.
+    ///
+    /// # Warning
+    ///
+    /// This method is a hook called by heraclitus internals to be implemented
+    /// by backends, and should never be called from client code.
+    fn tie_off_origin(
+        &self,
+        repo: &Repository,
+        ver_graph: &VersionGraph,
+        origin_v_idx: VersionGraphIndex,
+    ) -> Result<(), Error>;
+
+    fn create_artifact_graph<'d, 'a, T: DatatypeEnum>(
+        &mut self,
+        dtypes_registry: &'d DatatypesRegistry<T>,
+        repo: &Repository,
+        art_graph_desc: ArtifactGraphDescription,
+        parent: &'a mut ArtifactGraph<'d>,
+        parent_v_idx: VersionGraphIndex,
+        grandp_vg: &mut VersionGraph,
+    ) -> Result<(VersionGraph<'d, 'a>, VersionGraphIndex, ArtifactGraph<'d>, ArtifactIndexMap), Error>
+        where T::InterfaceControllerType: InterfaceController<ArtifactMeta>,
+            // This is only necessary because `commit_version` is called for the
+            // new AG's version, even though it will do nothing besides set
+            // a status flag. TODO: reconsider.
+            <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<ProducerController> +
+                    InterfaceController<CustomProductionPolicyController>
+    {
+
+        // Create delta for parent graph, with new AG artifact related to UP.
+        let mut parent_ag_delta_desc = ArtifactGraphDescription::new();
+        let new_ag_art = ArtifactDescription::New {
+            id: None, // TODO: hashes are wrong
+            name: None,
+            dtype: "ArtifactGraph".into(),
+            self_partitioning: false,
+        };
+        let new_ag_art_idx = parent_ag_delta_desc.artifacts.add_node(new_ag_art);
+        let parent_ag_up_idx = match parent.get_unary_partitioning() {
+            Some(idx) => {
+                let existing_up = ArtifactDescription::Existing(parent[idx].id.uuid);
+                parent_ag_delta_desc.add_uniform_partitioning(existing_up)
+            },
+            None => parent_ag_delta_desc.add_unary_partitioning(),
+        };
+        let mut parent_ag_delta = ArtifactGraphDelta {
+            additions: parent_ag_delta_desc,
+            removals: vec![]
+        };
+        let parent_ag_idx_map = parent.apply_delta(&parent_ag_delta, dtypes_registry);
+
+        // Set the correct ID and hash for the new AG artifacts.
+        for node_idx in parent_ag_delta.additions.artifacts.graph().node_indices() {
+            if let ArtifactDescription::New {ref mut id, ..} = parent_ag_delta.additions.artifacts[node_idx] {
+                *id = Some(parent[parent_ag_idx_map[&node_idx]].id);
+            }
+        }
+
+        // Create new version for parent graph delta.
+        let new_parent_v_idx = grandp_vg.new_child(parent_v_idx, RepresentationKind::Delta);
+        // TODO: have to do this because do not have access to grandparent AG.
+        grandp_vg[new_parent_v_idx].status = VersionStatus::Committed;
+        let parent_v_part_idx = grandp_vg.get_partitioning(parent_v_idx).expect("TODO").0;
+        let parent_v_part_edge = grandp_vg.versions.find_edge(parent_v_part_idx, parent_v_idx).unwrap();
+        grandp_vg.versions.add_edge(parent_v_part_idx, new_parent_v_idx, grandp_vg[parent_v_part_edge].clone()).unwrap();
+        self.create_staging_version(repo, grandp_vg, new_parent_v_idx)?;
+
+        // Write parent graph delta hunk.
+        let parent_ag_payload = Payload::Delta(parent_ag_delta);
+        let part_id = crate::datatype::partitioning::UnaryPartitioningState
+            .get_partition_ids().iter().cloned().nth(0).unwrap();
+        let parent_ag_hunk = Hunk {
+            id: ArtifactGraphDtype::hash_payload(&parent_ag_payload).into(),
+            version: &grandp_vg[new_parent_v_idx],
+            partition: Partition {
+                partitioning: &grandp_vg[parent_v_part_idx],
+                index: part_id,
+            },
+            representation: RepresentationKind::Delta,
+            completion: PartCompletion::Complete,
+            precedence: None,
+        };
+        self.create_hunk(repo, &parent_ag_hunk)?;
+        self.write_hunk(repo, &parent_ag_hunk, &parent_ag_payload)?;
+
+        // Create new AG.
+        // Done earlier here so ownership of the description can be transferred.
+        let (art_graph, new_idx_map) = ArtifactGraph::from_description(&art_graph_desc, dtypes_registry);
+
+        // Create version for new artifact graph's artifact.
+        let new_ag_art = &parent[parent_ag_idx_map[&new_ag_art_idx]];
+        let parent_ag_up_art = &parent[parent_ag_idx_map[&parent_ag_up_idx]];
+        let mut parent_vg = self.get_version_graph(repo, parent)?;
+        // Create partition version is necessary.
+        let parent_ag_up_ver_idx = match parent_vg.artifact_versions(parent_ag_up_art).get(0) {
+            None => {
+                let up_ver = Version::new(parent_ag_up_art, RepresentationKind::State);
+                let up_ver_idx = parent_vg.versions.add_node(up_ver);
+                self.create_staging_version(repo, &parent_vg, up_ver_idx)?;
+                up_ver_idx
+            },
+            Some(vers) => *vers,
+        };
+        let new_ag_version = Version::new(new_ag_art, RepresentationKind::State);
+        let new_ag_v_idx = parent_vg.versions.add_node(new_ag_version);
+        // Add partitioning edge.
+        let up_art_edge = parent.artifacts.find_edge(
+            parent_ag_idx_map[&parent_ag_up_idx], parent_ag_idx_map[&new_ag_art_idx]).unwrap();
+        parent_vg.versions.add_edge(parent_ag_up_ver_idx, new_ag_v_idx,
+            VersionRelation::Dependence(&parent[up_art_edge])).unwrap();
+        self.create_staging_version(repo, &parent_vg, new_ag_v_idx)?;
+
+        // Create hunk for new artifact graph's artifact.
+        let new_ag_payload = Payload::State(art_graph.as_description());
+        let new_ag_hunk = Hunk {
+            id: ArtifactGraphDtype::hash_payload(&new_ag_payload).into(),
+            version: &parent_vg[new_ag_v_idx],
+            partition: Partition {
+                partitioning: &grandp_vg[parent_v_part_idx], // TODO: this is wrong
+                index: part_id,
+            },
+            representation: RepresentationKind::State,
+            completion: PartCompletion::Complete,
+            precedence: None,
+        };
+        self.create_hunk(repo, &new_ag_hunk)?;
+
+        // Write new artifact graph's hunk.
+        self.write_hunk(repo, &new_ag_hunk, &new_ag_payload)?;
+        self.commit_version(dtypes_registry, repo, parent, &mut parent_vg, new_ag_v_idx)?;
+
+        // Call initializers for artifacts the new graph.
         for idx in art_graph.artifacts.graph().node_indices() {
             let art = &art_graph[idx];
             let meta_controller = dtypes_registry
@@ -137,21 +547,31 @@ pub trait Storage {
             }
         }
 
-        Ok(())
+        Ok((parent_vg, new_ag_v_idx, art_graph, new_idx_map))
     }
 
-    fn write_artifact_graph(
-        &mut self,
-        repo: &Repository,
-        art_graph: &ArtifactGraph,
-    ) -> Result<(), Error>;
-
-    fn get_artifact_graph<'a, T: DatatypeEnum>(
+    fn get_artifact_graph<'d, T: DatatypeEnum>(
         &self,
-        dtypes_registry: &'a DatatypesRegistry<T>,
+        dtypes_registry: &'d DatatypesRegistry<T>,
         repo: &Repository,
-        id: &Identity,
-    ) -> Result<ArtifactGraph<'a>, Error>;
+        ver_graph: &VersionGraph,
+        v_idx: VersionGraphIndex,
+    ) -> Result<ArtifactGraph<'d>, Error> {
+
+        let up_part_id = crate::datatype::partitioning::UNARY_PARTITION_INDEX;
+        let composition_map = self.get_composition_map(
+            repo,
+            ver_graph,
+            v_idx,
+            maplit::btreeset![up_part_id])?;
+        let composition = &composition_map[&up_part_id];
+
+        let ag_desc = self.get_composite_state(repo, composition)?;
+
+        let ag = ArtifactGraph::from_description(&ag_desc, dtypes_registry).0;
+
+        Ok(ag)
+    }
 
     fn create_staging_version(
         &mut self,
@@ -535,7 +955,31 @@ pub trait Storage {
 }
 
 
-pub type ArtifactGraphDescriptionType =  daggy::Dag<ArtifactDescription, ArtifactRelation>;
+#[derive(Debug, Hash, PartialEq)]
+pub struct ArtifactGraphDelta {
+    additions: ArtifactGraphDescription,
+    removals: Vec<Uuid>,
+}
+
+impl ArtifactGraphDelta {
+    pub fn new(additions: ArtifactGraphDescription, removals: Vec<Uuid>) -> Self {
+        Self {
+            additions,
+            removals,
+        }
+    }
+
+    pub fn additions(&self) -> &ArtifactGraphDescription {
+        &self.additions
+    }
+
+    pub fn removals(&self) -> &[Uuid] {
+        &self.removals
+    }
+}
+
+pub type ArtifactGraphDescriptionType = daggy::Dag<ArtifactDescription, ArtifactRelation>;
+#[derive(Clone, Debug)]
 pub struct ArtifactGraphDescription {
     pub artifacts: ArtifactGraphDescriptionType,
 }
@@ -548,7 +992,7 @@ impl ArtifactGraphDescription {
     }
 
     pub fn add_unary_partitioning(&mut self) -> daggy::NodeIndex {
-        self.add_uniform_partitioning(ArtifactDescription{
+        self.add_uniform_partitioning(ArtifactDescription::New {
                     id: None,
                     name: Some("Unary Partitioning Singleton".into()),
                     dtype: "UnaryPartitioning".into(),
@@ -578,12 +1022,172 @@ impl ArtifactGraphDescription {
 
         part_idx
     }
+
+    /// Whether this description does not refer to any existing nodes.
+    pub fn is_independent(&self) -> bool {
+        for node_idx in self.artifacts.graph().node_indices() {
+            if let ArtifactDescription::Existing(_) = self.artifacts[node_idx] {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Whether this description is already a valid payload for persisting.
+    pub fn is_valid_payload(&self) -> bool {
+        // All nodes must have an identity.
+        for node_idx in self.artifacts.graph().node_indices() {
+            if let ArtifactDescription::New { id, .. } = self.artifacts[node_idx] {
+                if id.is_none() {
+                    return false;
+                }
+            }
+        }
+
+        // Only new nodes may have dependent edges.
+        for edge in self.artifacts.graph().raw_edges() {
+            if let ArtifactDescription::Existing(_) = self.artifacts[edge.target()] {
+                return false
+            }
+        }
+
+        true
+    }
+
+    pub fn is_valid_state(&self) -> bool {
+        self.is_independent() && self.is_valid_payload()
+    }
+
+    fn get_by_uuid(
+        &self,
+        uuid: &Uuid
+    ) -> Option<(ArtifactGraphIndex, &ArtifactDescription)> {
+        for node_idx in self.artifacts.graph().node_indices() {
+            let node = self.artifacts.node_weight(node_idx).expect("Graph is malformed");
+            if let ArtifactDescription::New {id: Some(id), ..} = node {
+                if id.uuid == *uuid {
+                    return Some((node_idx, node))
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn compose(&mut self, delta: &ArtifactGraphDelta) -> Result<(), Error> {
+        for art_uuid in &delta.removals {
+            let (found_idx, _) = self.get_by_uuid(art_uuid)
+                .ok_or_else(|| Error::Model(ModelError::NotFound(*art_uuid)))?;
+            self.artifacts.remove_node(found_idx);
+        }
+
+        let mut idx_map = ArtifactIndexMap::new();
+        for delta_idx in delta.additions.artifacts.graph().node_indices() {
+            let node = &delta.additions.artifacts[delta_idx];
+            let self_idx = match node {
+                ArtifactDescription::New {..} => {
+                    self.artifacts.add_node(node.clone())
+                },
+                ArtifactDescription::Existing(uuid) => {
+                    match self.get_by_uuid(uuid) {
+                        Some((self_idx, _)) => self_idx,
+                        None => self.artifacts.add_node(node.clone()),
+                    }
+                },
+            };
+            idx_map.insert(delta_idx, self_idx);
+        }
+
+        for edge in delta.additions.artifacts.graph().raw_edges() {
+            self.artifacts.add_edge(idx_map[&edge.source()], idx_map[&edge.target()], edge.weight.clone())
+                .expect("TODO");
+        }
+
+        Ok(())
+    }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ArtifactDescription {
-    pub id: Option<Uuid>,
-    pub name: Option<String>,
-    pub dtype: String,
-    pub self_partitioning: bool,
+impl PartialEq for ArtifactGraphDescription {
+    fn eq(&self, other: &Self) -> bool {
+        let mut idx_map: BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex> = BTreeMap::new();
+
+        let mut other_node_idxs = other.artifacts.graph().node_indices().collect::<BTreeSet<_>>();
+
+        for node_idx in self.artifacts.graph().node_indices() {
+            let node = &self.artifacts[node_idx];
+            let match_idx = other_node_idxs.iter()
+                .find(|&idx| node == &other.artifacts[*idx])
+                .copied();
+
+            match match_idx {
+                None => { return false; },
+                Some(other_idx) => {
+                    idx_map.insert(node_idx, other_idx);
+                    other_node_idxs.remove(&other_idx);
+                }
+            }
+        }
+
+        if !other_node_idxs.is_empty() {
+            return false;
+        }
+
+        true
+    }
+}
+
+// TODO: not verified or compatible with ArtifactGraph
+impl Hash for ArtifactGraphDescription {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let to_visit = daggy::petgraph::algo::toposort(self.artifacts.graph(), None)
+            .expect("TODO: not a DAG");
+
+        // Walk the description graph in descending dependency order.
+        for node_idx in to_visit {
+            self.artifacts[node_idx].hash(state);
+        };
+    }
+}
+
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum ArtifactDescription {
+    New {
+        id: Option<Identity>,
+        name: Option<String>,
+        dtype: String,
+        self_partitioning: bool,
+    },
+    Existing(Uuid),
+}
+
+impl ArtifactDescription {
+    pub fn new_from_artifact(art: &Artifact) -> Self {
+        ArtifactDescription::New {
+            id: Some(art.id.clone()),
+            name: art.name.clone(),
+            dtype: art.dtype.name.clone(),
+            self_partitioning: art.self_partitioning,
+        }
+    }
+}
+
+// TODO: this can't match Artifact hash yet because of dtype.
+impl Hash for ArtifactDescription {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            ArtifactDescription::New {id: Some(id), ..} => {
+                id.hash.hash(state);
+            },
+            ArtifactDescription::New {id: None, name, self_partitioning, ..} => {
+                // TODO: not using dtype for hash.
+                name.hash(state);
+                self_partitioning.hash(state);
+            },
+            ArtifactDescription::Existing(uuid) => {
+                uuid.hash(state);
+            }
+        }
+    }
 }

@@ -1,9 +1,9 @@
-DROP TABLE artifact_graph;
 DROP TABLE artifact;
 DROP TYPE artifact_edge_type;
 DROP TABLE artifact_edge;
-DROP TABLE artifact_producer_edge;
-DROP TABLE artifact_dtype_edge;
+DROP TABLE artifact_removals;
+-- DROP TABLE artifact_producer_edge;
+-- DROP TABLE artifact_dtype_edge;
 DROP TYPE representation_kind;
 DROP TYPE version_status;
 DROP TABLE version;
@@ -15,3 +15,4 @@ DROP TABLE version_relation;
 DROP TYPE part_completion;
 DROP TABLE hunk;
 DROP TABLE hunk_precedence;
+DROP TABLE origin;

@@ -1,6 +1,7 @@
 #![feature(associated_type_bounds)]
 #![feature(never_type)]
 #![feature(specialization)]
+#![feature(todo_macro)]
 #![feature(trivial_bounds)]
 #![feature(vec_remove_item)]
 
@@ -30,7 +31,10 @@ use serde_derive::{Serialize, Deserialize};
 use uuid::Uuid;
 
 use heraclitus_core::datatype::{DatatypeEnum, DatatypesRegistry};
-use crate::datatype::artifact_graph::{ArtifactGraphDescription};
+use crate::datatype::artifact_graph::{
+    ArtifactDescription,
+    ArtifactGraphDescription,
+};
 
 
 #[macro_use]
@@ -100,10 +104,11 @@ type ArtifactGraphIndexType = petgraph::graph::DefaultIx;
 pub type ArtifactGraphIndex = petgraph::graph::NodeIndex<ArtifactGraphIndexType>;
 pub type ArtifactGraphEdgeIndex = petgraph::graph::EdgeIndex<ArtifactGraphIndexType>;
 pub(crate) type ArtifactGraphType<'a> = daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType>;
+pub type ArtifactIndexMap = BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex>;
 
 /// A graph expressing the dependence structure between sets of data artifacts.
 pub struct ArtifactGraph<'a> {
-    id: Identity,
+    id: Identity, // Note: currently this hash is the hash of the **version**, not the AG artifact.
     pub artifacts: ArtifactGraphType<'a>,
 }
 
@@ -111,84 +116,148 @@ impl<'a> ArtifactGraph<'a> {
     pub fn from_description<T: DatatypeEnum>(
         desc: &ArtifactGraphDescription,
         dtypes_registry: &'a DatatypesRegistry<T>,
-    ) -> (ArtifactGraph<'a>, BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex>) {
-
-        fn create_node<'a, T: DatatypeEnum>(
-            desc: &ArtifactGraphDescription,
-            dtypes_registry: &'a DatatypesRegistry<T>,
-            artifacts: &mut ArtifactGraphType<'a>,
-            idx_map: &mut BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex>,
-            ag_hash: &mut DefaultHasher,
-            node_idx: ArtifactGraphIndex,
-        ) -> ArtifactGraphIndex {
-            let mut s = DefaultHasher::new();
-
-            // TODO: replace with petgraph neighbors
-            // Order hashing based on hash, not ID, so that artifact content
-            // hashes are ID-independent.
-            let mut sorted_parent_hashes = desc.artifacts.parents(node_idx)
-                .iter(&desc.artifacts)
-                .map(|(_, p_idx)| {
-                    let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
-                    artifacts.node_weight(*new_p_idx).expect("Graph is malformed.").id.hash
-                })
-                .collect::<Vec<HashType>>();
-            sorted_parent_hashes.sort();
-            for hash in &sorted_parent_hashes {
-                hash.hash(&mut s);
-            }
-
-            let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
-            let id = Identity { uuid: a_desc.id.unwrap_or_else(|| Uuid::new_v4()), hash: 0 };
-            let artifact = {
-                let mut art = Artifact {
-                    id,
-                    name: a_desc.name.clone(),
-                    self_partitioning: a_desc.self_partitioning,
-                    dtype: dtypes_registry.get_datatype(&*a_desc.dtype).expect("Unknown datatype."),
-                };
-                art.hash(&mut s);
-                art.id.hash = s.finish();
-                art.id.hash.hash(ag_hash);
-                art
-            };
-
-            let new_idx = artifacts.add_node(artifact);
-            idx_map.insert(node_idx, new_idx);
-
-            for (e_idx, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
-                let edge = desc.artifacts.edge_weight(e_idx).expect("Graph is malformed.").clone();
-                artifacts.add_edge(*idx_map.get(&p_idx).expect("Graph is malformed."), new_idx, edge)
-                         .expect("Graph is malformed.");
-            }
-
-            new_idx
-        }
+    ) -> (ArtifactGraph<'a>, ArtifactIndexMap) {
 
         let to_visit = daggy::petgraph::algo::toposort(desc.artifacts.graph(), None)
             .expect("TODO: not a DAG");
 
-        let mut artifacts = ArtifactGraphType::new();
-        let mut idx_map = BTreeMap::new();
+        let mut ag = ArtifactGraph {
+            id: 0.into(),
+            artifacts: ArtifactGraphType::new(),
+        };
+        let mut idx_map = ArtifactIndexMap::new();
         let mut ag_hash = DefaultHasher::new();
 
         for node_idx in to_visit {
-            create_node(
+            let idx = ag.add_description_node(
                 desc,
                 dtypes_registry,
-                &mut artifacts,
                 &mut idx_map,
-                &mut ag_hash,
+                node_idx);
+            ag.artifacts[idx].id.hash.hash(&mut ag_hash);
+        }
+
+        ag.id.hash = ag_hash.finish();
+
+        (ag, idx_map)
+    }
+
+    pub fn apply_delta<T: DatatypeEnum>(
+        &mut self,
+        delta: &crate::datatype::artifact_graph::ArtifactGraphDelta,
+        dtypes_registry: &'a DatatypesRegistry<T>,
+    ) -> ArtifactIndexMap {
+
+        for art_uuid in delta.removals() {
+            let (found_idx, _) = self.get_by_uuid(art_uuid).expect("TODO");
+            self.artifacts.remove_node(found_idx);
+        }
+
+        let to_visit = daggy::petgraph::algo::toposort(delta.additions().artifacts.graph(), None)
+            .expect("TODO: not a DAG");
+
+        let mut idx_map = ArtifactIndexMap::new();
+
+        for node_idx in to_visit {
+            self.add_description_node(
+                delta.additions(),
+                dtypes_registry,
+                &mut idx_map,
                 node_idx);
         }
 
-        (ArtifactGraph {
-            id: ag_hash.finish().into(),
-            artifacts,
-        }, idx_map)
+        self.id.hash = self.hash_current_state().expect("TODO: existing art hash is wrong");
+
+        idx_map
     }
 
-    pub fn verify_hash(&self) -> bool {
+    fn add_description_node<T: DatatypeEnum>(
+        &mut self,
+        desc: &ArtifactGraphDescription,
+        dtypes_registry: &'a DatatypesRegistry<T>,
+        idx_map: &mut ArtifactIndexMap,
+        node_idx: ArtifactGraphIndex,
+    ) -> ArtifactGraphIndex {
+        let mut s = DefaultHasher::new();
+
+        // TODO: replace with petgraph neighbors
+        // Order hashing based on hash, not ID, so that artifact content
+        // hashes are ID-independent.
+        let mut sorted_parent_hashes = desc.artifacts.parents(node_idx)
+            .iter(&desc.artifacts)
+            .map(|(_, p_idx)| {
+                let new_p_idx = idx_map.get(&p_idx).expect("Graph is malformed.");
+                self.artifacts.node_weight(*new_p_idx).expect("Graph is malformed.").id.hash
+            })
+            .collect::<Vec<HashType>>();
+        sorted_parent_hashes.sort();
+        for hash in &sorted_parent_hashes {
+            hash.hash(&mut s);
+        }
+
+        let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
+        let new_idx = match a_desc {
+            ArtifactDescription::New { id, name, self_partitioning, dtype } => {
+                let id_new = id.unwrap_or_else(|| 0.into());
+                let artifact = {
+                    let mut art = Artifact {
+                        id: id_new,
+                        name: name.clone(),
+                        self_partitioning: *self_partitioning,
+                        dtype: dtypes_registry.get_datatype(&*dtype).expect("Unknown datatype."),
+                    };
+                    art.hash(&mut s);
+                    let new_hash = s.finish();
+                    if id.is_some() {
+                        // TODO: hash verification should return an error
+                        assert_eq!(art.id.hash, new_hash, "ID mismatch for artifact: {:?}", art);
+                    }
+                    art.id.hash = new_hash;
+                    art
+                };
+
+                self.artifacts.add_node(artifact)
+            },
+            ArtifactDescription::Existing(uuid) => {
+                self.get_by_uuid(uuid).expect("TODO").0
+            },
+        };
+        idx_map.insert(node_idx, new_idx);
+
+        for (e_idx, p_idx) in desc.artifacts.parents(node_idx).iter(&desc.artifacts) {
+            let edge = desc.artifacts.edge_weight(e_idx).expect("Graph is malformed.").clone();
+            self.artifacts.add_edge(*idx_map.get(&p_idx).expect("Graph is malformed."), new_idx, edge)
+                     .expect("Graph is malformed.");
+        }
+
+        new_idx
+    }
+
+    pub fn as_description(&self) -> ArtifactGraphDescription {
+        let mut idx_map = ArtifactIndexMap::new();
+
+        let mut desc = ArtifactGraphDescription::new();
+
+        for node_idx in self.artifacts.graph().node_indices() {
+            let art = &self.artifacts[node_idx];
+            let desc_node_idx = desc.artifacts.add_node(ArtifactDescription::new_from_artifact(art));
+
+            idx_map.insert(node_idx, desc_node_idx);
+        }
+
+        for edge in self.artifacts.graph().raw_edges() {
+            let source = idx_map[&edge.source()];
+            let target = idx_map[&edge.target()];
+
+            desc.artifacts.add_edge(source, target, edge.weight.clone()).expect("TODO");
+        }
+
+        desc
+    }
+
+    /// Compute the overall state hash, or return None if any artifact's hash
+    /// is incorrect.
+    fn hash_current_state(&self) -> Option<HashType> {
         let to_visit = daggy::petgraph::algo::toposort(self.artifacts.graph(), None)
             .expect("TODO: not a DAG");
 
@@ -212,11 +281,18 @@ impl<'a> ArtifactGraph<'a> {
 
             let artifact = self.artifacts.node_weight(node_idx).expect("Graph is malformed.");
             artifact.hash(&mut s);
-            if s.finish() != artifact.id.hash { return false; }
+            if s.finish() != artifact.id.hash { return None; }
             artifact.id.hash.hash(&mut ag_hash);
         };
 
-        self.id.hash == ag_hash.finish()
+        Some(ag_hash.finish())
+    }
+
+    pub fn verify_hash(&self) -> bool {
+        match self.hash_current_state() {
+            Some(hash) => self.id.hash == hash,
+            None => false,
+        }
     }
 
     pub fn get_related_artifacts(
@@ -232,6 +308,18 @@ impl<'a> ArtifactGraph<'a> {
                 petgraph::Direction::Incoming => e.source(),
             })
             .collect()
+    }
+
+    pub fn get_unary_partitioning(&self) -> Option<ArtifactGraphIndex> {
+        // TODO: brittle
+        self.artifacts.graph().node_indices()
+            .find(|i| self.artifacts[*i].dtype.name == "UnaryPartitioning")
+    }
+
+    pub fn find_by_name(&self, name: &str) -> Option<ArtifactGraphIndex> {
+        // TODO: brittle
+        self.artifacts.graph().node_indices()
+            .find(|i| self.artifacts[*i].name.as_ref().filter(|n| n.as_str() == name).is_some())
     }
 }
 
@@ -309,6 +397,7 @@ impl<'a> Hash for Artifact<'a> {
     }
 }
 
+/// Note: relations in heraclitus are directed from the dependency to the dependent.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum ArtifactRelation {
     DtypeDepends(DatatypeRelation),
@@ -360,6 +449,19 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
             .collect()
     }
 
+    pub fn artifact_tips(
+        &self,
+        artifact: &Artifact
+    ) -> Vec<VersionGraphIndex> {
+        self.artifact_versions(artifact).into_iter()
+            .filter(|&node_idx| {
+                !self.versions.graph()
+                    .edges_directed(node_idx, petgraph::Direction::Outgoing)
+                    .any(|e| e.weight() == &VersionRelation::Parent)
+            })
+            .collect()
+    }
+
     // TODO: collecting result for quick prototyping. Should return mapped iter.
     pub fn get_related_versions(
         &self,
@@ -384,6 +486,19 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
             v_idx,
             &VersionRelation::Parent,
             petgraph::Direction::Incoming)
+    }
+
+    pub fn new_child(
+        &mut self,
+        parent_idx: VersionGraphIndex,
+        representation: RepresentationKind,
+    ) -> VersionGraphIndex {
+        let parent = &self.versions[parent_idx];
+        let child = Version::new(parent.artifact, representation);
+        let child_idx = self.versions.add_node(child);
+        self.versions.add_edge(parent_idx, child_idx, VersionRelation::Parent).expect("TODO");
+
+        child_idx
     }
 
     pub fn get_partitioning(
@@ -447,7 +562,7 @@ impl<'a, 'b> Index<VersionGraphEdgeIndex> for VersionGraph<'a, 'b>
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum VersionRelation<'b>{
     /// The target version is dependent on the source version congruent with
     /// a artifact dependence relationship.

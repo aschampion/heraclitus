@@ -47,14 +47,14 @@ datatype_enum!(TestDatatypes, crate::datatype::DefaultInterfaceController, (
 
 /// Create a simple artifact chain of
 /// Blob -> Producer -> Blob -> Producer -> Blob.
-fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
-    dtypes_registry: &'a DatatypesRegistry<T>,
+fn simple_blob_prod_ag_fixture(
     partitioning: Option<ArtifactDescription>,
-) -> (ArtifactGraph<'a>, HashMap<&str, ArtifactGraphIndex>) {
+) -> (ArtifactGraphDescription, HashMap<&'static str, ArtifactGraphIndex>) {
+
     let mut artifacts = ArtifactGraphDescriptionType::new();
 
     // Blob 1
-    let blob1_node = ArtifactDescription {
+    let blob1_node = ArtifactDescription::New {
         id: None,
         name: Some("Test Blob 1".into()),
         dtype: "Blob".into(),
@@ -62,7 +62,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
     };
     let blob1_node_idx = artifacts.add_node(blob1_node);
     // Prod 1
-    let prod1_node = ArtifactDescription {
+    let prod1_node = ArtifactDescription::New {
         id: None,
         name: Some("Test Producer 1".into()),
         dtype: "NegateBlobProducer".into(),
@@ -74,7 +74,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         prod1_node_idx,
         ArtifactRelation::ProducedFrom("input".into())).unwrap();
     // Blob 2
-    let blob2_node = ArtifactDescription {
+    let blob2_node = ArtifactDescription::New {
         id: None,
         name: Some("Test Blob 2".into()),
         dtype: "Blob".into(),
@@ -86,7 +86,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         blob2_node_idx,
         ArtifactRelation::ProducedFrom("output".into())).unwrap();
     // Prod 2
-    let prod2_node = ArtifactDescription {
+    let prod2_node = ArtifactDescription::New {
         id: None,
         name: Some("Test Producer 2".into()),
         dtype: "NegateBlobProducer".into(),
@@ -98,7 +98,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
         prod2_node_idx,
         ArtifactRelation::ProducedFrom("input".into())).unwrap();
     // Blob 3
-    let blob3_node = ArtifactDescription {
+    let blob3_node = ArtifactDescription::New {
         id: None,
         name: Some("Test Blob 3".into()),
         dtype: "Blob".into(),
@@ -119,7 +119,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
 
     // Do not set up partitioning for these.
     // Tracking Branch Producer
-    let tbp_node = ArtifactDescription {
+    let tbp_node = ArtifactDescription::New {
         id: None,
         name: Some("TBP".into()),
         dtype: "TrackingBranchProducer".into(),
@@ -134,7 +134,7 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
             ArtifactRelation::ProducedFrom("tracked".into())).unwrap();
     }
     // Tracking ref
-    let ref_node = ArtifactDescription {
+    let ref_node = ArtifactDescription::New {
         id: None,
         name: Some("blobs".into()),
         dtype: "Ref".into(),
@@ -154,23 +154,80 @@ fn simple_blob_prod_ag_fixture<'a, T: DatatypeEnum>(
             })).unwrap();
     }
 
-    let (ag, idx_map) = ArtifactGraph::from_description(&ag_desc, dtypes_registry);
-
     let mut idxs = hashmap![
-        "UP"                => idx_map[&up_idx],
-        "Test Blob 1"       => idx_map[&blob1_node_idx],
-        "Test Producer 1"   => idx_map[&prod1_node_idx],
-        "Test Blob 2"       => idx_map[&blob2_node_idx],
-        "Test Producer 2"   => idx_map[&prod2_node_idx],
-        "Test Blob 3"       => idx_map[&blob3_node_idx],
-        "TBP"               => idx_map[&tbp_node_idx],
-        "blobs"             => idx_map[&ref_node_idx],
+        "UP"                => up_idx,
+        "Test Blob 1"       => blob1_node_idx,
+        "Test Producer 1"   => prod1_node_idx,
+        "Test Blob 2"       => blob2_node_idx,
+        "Test Producer 2"   => prod2_node_idx,
+        "Test Blob 3"       => blob3_node_idx,
+        "TBP"               => tbp_node_idx,
+        "blobs"             => ref_node_idx,
     ];
     if let Some(ref idx) = part_idx {
-        idxs.insert("Partitioning", idx_map[idx]);
+        idxs.insert("Partitioning", *idx);
     }
 
-    (ag, idxs)
+    (ag_desc, idxs)
+}
+
+fn install_simple_blob_prod_ag_fixture<'s, 'd, T: DatatypeEnum>(
+    dtypes_registry: &'d DatatypesRegistry<T>,
+    partitioning: Option<ArtifactDescription>,
+    repo: &Repository,
+) -> Result<(ArtifactGraph<'d>, HashMap<&'s str, ArtifactGraphIndex>), Error>
+    where T::InterfaceControllerType: InterfaceController<ArtifactMeta>,
+        <T as DatatypeEnum>::InterfaceControllerType :
+                InterfaceController<ProducerController> +
+                InterfaceController<CustomProductionPolicyController>
+{
+
+    let (ag_desc, desc_idx_map) = simple_blob_prod_ag_fixture(partitioning);
+
+    let mut model_ctrl = ArtifactGraphDtype::store(repo);
+    let (origin_ag, mut root_ag) = model_ctrl.get_or_create_origin_root(dtypes_registry, repo)?;
+    let root_art_idx = origin_ag.find_by_name("root").expect("TODO: malformed origin AG");
+
+    let mut origin_vg = model_ctrl.get_version_graph(repo, &origin_ag)?;
+
+    let root_tip_v_idx = origin_vg.artifact_tips(&origin_ag[root_art_idx])[0];
+
+    let (_, _, ag, ag_idx_map) = model_ctrl.create_artifact_graph(
+        dtypes_registry,
+        repo,
+        ag_desc,
+        &mut root_ag,
+        root_tip_v_idx,
+        &mut origin_vg)?;
+
+    let idx_map = desc_idx_map.into_iter()
+        .map(|(name, idx)| (name, ag_idx_map[&idx]))
+        .collect();
+
+    Ok((ag, idx_map))
+}
+
+#[test]
+fn test_artifact_graph_description_reflection() {
+    let dtypes_registry = crate::datatype::testing::init_dtypes_registry::<TestDatatypes>();
+
+    let (ag_0_desc, ag_0_idxs) = simple_blob_prod_ag_fixture(None);
+
+    let (mut ag_1, ag_1_idxs) = ArtifactGraph::from_description(&ag_0_desc, &dtypes_registry);
+
+    let ag_desc_1 = ag_1.as_description();
+    assert!(ag_desc_1.is_valid_state());
+    assert_eq!(ag_desc_1, ag_desc_1);
+
+    let (ag_2, _) = ArtifactGraph::from_description(&ag_desc_1, &dtypes_registry);
+
+    let ag_desc_2 = ag_2.as_description();
+    assert_eq!(ag_desc_1, ag_desc_2);
+
+    ag_1[ag_1_idxs[&ag_0_idxs["Test Blob 1"]]].id.uuid = Uuid::new_v4();
+
+    let ag_desc_1_changed = ag_1.as_description();
+    assert_ne!(ag_desc_1, ag_desc_1_changed);
 }
 
 fn test_create_get_artifact_graph(backend: Backend) {
@@ -178,15 +235,35 @@ fn test_create_get_artifact_graph(backend: Backend) {
     let dtypes_registry = crate::datatype::testing::init_dtypes_registry::<TestDatatypes>();
     let repo = crate::repo::testing::init_repo(backend, &dtypes_registry);
 
-    let (ag, _) = simple_blob_prod_ag_fixture(&dtypes_registry, None);
+    let (ag_desc, _) = simple_blob_prod_ag_fixture(None);
 
     let mut model_ctrl = ArtifactGraphDtype::store(&repo);
+    let (origin_ag, mut root_ag) = model_ctrl.get_or_create_origin_root(&dtypes_registry, &repo).unwrap();
+    let root_art_idx = origin_ag.find_by_name("root").expect("TODO: malformed origin AG");
 
-    model_ctrl.create_artifact_graph(&dtypes_registry, &repo, &ag).unwrap();
+    let mut origin_vg = model_ctrl.get_version_graph(&repo, &origin_ag).unwrap();
 
-    let ag2 = model_ctrl.get_artifact_graph(&dtypes_registry, &repo, &ag.id).unwrap();
+    let root_tip_v_idx = origin_vg.artifact_tips(&origin_ag[root_art_idx])[0];
+
+    let (root_vg, ag_v_idx, ag, _) = model_ctrl.create_artifact_graph(
+        &dtypes_registry,
+        &repo,
+        ag_desc,
+        &mut root_ag,
+        root_tip_v_idx,
+        &mut origin_vg).unwrap();
+
+    let ag2 = model_ctrl.get_artifact_graph(&dtypes_registry, &repo, &root_vg, ag_v_idx).unwrap();
+    assert!(ag.verify_hash());
     assert!(ag2.verify_hash());
     assert_eq!(ag.id.hash, ag2.id.hash);
+
+    let new_root_tip_v_idx = origin_vg.artifact_tips(&origin_ag[root_art_idx])[0];
+    let root_ag2 = model_ctrl.get_artifact_graph(&dtypes_registry, &repo, &origin_vg,
+        new_root_tip_v_idx).unwrap();
+    assert!(root_ag.verify_hash());
+    assert!(root_ag2.verify_hash());
+    assert_eq!(root_ag.id.hash, root_ag2.id.hash);
 }
 
 fn test_create_get_version_graph(backend: Backend) {
@@ -194,11 +271,9 @@ fn test_create_get_version_graph(backend: Backend) {
     let dtypes_registry = crate::datatype::testing::init_dtypes_registry::<TestDatatypes>();
     let repo = crate::repo::testing::init_repo(backend, &dtypes_registry);
 
-    let (ag, idxs) = simple_blob_prod_ag_fixture(&dtypes_registry, None);
+    let (ag, idxs) = install_simple_blob_prod_ag_fixture(&dtypes_registry, None, &repo).unwrap();
 
     let mut model_ctrl = ArtifactGraphDtype::store(&repo);
-
-    model_ctrl.create_artifact_graph(&dtypes_registry, &repo, &ag).unwrap();
 
     let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
@@ -304,18 +379,18 @@ fn test_production(backend: Backend) {
     let dtypes_registry = crate::datatype::testing::init_dtypes_registry::<TestDatatypes>();
     let mut repo = crate::repo::testing::init_repo(backend, &dtypes_registry);
 
-    let partitioning = ArtifactDescription {
+    let partitioning = ArtifactDescription::New {
         id: None,
         name: Some("Arbitrary Partitioning".into()),
         dtype: "ArbitraryPartitioning".into(),
         self_partitioning: false,
     };
-    let (ag, idxs) = simple_blob_prod_ag_fixture(&dtypes_registry, Some(partitioning));
+    let (ag, idxs) = install_simple_blob_prod_ag_fixture(&dtypes_registry, Some(partitioning), &repo)
+        .unwrap();
 
     let mut model_ctrl = ArtifactGraphDtype::store(&repo);
 
 
-    model_ctrl.create_artifact_graph(&dtypes_registry, &repo, &ag).unwrap();
     model_ctrl.write_production_policies(
         &repo,
         &ag[idxs["TBP"]],
@@ -455,12 +530,10 @@ fn test_production(backend: Backend) {
         );
 
     // Test delta state updates.
-    let blob1_ver2 = Version::new(blob1_art, RepresentationKind::Delta);
-    let blob1_ver2_idx = ver_graph.versions.add_node(blob1_ver2);
+    let blob1_ver2_idx = ver_graph.new_child(blob1_ver_idx, RepresentationKind::Delta);
     ver_graph.versions.add_edge(part_idx, blob1_ver2_idx,
         VersionRelation::Dependence(
             &ag[ag.artifacts.find_edge(part_art_idx, blob1_art_idx).unwrap()])).unwrap();
-    ver_graph.versions.add_edge(blob1_ver_idx, blob1_ver2_idx, VersionRelation::Parent).unwrap();
 
     model_ctrl.create_staging_version(
         &repo,

@@ -38,6 +38,7 @@ use enum_set::EnumSet;
 use lazy_static::lazy_static;
 #[cfg(feature="backend-postgres")]
 use postgres_derive::{ToSql, FromSql};
+use serde_derive::{Serialize, Deserialize};
 use url::Url;
 use uuid::Uuid;
 
@@ -52,8 +53,25 @@ pub mod store;
 pub enum Error {
     Io(io::Error),
     Store(String),
-    Model(String),
+    Model(ModelError),
     TODO(&'static str),
+}
+
+impl From<ModelError> for Error {
+    fn from(model_error: ModelError) -> Self {
+        Error::Model(model_error)
+    }
+}
+
+#[derive(Debug)]
+pub enum ModelError {
+    HashMismatch {
+        uuid: Uuid,
+        expected: HashType,
+        found: HashType,
+    },
+    NotFound(Uuid),
+    Other(String),
 }
 
 impl<T: Debug> From<daggy::WouldCycle<T>> for Error {
@@ -66,7 +84,9 @@ impl<T: Debug> From<daggy::WouldCycle<T>> for Error {
 //struct InternalId(u64);
 pub type HashType = u64;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+// TODO: shouldn't ID have a custom hash that just hashes against its hash
+// (ignoring its uuid)?
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct Identity {
     pub uuid: Uuid,
     pub hash: HashType,

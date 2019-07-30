@@ -1,15 +1,7 @@
-CREATE TABLE artifact_graph (
-  id bigserial PRIMARY KEY,
-  LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES
-  -- name text UNIQUE NOT NULL
-) WITH (
-  OIDS=FALSE
-);
-
 CREATE TABLE artifact (
   id bigserial PRIMARY KEY,
   LIKE identity_template INCLUDING CONSTRAINTS INCLUDING INDEXES,
-  artifact_graph_id bigint NOT NULL REFERENCES artifact_graph (id) DEFERRABLE INITIALLY IMMEDIATE,
+  hunk_id bigint NOT NULL, -- To be altered below: REFERENCES hunk (id) DEFERRABLE INITIALLY IMMEDIATE,
   datatype_id bigint NOT NULL REFERENCES datatype (id),
   self_partitioning boolean NOT NULL,
   name text
@@ -123,6 +115,17 @@ CREATE TABLE hunk (
   OIDS=FALSE
 );
 
+ALTER TABLE artifact
+ADD CONSTRAINT _artifact_hunk_id_fk
+FOREIGN KEY (hunk_id) REFERENCES hunk (id) DEFERRABLE INITIALLY IMMEDIATE;
+
+CREATE TABLE artifact_removals (
+  hunk_id bigint NOT NULL REFERENCES hunk (id) DEFERRABLE INITIALLY IMMEDIATE,
+  removed_artifact_id bigint NOT NULL REFERENCES artifact (id) DEFERRABLE INITIALLY IMMEDIATE
+) WITH (
+  OIDS=FALSE
+);
+
 CREATE TABLE hunk_precedence (
   merge_version_id bigint NOT NULL REFERENCES version (id) DEFERRABLE INITIALLY IMMEDIATE,
   partition_id bigint NOT NULL,
@@ -131,3 +134,12 @@ CREATE TABLE hunk_precedence (
 ) WITH (
   OIDS=FALSE
 );
+
+CREATE TABLE origin (
+  uuid_ uuid NOT NULL REFERENCES hunk (uuid_) DEFERRABLE INITIALLY IMMEDIATE
+) WITH (
+  OIDS=FALSE
+);
+
+CREATE UNIQUE INDEX origin_singleton_row
+ON origin((TRUE));

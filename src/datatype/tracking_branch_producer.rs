@@ -19,6 +19,7 @@ use crate::{
     Error,
     Identity,
     IdentifiableGraph,
+    ModelError,
     RepresentationKind,
     Version,
     VersionGraph,
@@ -88,8 +89,6 @@ impl<T> Model<T> for TrackingBranchProducer
 
     datatype_controllers!(TrackingBranchProducer, (ProducerController, CustomProductionPolicyController));
 }
-
-// impl<RC: RepoController> MetaController for TrackingBranchProducerBackend<RC> {}
 
 
 struct TrackingBranchProductionPolicy {
@@ -288,7 +287,7 @@ impl<RC: RepoController> ProducerController for TrackingBranchProducerBackend<RC
                     ref_art,
                     &new_tips)?;
             } else {
-                return Err(Error::Model("Attempt to create tracking version for non-tip".into()))
+                return Err(ModelError::Other("Attempt to create tracking version for non-tip".into()).into())
             }
         }
 

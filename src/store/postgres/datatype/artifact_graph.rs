@@ -1,5 +1,5 @@
 use std::borrow::Borrow;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::iter::FromIterator;
 
 use heraclitus_core::{
@@ -31,8 +31,10 @@ use crate::{
     Hunk,
     Identity,
     IdentifiableGraph,
+    ModelError,
     Partition,
     PartitionIndex,
+    RepresentationKind,
     Version,
     VersionGraph,
     VersionGraphIndex,
@@ -43,8 +45,13 @@ use crate::datatype::{
     DatatypeEnum,
     DatatypesRegistry,
     InterfaceController,
+    Payload,
 };
 use crate::datatype::artifact_graph::{
+    ArtifactDescription,
+    ArtifactGraphDelta,
+    ArtifactGraphDescription,
+    ArtifactGraphDescriptionType,
     ArtifactGraphDtypeBackend,
     Storage,
     production::{
@@ -301,76 +308,126 @@ impl PostgresMigratable for ArtifactGraphDtypeBackend<PostgresRepository> {
 
 impl super::PostgresMetaController for ArtifactGraphDtypeBackend<PostgresRepository> {}
 
-impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
-    fn list_graphs(&self) -> Vec<Identity> {
-        unimplemented!()
-    }
+impl crate::datatype::Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
 
-    fn write_artifact_graph(
-            &mut self,
-            repo: &Repository,
-            art_graph: &ArtifactGraph) -> Result<(), Error> {
+    fn write_hunk(
+        &mut self,
+        repo: &Repository,
+        hunk: &Hunk,
+        payload: &Payload<Self::StateType, Self::DeltaType>,
+    ) -> Result<(), Error> {
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
         let trans = conn.transaction()?;
 
-        let ag_id_row = trans.query(r#"
-                INSERT INTO artifact_graph (uuid_, hash)
-                VALUES ($1, $2) RETURNING id;
-            "#, &[&art_graph.id.uuid, &(art_graph.id.hash as i64)])?;
-        // let ag_id = ag_id_row.into_iter().nth(0).ok_or(Error::Store("Insert failed.".into()))?;
-        let ag_id: i64 = ag_id_row.get(0).get(0);
+        let db_hunk_id = trans.query(r#"
+                SELECT id FROM hunk h
+                WHERE (h.uuid_ = $1::uuid AND h.hash = $2::bigint);
+            "#,
+            &[&hunk.id.uuid, &(hunk.id.hash as i64),])?
+        .get(0).get::<_, i64>(0);
 
-        let mut id_map = HashMap::new();
-        let insert_artifact = trans.prepare(r#"
-                INSERT INTO artifact (uuid_, hash, artifact_graph_id, self_partitioning, name, datatype_id)
-                SELECT r.uuid_, r.hash, r.ag_id, r.self_partitioning, r.name, d.id
-                FROM (VALUES ($1::uuid, $2::bigint, $3::bigint, $4::boolean, $5::text))
-                  AS r (uuid_, hash, ag_id, self_partitioning, name)
-                JOIN datatype d ON d.name = $6
-                RETURNING id;
-            "#)?;
+        fn insert_graph_description(
+            art_graph: &ArtifactGraphDescription,
+            db_hunk_id: i64,
+            trans: &postgres::transaction::Transaction,
+        ) -> Result<(), Error> {
+            let mut id_map = HashMap::new();
+            let insert_artifact = trans.prepare(r#"
+                    INSERT INTO artifact (uuid_, hash, hunk_id, self_partitioning, name, datatype_id)
+                    SELECT r.uuid_, r.hash, r.ag_id, r.self_partitioning, r.name, d.id
+                    FROM (VALUES ($1::uuid, $2::bigint, $3::bigint, $4::boolean, $5::text))
+                      AS r (uuid_, hash, ag_id, self_partitioning, name)
+                    JOIN datatype d ON d.name = $6
+                    RETURNING id;
+                "#)?;
+            let query_existing_artifact = trans.prepare(r#"
+                    SELECT id
+                    FROM artifact a
+                    WHERE a.uuid_ = $1::uuid;
+                "#)?;
 
-        for idx in art_graph.artifacts.graph().node_indices() {
-            let art = &art_graph[idx];
-            let node_id_row = insert_artifact.query(&[
-                        &art.id.uuid, &(art.id.hash as i64), &ag_id,
-                        &art.self_partitioning, &art.name, &art.dtype.name])?;
-            let node_id: i64 = node_id_row.get(0).get(0);
+            for idx in art_graph.artifacts.graph().node_indices() {
+                let art = &art_graph.artifacts[idx];
+                let node_id_row = match art {
+                    ArtifactDescription::New {id, name, dtype, self_partitioning} => {
+                        let id = id.ok_or_else(||
+                            ModelError::Other("Attempt to write artifact without id".into()))?;
+                        insert_artifact.query(&[
+                            &id.uuid, &(id.hash as i64), &db_hunk_id,
+                            &self_partitioning, &name, &dtype])?
+                    },
+                    ArtifactDescription::Existing(uuid) => {
+                        query_existing_artifact.query(&[&uuid])?
+                    }
+                };
+                let node_id: i64 = node_id_row.get(0).get(0);
 
-            id_map.insert(idx, node_id);
+                id_map.insert(idx, node_id);
+            }
+
+            let art_prod_edge = trans.prepare(r#"
+                    INSERT INTO artifact_edge (source_id, dependent_id, name, edge_type)
+                    VALUES ($1, $2, $3, 'producer');
+                "#)?;
+            let art_dtype_edge = trans.prepare(r#"
+                    INSERT INTO artifact_edge (source_id, dependent_id, name, edge_type)
+                    VALUES ($1, $2, $3, 'dtype');
+                "#)?;
+
+            for e in art_graph.artifacts.graph().edge_references() {
+                let source_id = id_map.get(&e.source()).expect("Graph is malformed.");
+                let dependent_id = id_map.get(&e.target()).expect("Graph is malformed.");
+                match *e.weight() {
+                    ArtifactRelation::DtypeDepends(ref dtype_rel) =>
+                        art_dtype_edge.execute(&[&source_id, &dependent_id, &dtype_rel.name])?,
+                    ArtifactRelation::ProducedFrom(ref name) =>
+                        art_prod_edge.execute(&[&source_id, &dependent_id, name])?,
+                };
+            }
+
+            Ok(())
         }
 
-        let art_prod_edge = trans.prepare(r#"
-                INSERT INTO artifact_edge (source_id, dependent_id, name, edge_type)
-                VALUES ($1, $2, $3, 'producer');
-            "#)?;
-        let art_dtype_edge = trans.prepare(r#"
-                INSERT INTO artifact_edge (source_id, dependent_id, name, edge_type)
-                VALUES ($1, $2, $3, 'dtype');
-            "#)?;
+        match hunk.representation {
+            RepresentationKind::State =>
+                match *payload {
+                    Payload::State(ref art_graph) => {
+                        insert_graph_description(art_graph, db_hunk_id, &trans)?;
+                    }
+                    _ => return Err(Error::Store("Attempt to write state hunk with non-state payload".into())),
+                },
+            RepresentationKind::Delta =>
+                match *payload {
+                    Payload::Delta(ref delta) => {
+                        insert_graph_description(delta.additions(), db_hunk_id, &trans)?;
 
-        for e in art_graph.artifacts.graph().edge_references() {
-            let source_id = id_map.get(&e.source()).expect("Graph is malformed.");
-            let dependent_id = id_map.get(&e.target()).expect("Graph is malformed.");
-            match *e.weight() {
-                ArtifactRelation::DtypeDepends(ref dtype_rel) =>
-                    art_dtype_edge.execute(&[&source_id, &dependent_id, &dtype_rel.name])?,
-                ArtifactRelation::ProducedFrom(ref name) =>
-                    art_prod_edge.execute(&[&source_id, &dependent_id, name])?,
-            };
+                        let insert_artifact_removal = trans.prepare(r#"
+                                INSERT INTO artifact_removals (hunk_id, removed_artifact_id)
+                                SELECT r.hunk_id, a.id
+                                FROM (VALUES ($1::bigint, $2::uuid))
+                                  AS r (hunk_id, uuid_)
+                                JOIN artifact a ON a.uuid_ = r.uuid_;
+                            "#)?;
+                        for art_uuid in delta.removals() {
+                            insert_artifact_removal.execute(&[&db_hunk_id, art_uuid])?;
+                        }
+                    }
+                    _ => return Err(Error::Store("Attempt to write delta hunk with non-delta payload".into())),
+                },
+            _ => return Err(Error::Store("Attempt to write a hunk with an unsupported representation".into())),
         }
 
         trans.set_commit();
         Ok(())
     }
 
-    fn get_artifact_graph<'a, T: DatatypeEnum>(
-            &self,
-            dtypes_registry: &'a DatatypesRegistry<T>,
-            repo: &Repository,
-            id: &Identity) -> Result<ArtifactGraph<'a>, Error> {
+    fn read_hunk(
+        &self,
+        repo: &Repository,
+        hunk: &Hunk,
+    ) -> Result<Payload<Self::StateType, Self::DeltaType>, Error> {
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
@@ -378,15 +435,16 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
 
         // TODO: not using the identity hash. Requires some decisions about how
         // to handle get-by-UUID vs. get-with-verified-hash.
-        let ag_rows = trans.query(r#"
+        let hunk_rows = trans.query(r#"
                 SELECT id, uuid_, hash
-                FROM artifact_graph
+                FROM hunk
                 WHERE uuid_ = $1::uuid
-            "#, &[&id.uuid])?;
-        let ag_row = ag_rows.get(0);
-        let ag_id = Identity {
-            uuid: ag_row.get(1),
-            hash: ag_row.get::<_, i64>(2) as HashType,
+            "#, &[&hunk.id.uuid])?;
+        let hunk_row = hunk_rows.get(0);
+        let db_hunk_id: i64 = hunk_row.get(0);
+        let hunk_id = Identity {
+            uuid: hunk_row.get(1),
+            hash: hunk_row.get::<_, i64>(2) as HashType,
         };
 
         enum NodeRow {
@@ -407,25 +465,24 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
                     d.name
                 FROM artifact a
                 JOIN datatype d ON a.datatype_id = d.id
-                WHERE a.artifact_graph_id = $1;
-            "#, &[&ag_row.get::<_, i64>(0)])?;
+                WHERE a.hunk_id = $1::bigint;
+            "#, &[&db_hunk_id])?;
 
-        let mut artifacts = crate::ArtifactGraphType::new();
+        let mut artifacts = ArtifactGraphDescriptionType::new();
         let mut idx_map = HashMap::new();
 
         for row in &nodes {
             let db_id = row.get::<_, i64>(NodeRow::ID as usize);
-            let id = Identity {
+            let id = Some(Identity {
                 uuid: row.get(NodeRow::UUID as usize),
                 hash: row.get::<_, i64>(NodeRow::Hash as usize) as HashType,
-            };
+            });
             let dtype_name = &row.get::<_, String>(NodeRow::DatatypeName as usize);
-            let node = Artifact {
+            let node = ArtifactDescription::New {
                 id,
                 name: row.get(NodeRow::ArtifactName as usize),
                 self_partitioning: row.get(NodeRow::SelfPartitioning as usize),
-                dtype: dtypes_registry.get_datatype(dtype_name)
-                                      .expect("Unknown datatype."),
+                dtype: dtype_name.to_owned(),
             };
 
             let node_idx = artifacts.add_node(node);
@@ -445,8 +502,16 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
                     ae.name,
                     ae.edge_type::text
                 FROM artifact_edge ae
-                WHERE ae.source_id = ANY($1::bigint[]);
+                WHERE ae.dependent_id = ANY($1::bigint[]);
             "#, &[&idx_map.keys().collect::<Vec<_>>()])?;
+
+        struct ExternalEdge {
+            source_db_id: i64,
+            dependent_db_id: i64,
+            relation: ArtifactRelation,
+        };
+        let mut external_edges = vec![];
+        let mut external_ids = HashSet::new();
 
         for e in &edges {
             let relation = match e.get::<_, String>(EdgeRow::EdgeType as usize).as_ref() {
@@ -457,16 +522,187 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
                 _ => return Err(Error::Store("Unknown artifact graph edge reltype.".into())),
             };
 
-            let source_idx = idx_map.get(&e.get(EdgeRow::SourceID as usize)).expect("Graph is malformed.");
-            let dependent_idx = idx_map.get(&e.get(EdgeRow::DependentID as usize)).expect("Graph is malformed.");
-            artifacts.add_edge(*source_idx, *dependent_idx, relation)?;
-
+            let source_db_id = e.get(EdgeRow::SourceID as usize);
+            let dependent_db_id = e.get(EdgeRow::DependentID as usize);
+            match idx_map.get(&source_db_id) {
+                Some(source_idx) => {
+                    let dependent_idx = idx_map.get(&dependent_db_id).expect("Graph is malformed.");
+                    artifacts.add_edge(*source_idx, *dependent_idx, relation)?;
+                },
+                None => {
+                    external_ids.insert(source_db_id);
+                    external_edges.push(ExternalEdge {
+                        source_db_id,
+                        dependent_db_id,
+                        relation,
+                    });
+                }
+            }
         }
 
-        Ok(ArtifactGraph {
-            id: ag_id,
+        if !external_ids.is_empty() {
+            // TODO: should error if this is supposed to be a State hunk.
+            let mut external_idx_map = HashMap::<i64, _>::new();
+            let external_nodes = trans.query(r#"
+                    SELECT id, uuid_ FROM artifact
+                    WHERE id = ANY($1::bigint[]);
+                "#, &[&external_ids.iter().collect::<Vec<_>>()])?;
+            for external_node in &external_nodes {
+                let node = ArtifactDescription::Existing(external_node.get(1));
+
+                let node_idx = artifacts.add_node(node);
+                external_idx_map.insert(external_node.get(0), node_idx);
+            }
+
+            for e in external_edges.into_iter() {
+                let source_idx = external_idx_map.get(&e.source_db_id).expect("Graph is malformed.");
+                let dependent_idx = idx_map.get(&e.dependent_db_id).expect("Graph is malformed.");
+                artifacts.add_edge(*source_idx, *dependent_idx, e.relation)?;
+            }
+        }
+
+        let ag_desc = ArtifactGraphDescription {
             artifacts,
-        })
+        };
+
+        match hunk.representation {
+            RepresentationKind::State => Ok(Payload::State(ag_desc)),
+            RepresentationKind::Delta => {
+                // TODO: removals
+                Ok(Payload::Delta(ArtifactGraphDelta::new(ag_desc, vec![])))
+            }
+            _ => unreachable!(), // TODO: check
+        }
+    }
+}
+
+impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
+
+    fn read_origin_hunk_uuid(
+        &self,
+        repo: &Repository,
+    ) -> Result<Option<Uuid>, Error> {
+        let rc: &PostgresRepository = repo.borrow();
+
+        let conn = rc.conn()?;
+
+        let origin_uuid_rows = conn.query(r#"
+                SELECT uuid_ FROM origin LIMIT 1;
+            "#, &[])?;
+        let origin_uuid = if origin_uuid_rows.is_empty() {
+            None
+        } else {
+            Some(origin_uuid_rows.get(0).get(0))
+        };
+
+        Ok(origin_uuid)
+    }
+
+    fn bootstrap_origin(
+        &self,
+        repo: &Repository,
+        hunk: &Hunk,
+    ) -> Result<(), Error> {
+        let rc: &PostgresRepository = repo.borrow();
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        trans.execute(r#"SET CONSTRAINTS _artifact_hunk_id_fk DEFERRED;"#, &[])?;
+        let origin_art = hunk.version.artifact;
+        let art_db_id: i64 = trans.query(r#"
+                INSERT INTO artifact (uuid_, hash, hunk_id, self_partitioning, name, datatype_id)
+                SELECT r.uuid_, r.hash, 0, r.self_partitioning, r.name, d.id
+                FROM (VALUES ($1::uuid, $2::bigint, $3::boolean, $4::text))
+                  AS r (uuid_, hash, self_partitioning, name)
+                JOIN datatype d ON d.name = $5::text
+                RETURNING id;
+            "#,
+            &[&origin_art.id.uuid, &(origin_art.id.hash as i64),
+              &origin_art.self_partitioning, &origin_art.name,
+              &origin_art.dtype.name])?
+            .get(0).get(0);
+        let ver = hunk.version;
+        let ver_db_id: i64 = trans.query(r#"
+                INSERT INTO version (uuid_, hash, artifact_id, status, representation)
+                VALUES ($1::uuid, $2::bigint, $3::bigint,
+                        $4::version_status, $5::representation_kind)
+                RETURNING id;
+            "#, &[&ver.id.uuid, &(ver.id.hash as i64), &art_db_id,
+                  &ver.status, &ver.representation])?
+            .get(0).get(0);
+        let hunk_db_id: i64 = trans.query(r#"
+                INSERT INTO hunk (
+                    uuid_, hash,
+                    version_id, partition_id,
+                    representation, completion)
+                VALUES (
+                    $1::uuid, $2::bigint,
+                    $3::bigint, $4::bigint,
+                    $5::representation_kind, $6::part_completion)
+                RETURNING id;
+            "#, &[&hunk.id.uuid, &(hunk.id.hash as i64),
+                  &ver_db_id, &(hunk.partition.index as i64),
+                  &hunk.representation, &hunk.completion])?
+            .get(0).get(0);
+        trans.query(r#"
+                UPDATE artifact
+                SET hunk_id = $1::bigint
+                WHERE id = $2::bigint;
+            "#,
+            &[&hunk_db_id, &art_db_id])?;
+
+        trans.query(r#"
+                INSERT INTO origin (uuid_)
+                VALUES ($1::uuid);
+            "#,
+            &[&hunk.id.uuid])?;
+
+        trans.set_commit();
+        Ok(())
+    }
+
+    fn tie_off_origin(
+        &self,
+        repo: &Repository,
+        ver_graph: &VersionGraph,
+        origin_v_idx: VersionGraphIndex,
+    ) -> Result<(), Error> {
+        let rc: &PostgresRepository = repo.borrow();
+
+        let conn = rc.conn()?;
+        let trans = conn.transaction()?;
+
+        let version = &ver_graph[origin_v_idx];
+
+        let ver_id: i64 = trans.query(r#"
+                SELECT id
+                FROM version
+                WHERE uuid_ = $1::uuid;
+            "#, &[&version.id.uuid])?
+            .get(0).get(0);
+        let insert_relation = trans.prepare(r#"
+                INSERT INTO version_relation
+                  (source_version_id, dependent_version_id, source_id, dependent_id)
+                SELECT vp.id, r.child_id, vp.artifact_id, vc.artifact_id
+                FROM (VALUES ($1::uuid, $2::bigint))
+                AS r (parent_uuid, child_id)
+                JOIN version vp ON vp.uuid_ = r.parent_uuid
+                JOIN version vc ON vc.id = r.child_id;
+            "#)?;
+
+        for (e_idx, p_idx) in ver_graph.versions.parents(origin_v_idx).iter(&ver_graph.versions) {
+            let edge = &ver_graph[e_idx];
+            let parent = &ver_graph[p_idx];
+            match *edge {
+                VersionRelation::Dependence(_) => &insert_relation,
+                VersionRelation::Parent =>
+                    return Err(Error::Store("Attempt to tie off an origin with a parent version.".into())),
+            }.execute(&[&parent.id.uuid, &ver_id])?;
+        }
+
+        trans.set_commit();
+        Ok(())
     }
 
     fn create_staging_version(
@@ -832,7 +1068,7 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
             let hunk = hunk.borrow();
 
             if !hunk.is_valid() {
-                return Err(Error::Model("Hunk is invalid.".into()));
+                return Err(ModelError::Other("Hunk is invalid.".into()).into());
             }
 
             // TODO should check that version is not committed
