@@ -381,6 +381,12 @@ pub struct Artifact<'a> {
     pub self_partitioning: bool,
 }
 
+impl<'a> Artifact<'a> {
+    pub fn name(&self) -> &Option<String> {
+        &self.name
+    }
+}
+
 impl<'a> Identifiable for Artifact<'a> {
     fn id(&self) -> &Identity {
         &self.id

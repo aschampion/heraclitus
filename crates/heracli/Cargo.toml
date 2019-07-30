@@ -11,4 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 heraclitus = { path = "../../" }
+prettytable-rs = "0.8"
 structopt = "0.2"
