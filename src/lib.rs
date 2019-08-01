@@ -507,6 +507,33 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
         child_idx
     }
 
+    pub fn new_child_same_dependencies(
+        &mut self,
+        parent_idx: VersionGraphIndex,
+        representation: RepresentationKind,
+    ) -> VersionGraphIndex {
+        let parent = &self.versions[parent_idx];
+        let child = Version::new(parent.artifact, representation);
+        let child_idx = self.versions.add_node(child);
+
+        let to_add: Vec<_> = self.versions.graph()
+            .edges_directed(parent_idx, petgraph::Direction::Incoming)
+            .filter(|e| match e.weight() {
+                VersionRelation::Dependence(_) => true,
+                _ => false,
+            })
+            .map(|e| (e.source(), e.weight().clone()))
+            .collect();
+        to_add.into_iter()
+            .for_each(|(source, weight)| {
+                self.versions.add_edge(source, child_idx, weight).expect("TODO");
+            });
+
+        self.versions.add_edge(parent_idx, child_idx, VersionRelation::Parent).expect("TODO");
+
+        child_idx
+    }
+
     pub fn get_partitioning(
         &self,
         v_idx: VersionGraphIndex
