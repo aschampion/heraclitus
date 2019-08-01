@@ -18,6 +18,7 @@ use crate::datatype::{
     ComposableState,
     DatatypeMarker,
 };
+use crate::datatype::artifact_graph::testing::install_fixture;
 use crate::datatype::blob::BlobDatatype;
 use crate::datatype::partitioning::{
     Partitioning,
@@ -171,42 +172,6 @@ fn simple_blob_prod_ag_fixture(
     (ag_desc, idxs)
 }
 
-fn install_simple_blob_prod_ag_fixture<'s, 'd, T: DatatypeEnum>(
-    dtypes_registry: &'d DatatypesRegistry<T>,
-    partitioning: Option<ArtifactDescription>,
-    repo: &Repository,
-) -> Result<(ArtifactGraph<'d>, HashMap<&'s str, ArtifactGraphIndex>), Error>
-    where T::InterfaceControllerType: InterfaceController<ArtifactMeta>,
-        <T as DatatypeEnum>::InterfaceControllerType :
-                InterfaceController<ProducerController> +
-                InterfaceController<CustomProductionPolicyController>
-{
-
-    let (ag_desc, desc_idx_map) = simple_blob_prod_ag_fixture(partitioning);
-
-    let mut model_ctrl = ArtifactGraphDtype::store(repo);
-    let (origin_ag, mut root_ag) = model_ctrl.get_or_create_origin_root(dtypes_registry, repo)?;
-    let root_art_idx = origin_ag.find_by_name("root").expect("TODO: malformed origin AG");
-
-    let mut origin_vg = model_ctrl.get_version_graph(repo, &origin_ag)?;
-
-    let root_tip_v_idx = origin_vg.artifact_tips(&origin_ag[root_art_idx])[0];
-
-    let (_, _, ag, ag_idx_map) = model_ctrl.create_artifact_graph(
-        dtypes_registry,
-        repo,
-        ag_desc,
-        &mut root_ag,
-        root_tip_v_idx,
-        &mut origin_vg)?;
-
-    let idx_map = desc_idx_map.into_iter()
-        .map(|(name, idx)| (name, ag_idx_map[&idx]))
-        .collect();
-
-    Ok((ag, idx_map))
-}
-
 #[test]
 fn test_artifact_graph_description_reflection() {
     let dtypes_registry = crate::datatype::testing::init_dtypes_registry::<TestDatatypes>();
@@ -271,7 +236,8 @@ fn test_create_get_version_graph(backend: Backend) {
     let dtypes_registry = crate::datatype::testing::init_dtypes_registry::<TestDatatypes>();
     let repo = crate::repo::testing::init_repo(backend, &dtypes_registry);
 
-    let (ag, idxs) = install_simple_blob_prod_ag_fixture(&dtypes_registry, None, &repo).unwrap();
+    let (ag, idxs) = install_fixture(&dtypes_registry, &repo,
+         &|| simple_blob_prod_ag_fixture(None)).unwrap();
 
     let mut model_ctrl = ArtifactGraphDtype::store(&repo);
 
@@ -365,14 +331,13 @@ fn test_production(backend: Backend) {
     let dtypes_registry = crate::datatype::testing::init_dtypes_registry::<TestDatatypes>();
     let mut repo = crate::repo::testing::init_repo(backend, &dtypes_registry);
 
-    let partitioning = ArtifactDescription::New {
+    let fixture = || simple_blob_prod_ag_fixture(Some(ArtifactDescription::New {
         id: None,
         name: Some("Arbitrary Partitioning".into()),
         dtype: "ArbitraryPartitioning".into(),
         self_partitioning: false,
-    };
-    let (ag, idxs) = install_simple_blob_prod_ag_fixture(&dtypes_registry, Some(partitioning), &repo)
-        .unwrap();
+    }));
+    let (ag, idxs) = install_fixture(&dtypes_registry, &repo, &fixture).unwrap();
 
     let mut model_ctrl = ArtifactGraphDtype::store(&repo);
 
