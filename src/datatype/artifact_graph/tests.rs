@@ -318,34 +318,20 @@ fn test_create_get_version_graph(backend: Backend) {
         &ver_graph,
         blob1_ver_idx.clone()).unwrap();
 
-    let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx)
-        .expect("Partitioning version missing");
-    let ver_part_comp = model_ctrl.get_composition_map(
-        &repo,
-        &ver_graph,
-        ver_part_idx,
-        crate::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
-        .expect("UP comp map").into_iter().last().expect("UP state hunk").1;
-    let ver_part_control: Box<dyn PartitioningState> =
-            dtypes_registry
-                .get_model_interface::<dyn PartitioningState>(&ver_partitioning.artifact.dtype.name)
-                .map(|gen| gen(&repo))
-                .expect("Partitioning must have controller for backend");
-
     let mut blob_control = BlobDatatype::store(&repo);
     let ver_blob_real = &ver_graph[blob1_ver_idx];
     let fake_blob = crate::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
-    let ver_hunks = ver_part_control
-            .get_composite_interface(&repo, &ver_part_comp).unwrap()
-            .get_partition_ids()
-            .iter()
-            .map(|partition_id| Hunk {
+    let ver_hunks = model_ctrl
+            .iter_version_partitions(
+                &dtypes_registry,
+                &repo,
+                &ver_graph,
+                blob1_ver_idx,
+            ).unwrap()
+            .map(|partition| Hunk {
                 id: BlobDatatype::hash_payload(&fake_blob).into(),
                 version: ver_blob_real,
-                partition: Partition {
-                    partitioning: ver_partitioning,
-                    index: partition_id.to_owned(),
-                },
+                partition,
                 representation: RepresentationKind::State,
                 completion: PartCompletion::Complete,
                 precedence: None,
@@ -455,35 +441,22 @@ fn test_production(backend: Backend) {
         blob1_ver_idx.clone()).unwrap();
 
     let ver_hash = {
-        let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver_idx).unwrap();
-        let ver_part_comp = model_ctrl.get_composition_map(
-            &repo,
-            &ver_graph,
-            ver_part_idx,
-            crate::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
-            .expect("Composition map failed").into_iter().last().expect("No maps").1;
-        let ver_part_control: Box<dyn PartitioningState> =
-                dtypes_registry
-                    .get_model_interface::<dyn PartitioningState>(&ver_partitioning.artifact.dtype.name)
-                    .map(|gen| gen(&repo))
-                    .expect("Partitioning must have controller for backend");
-
         let mut blob_control = BlobDatatype::store(&repo);
         let ver_blob_real = &ver_graph[blob1_ver_idx];
         let fake_blob = crate::datatype::Payload::State(vec![0, 1, 2, 3, 4, 5, 6]);
-        let ver_hunks = ver_part_control
-                .get_composite_interface(&repo, &ver_part_comp).unwrap()
+        let ver_hunks = model_ctrl
+                .iter_version_partitions(
+                    &dtypes_registry,
+                    &repo,
+                    &ver_graph,
+                    blob1_ver_idx,
+                ).unwrap()
                 // Note that this is in ascending order, so version hash
                 // is correct.
-                .get_partition_ids()
-                .iter()
-                .map(|partition_id| Hunk {
+                .map(|partition| Hunk {
                     id: BlobDatatype::hash_payload(&fake_blob).into(),
                     version: ver_blob_real,
-                    partition: Partition {
-                        partitioning: ver_partitioning,
-                        index: partition_id.to_owned(),
-                    },
+                    partition,
                     representation: RepresentationKind::State,
                     completion: PartCompletion::Complete,
                     precedence: None,
@@ -541,36 +514,22 @@ fn test_production(backend: Backend) {
         blob1_ver2_idx.clone()).unwrap();
 
     let ver2_hash = {
-        let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(blob1_ver2_idx).unwrap();
-        let ver_part_comp = model_ctrl.get_composition_map(
-            &repo,
-            &ver_graph,
-            ver_part_idx,
-            crate::datatype::partitioning::UnaryPartitioningState.get_partition_ids())
-            .unwrap().into_iter().last().unwrap().1;
-        let ver_part_control: Box<dyn PartitioningState> =
-                dtypes_registry
-                    .get_model_interface::<dyn PartitioningState>(&ver_partitioning.artifact.dtype.name)
-                    .map(|gen| gen(&repo))
-                    .expect("Partitioning must have controller for backend");
-
         let mut blob_control = BlobDatatype::store(&repo);
         let ver_blob_real = &ver_graph[blob1_ver2_idx];
         let fake_blob = crate::datatype::Payload::Delta((vec![1, 6], vec![7, 8]));
-        let ver_hunks = ver_part_control
-                .get_composite_interface(&repo, &ver_part_comp).unwrap()
+        let ver_hunks = model_ctrl
+                .iter_version_partitions(
+                    &dtypes_registry,
+                    &repo,
+                    &ver_graph,
+                    blob1_ver2_idx,
+                ).unwrap()
                 // Note that this is in ascending order, so version hash
                 // is correct.
-                .get_partition_ids()
-                .iter()
-                .take(1)
-                .map(|partition_id| Hunk {
+                .map(|partition| Hunk {
                     id: BlobDatatype::hash_payload(&fake_blob).into(),
                     version: ver_blob_real,
-                    partition: Partition {
-                        partitioning: ver_partitioning,
-                        index: partition_id.to_owned(),
-                    },
+                    partition,
                     representation: RepresentationKind::Delta,
                     completion: PartCompletion::Complete,
                     precedence: None,

@@ -927,6 +927,51 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         Ok(map)
     }
 
+    fn iter_version_partitions<
+            'a: 'b + 'q, 'b: 'c + 'p, 'c, // Normal Partition lifetimes.
+            'd: 'c + 'q, // A lifetime for the version graph reference which must outlive
+                         // anything returned by this function.
+            'q: 'p, 'p: 'c, // Shorter Partition lifetimes that 'd will outlive.
+            T: DatatypeEnum,
+    >(
+        &self,
+        dtypes_registry: &DatatypesRegistry<T>,
+        repo: &Repository,
+        ver_graph: &'d VersionGraph<'a, 'b>,
+        v_idx: VersionGraphIndex,
+    ) -> Result<Box<dyn Iterator<Item=Partition<'q, 'p, 'c>> + 'd>, Error>
+            where
+                <T as DatatypeEnum>::InterfaceControllerType :
+                    InterfaceController<crate::datatype::partitioning::PartitioningState>
+    {
+        use crate::datatype::partitioning::PartitioningState;
+
+        let (ver_part_idx, ver_partitioning) = ver_graph.get_partitioning(v_idx).expect("TODO");
+        let ver_part_comp = self.get_composition_map(
+                &repo,
+                &ver_graph,
+                ver_part_idx,
+                // TODO: need to recursively get partitioning's partitioning.
+                crate::datatype::partitioning::UnaryPartitioningState.get_partition_ids(),
+            ).unwrap().into_iter().last().unwrap().1;
+        let ver_part_control: Box<dyn PartitioningState> =
+                dtypes_registry
+                    .get_model_interface::<dyn PartitioningState>(&ver_partitioning.artifact.dtype.name)
+                    .map(|gen| gen(&repo))
+                    .expect("Partitioning must have controller for backend");
+
+        let iter = ver_part_control
+                .get_composite_interface(&repo, &ver_part_comp).unwrap()
+                .get_partition_ids()
+                .into_iter()
+                .map(move |index| Partition {
+                    partitioning: ver_partitioning,
+                    index
+                });
+
+        Ok(Box::new(iter))
+    }
+
     fn write_production_policies<'a>(
         &mut self,
         repo: &Repository,
