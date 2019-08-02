@@ -57,6 +57,12 @@ pub enum Error {
     TODO(&'static str),
 }
 
+impl From<io::Error> for Error {
+    fn from(io_error: io::Error) -> Self {
+        Error::Io(io_error)
+    }
+}
+
 impl From<ModelError> for Error {
     fn from(model_error: ModelError) -> Self {
         Error::Model(model_error)
@@ -167,14 +173,16 @@ lazy_static! {
         Uuid::parse_str("a95d827d-3a11-405e-b9e0-e43ffa620d33").unwrap();
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Datatype {
     // TODO: Not clear that identity is needed as canonical resolution is
     // through name, but here for consistency with other data structures.
     id: Identity,
     pub name: String,
     version: u64,
+    #[serde(skip)]
     representations: EnumSet<RepresentationKind>,
+    #[serde(skip)]
     implements: HashSet<InterfaceIndex>,
 }
 

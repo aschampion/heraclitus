@@ -48,6 +48,17 @@ trait TestDatatypeStorage {}
 mod store {
     use super::*;
 
+    #[cfg(feature="backend-debug-filesystem")]
+    mod debug_filesystem {
+        use heraclitus_core::store::debug_filesystem::{
+            datatype::DebugFilesystemMetaController,
+            DebugFilesystemRepository,
+        };
+        use super::*;
+
+        impl DebugFilesystemMetaController for TestDatatypeBackend<DebugFilesystemRepository> {}
+    }
+
     #[cfg(feature="backend-postgres")]
     mod postgres {
         use heraclitus_core::store::postgres::{

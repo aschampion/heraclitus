@@ -3,6 +3,8 @@ use std::mem;
 use enum_set;
 
 
+#[cfg(feature="backend-debug-filesystem")]
+pub mod debug_filesystem;
 #[cfg(feature="backend-postgres")]
 pub mod postgres;
 
@@ -11,6 +13,8 @@ pub mod postgres;
 #[repr(u32)]
 pub enum Backend {
     Memory,
+    #[cfg(feature="backend-debug-filesystem")]
+    DebugFilesystem,
     #[cfg(feature="backend-postgres")]
     Postgres,
 }

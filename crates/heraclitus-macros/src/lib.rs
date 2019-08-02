@@ -16,6 +16,8 @@ use syn::parse::{
 const BACKENDS: &'static [&'static str] = &[
     #[cfg(feature="backend-postgres")]
     "Postgres",
+    #[cfg(feature="backend-debug-filesystem")]
+    "DebugFilesystem",
 ];
 
 struct StoreType {
@@ -351,6 +353,16 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
             }
         }
 
+        #[cfg(feature="backend-debug-filesystem")]
+        impl From<#store_name> for #store_backend_name<heraclitus::store::debug_filesystem::DebugFilesystemRepository> {
+            fn from(store: #store_name) -> Self {
+                match store {
+                    #store_name::DebugFilesystem(c) => c,
+                    _ => unreachable!(),
+                }
+            }
+        }
+
         #[cfg(feature="backend-postgres")]
         impl From<#store_name> for #store_backend_name<heraclitus::store::postgres::PostgresRepository> {
             fn from(store: #store_name) -> Self {
@@ -362,6 +374,8 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
         }
 
         pub enum #store_name {
+            #[cfg(feature="backend-debug-filesystem")]
+            DebugFilesystem(#store_backend_name::<heraclitus::store::debug_filesystem::DebugFilesystemRepository>),
             #[cfg(feature="backend-postgres")]
             Postgres(#store_backend_name::<heraclitus::store::postgres::PostgresRepository>),
         }
@@ -372,6 +386,8 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
 
         // Must do this until GATs are available.
         impl heraclitus::datatype::Store for #store_name {
+            #[cfg(feature="backend-debug-filesystem")]
+            type BackendDebugFilesystem = #store_backend_name::<heraclitus::store::debug_filesystem::DebugFilesystemRepository>;
             #[cfg(feature="backend-postgres")]
             type BackendPostgres = #store_backend_name::<heraclitus::store::postgres::PostgresRepository>;
 
@@ -379,6 +395,8 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                 use heraclitus::store::Backend::*;
 
                 match *self {
+                    #[cfg(feature="backend-debug-filesystem")]
+                    Self::DebugFilesystem(_) => DebugFilesystem,
                     #[cfg(feature="backend-postgres")]
                     Self::Postgres(_) => Postgres,
                 }
@@ -388,6 +406,9 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
                 use heraclitus::store::Backend::*;
 
                 match backend {
+                    #[cfg(feature="backend-debug-filesystem")]
+                    DebugFilesystem => Self::DebugFilesystem(
+                        #store_backend_name::<heraclitus::store::debug_filesystem::DebugFilesystemRepository>::new()),
                     #[cfg(feature="backend-postgres")]
                     Postgres => Self::Postgres(
                         #store_backend_name::<heraclitus::store::postgres::PostgresRepository>::new()),
@@ -399,6 +420,8 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
         impl Into<heraclitus::datatype::StoreMetaController> for #store_name {
             fn into(self) -> heraclitus::datatype::StoreMetaController {
                 match self {
+                    #[cfg(feature="backend-debug-filesystem")]
+                    Self::DebugFilesystem(c) => heraclitus::datatype::StoreMetaController::DebugFilesystem(Box::new(c)),
                     #[cfg(feature="backend-postgres")]
                     Self::Postgres(c) => heraclitus::datatype::StoreMetaController::Postgres(Box::new(c)),
                 }

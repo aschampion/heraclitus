@@ -9,6 +9,10 @@ name = "heraclitus_core"
 path = "src/lib.rs"
 
 [features]
+backend-debug-filesystem = [
+  "heraclitus-macros/backend-debug-filesystem",
+  "serde_json",
+]
 backend-postgres = [
 	"heraclitus-macros/backend-postgres",
 	"postgres",
@@ -29,6 +33,8 @@ serde = "*"
 serde_derive = "*"
 url = "*"
 uuid = { version = "0.5", features = ["use_std", "v4", "v5", "serde"] }
+
+serde_json = { version = "*", optional = true }
 
 postgres = { version = "0.15", features = ["with-uuid"], optional = true }
 postgres_array = { version = "0.9", optional = true }

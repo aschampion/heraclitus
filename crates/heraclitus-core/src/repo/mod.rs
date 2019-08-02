@@ -6,11 +6,15 @@ use crate::datatype::{
     DatatypesRegistry,
 };
 use crate::store::Backend;
+#[cfg(feature="backend-debug-filesystem")]
+use crate::store::debug_filesystem::DebugFilesystemRepository;
 #[cfg(feature="backend-postgres")]
 use crate::store::postgres::PostgresRepository;
 
 
 pub enum Repository {
+    #[cfg(feature="backend-debug-filesystem")]
+    DebugFilesystem(DebugFilesystemRepository),
     #[cfg(feature="backend-postgres")]
     Postgres(PostgresRepository),
 }
@@ -21,6 +25,8 @@ impl Repository {
         use self::Repository::*;
 
         match repo.url.scheme() {
+            #[cfg(feature="backend-debug-filesystem")]
+            "file" => DebugFilesystem(DebugFilesystemRepository::new(repo)),
             #[cfg(feature="backend-postgres")]
             "postgres" | "postgresql" => Postgres(PostgresRepository::new(repo)),
             _ => unimplemented!()
@@ -46,7 +52,6 @@ pub trait RepoController {
 pub mod testing {
     use super::*;
 
-    #[cfg(feature="backend-postgres")]
     use url::Url;
 
     pub fn init_repo<T: DatatypeEnum>(
@@ -54,7 +59,17 @@ pub mod testing {
             dtypes_registry: &DatatypesRegistry<T>,
         ) -> Repository {
 
-        let url = match backend {
+        let url: Url = match backend {
+            #[cfg(feature="backend-debug-filesystem")]
+            Backend::DebugFilesystem => {
+                let mut path = std::env::temp_dir();
+                path.push("hera-tmp");
+                std::fs::DirBuilder::new()
+                    .recursive(true)
+                    .create(&path)
+                    .unwrap();
+                Url::from_file_path(path).unwrap()
+            },
             #[cfg(feature="backend-postgres")]
             Backend::Postgres =>
                 // Url::parse("postgresql://hera_test:hera_test@localhost/hera_test").unwrap(),
@@ -69,6 +84,13 @@ pub mod testing {
         repo.init(&dtypes_registry).unwrap();
 
         repo
+    }
+
+    #[cfg(feature="backend-debug-filesystem")]
+    #[test]
+    fn test_debug_filesystem_repo_init() {
+        let dtypes_registry = crate::datatype::testing::init_empty_dtypes_registry();
+        init_repo(Backend::DebugFilesystem, &dtypes_registry);
     }
 
     #[cfg(feature="backend-postgres")]

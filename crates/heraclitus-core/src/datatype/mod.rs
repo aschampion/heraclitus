@@ -7,6 +7,8 @@ use crate::Datatype;
 use crate::repo::{Repository, RepoController};
 use crate::store::Backend;
 
+#[cfg(feature="backend-debug-filesystem")]
+use crate::store::debug_filesystem::datatype::DebugFilesystemMetaController;
 #[cfg(feature="backend-postgres")]
 use crate::store::postgres::datatype::PostgresMetaController;
 
@@ -25,6 +27,8 @@ pub trait StoreBackend: StoreOrBackend {
 }
 
 pub trait Store: Sized + StoreOrBackend {
+    #[cfg(feature="backend-debug-filesystem")]
+    type BackendDebugFilesystem: StoreBackend;
     #[cfg(feature="backend-postgres")]
     type BackendPostgres: StoreBackend;
 
@@ -170,6 +174,8 @@ impl<'a, T, IC> GetInterfaceController<T> for dyn Model<IC> + 'a
 
 
 pub enum StoreMetaController {
+    #[cfg(feature="backend-debug-filesystem")]
+    DebugFilesystem(Box<dyn DebugFilesystemMetaController>),
     #[cfg(feature="backend-postgres")]
     Postgres(Box<dyn PostgresMetaController>),
 }
