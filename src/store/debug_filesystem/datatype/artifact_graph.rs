@@ -264,7 +264,6 @@ impl ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
                     let art = ver_graph[*v].artifact;
                     let art_idx = art_graph.get_by_id(&art.id).unwrap().0;
                     art_graph.get_neighbors(art_idx, petgraph::Direction::Outgoing)
-                        .into_iter()
                         .map(|a_idx| art_graph[a_idx].id.uuid)
                 })
                 .flatten()

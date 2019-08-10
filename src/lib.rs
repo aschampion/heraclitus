@@ -304,13 +304,12 @@ impl<'a> ArtifactGraph<'a> {
         &self,
         a_idx: ArtifactGraphIndex,
         dir: petgraph::Direction,
-    ) -> Vec<ArtifactGraphIndex> {
+    ) -> impl Iterator<Item=ArtifactGraphIndex> + '_ {
         self.artifacts.graph().edges_directed(a_idx, dir)
-            .map(|e| match dir {
+            .map(move |e| match dir {
                 petgraph::Direction::Outgoing => e.target(),
                 petgraph::Direction::Incoming => e.source(),
             })
-            .collect()
     }
 
     pub fn get_related_artifacts(
