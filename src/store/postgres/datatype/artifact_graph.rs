@@ -925,8 +925,8 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
                             WHERE vr.dependent_version_id = ANY($1::bigint[]);
                         "#, &[&prod_ver_db_ids])?,
                     PolicyDependencyRequirements::All => {
-                        let dep_art_uuids: Vec<Uuid> =
-                            art_graph.artifacts.parents(v_idx)
+                        let dep_art_uuids: Vec<Uuid> = art_graph.artifacts
+                            .parents(p_art_idx)
                             .iter(&art_graph.artifacts)
                             .map(|(_, dependency_idx)|
                                 // TODO: Not using relation because not clear variants are
