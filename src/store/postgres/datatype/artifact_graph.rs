@@ -1,10 +1,8 @@
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::iter::FromIterator;
 
 use heraclitus_core::{
     daggy,
-    enum_set,
     petgraph,
     postgres,
     schemer,
@@ -13,7 +11,7 @@ use heraclitus_core::{
 };
 use daggy::petgraph::visit::EdgeRef;
 use daggy::Walker;
-use enum_set::EnumSet;
+use enumset::EnumSet;
 use postgres::error::Error as PostgresError;
 use postgres::transaction::Transaction;
 use schemer::migration;
@@ -29,9 +27,11 @@ use crate::{
     Error,
     HashType,
     Hunk,
+    HunkUuidSpec,
     Identity,
     IdentifiableGraph,
     ModelError,
+    PartialIdentity,
     Partition,
     PartitionIndex,
     RepresentationKind,
@@ -354,8 +354,10 @@ impl crate::datatype::Storage for ArtifactGraphDtypeBackend<PostgresRepository> 
                     ArtifactDescription::New {id, name, dtype, self_partitioning} => {
                         let id = id.ok_or_else(||
                             ModelError::Other("Attempt to write artifact without id".into()))?;
+                        let hash = id.hash.ok_or_else(||
+                            ModelError::Other("Attempt to write artifact without hash".into()))?;
                         insert_artifact.query(&[
-                            &id.uuid, &(id.hash as i64), &db_hunk_id,
+                            &id.uuid, &(hash as i64), &db_hunk_id,
                             &self_partitioning, &name, &dtype])?
                     },
                     ArtifactDescription::Existing(uuid) => {
@@ -473,9 +475,9 @@ impl crate::datatype::Storage for ArtifactGraphDtypeBackend<PostgresRepository> 
 
         for row in &nodes {
             let db_id = row.get::<_, i64>(NodeRow::ID as usize);
-            let id = Some(Identity {
+            let id = Some(PartialIdentity {
                 uuid: row.get(NodeRow::UUID as usize),
-                hash: row.get::<_, i64>(NodeRow::Hash as usize) as HashType,
+                hash: Some(row.get::<_, i64>(NodeRow::Hash as usize) as HashType),
             });
             let dtype_name = &row.get::<_, String>(NodeRow::DatatypeName as usize);
             let node = ArtifactDescription::New {
@@ -578,31 +580,40 @@ impl crate::datatype::Storage for ArtifactGraphDtypeBackend<PostgresRepository> 
 
 impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
 
-    fn read_origin_hunk_uuid(
+    fn read_origin_uuids(
         &self,
         repo: &Repository,
-    ) -> Result<Option<Uuid>, Error> {
+    ) -> Result<Option<HunkUuidSpec>, Error> {
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
 
         let origin_uuid_rows = conn.query(r#"
-                SELECT uuid_ FROM origin LIMIT 1;
+                SELECT artifact_uuid, version_uuid, hunk_uuid FROM origin LIMIT 1;
             "#, &[])?;
-        let origin_uuid = if origin_uuid_rows.is_empty() {
+        let origin_uuids = if origin_uuid_rows.is_empty() {
             None
         } else {
-            Some(origin_uuid_rows.get(0).get(0))
+            let origin_row = origin_uuid_rows.get(0);
+            Some(HunkUuidSpec {
+                artifact_uuid: origin_row.get(0),
+                version_uuid: origin_row.get(1),
+                hunk_uuid: origin_row.get(2),
+            })
         };
 
-        Ok(origin_uuid)
+        Ok(origin_uuids)
     }
 
     fn bootstrap_origin(
-        &self,
+        &mut self,
         repo: &Repository,
         hunk: &Hunk,
+        ver_graph: &VersionGraph,
+        art_graph: &ArtifactGraph,
     ) -> Result<(), Error> {
+        use crate::datatype::Storage;
+
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
@@ -653,12 +664,29 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
             &[&hunk_db_id, &art_db_id])?;
 
         trans.query(r#"
-                INSERT INTO origin (uuid_)
-                VALUES ($1::uuid);
+                INSERT INTO origin (artifact_uuid, version_uuid, hunk_uuid)
+                VALUES ($1::uuid, $2::uuid, $3::uuid);
             "#,
-            &[&hunk.id.uuid])?;
+            &[&origin_art.id.uuid, &ver.id.uuid, &hunk.id.uuid])?;
+
+        // Adjust AG descrition so that origin artifact is existing reference.
+        // HACK: Not only is this delta-like descript graph being used as a
+        // state, it is not a valid delta either as the partitioning artifact
+        // will have a relation with this existing origin artifact.
+        let origin_art_id = hunk.version.artifact.id;
+        let mut origin_ag_delta = art_graph.as_description();
+        let origin_art_idx = origin_ag_delta.get_by_uuid(&origin_art_id.uuid).unwrap().0;
+        origin_ag_delta.artifacts[origin_art_idx] = ArtifactDescription::Existing(origin_art_id.uuid);
+        let payload = Payload::State(origin_ag_delta);
 
         trans.set_commit();
+        drop(trans);
+
+        // Write AG description hunk.
+        // HACK: This is violating many contracts, including that a state
+        // hunk has a reference to an existing artifact.
+        self.write_hunk(repo, hunk, &payload)?;
+
         Ok(())
     }
 
@@ -1200,7 +1228,12 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
             &[&artifact.id.uuid])?;
         Ok(match policies_row.len() {
             0 => None,
-            _ => Some(EnumSet::from_iter(policies_row.get(0).get::<_, Vec<ProductionPolicies>>(0))),
+            _ => {
+                let policies = policies_row.get(0).get::<_, Vec<ProductionPolicies>>(0);
+                let policies = policies.into_iter()
+                    .fold(EnumSet::new(), |union, p| union | p);
+                Some(policies)
+            },
         })
     }
 

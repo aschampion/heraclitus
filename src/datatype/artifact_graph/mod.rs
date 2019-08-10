@@ -8,20 +8,21 @@ use std::hash::Hash;
 
 use heraclitus_core::{
     daggy,
-    enum_set,
+    enumset,
     petgraph,
     uuid,
 };
 use daggy::{
     Walker,
 };
+use enumset::enum_set;
 use heraclitus_macros::{
     DatatypeMarker,
     interface,
     stored_datatype_controller,
     stored_interface_controller,
 };
-use enum_set::{
+use enumset::{
     EnumSet,
 };
 use serde_derive::{Deserialize, Serialize};
@@ -40,10 +41,12 @@ use crate::{
     RepresentationKind,
     Error,
     Hunk,
+    HunkUuidSpec,
     Identity,
     IdentifiableGraph,
     Interface,
     ModelError,
+    PartialIdentity,
     PartCompletion,
     Partition,
     PartitionIndex,
@@ -113,12 +116,10 @@ impl<T: InterfaceController<ArtifactMeta>> super::Model<T> for ArtifactGraphDtyp
         Description {
             name: "ArtifactGraph".into(),
             version: 1,
-            representations: vec![
-                        RepresentationKind::State,
-                        RepresentationKind::Delta,
-                    ]
-                    .into_iter()
-                    .collect(),
+            representations: enum_set!(
+                        RepresentationKind::State |
+                        RepresentationKind::Delta |
+                    ),
             implements: vec![], // TODO: should artifact graph be an interface?
             dependencies: vec![],
         }
@@ -153,10 +154,17 @@ struct OriginGraphTemplate<'d> {
 /// - Root AG artifact
 impl<'d> OriginGraphTemplate<'d> {
     fn new<T: DatatypeEnum>(dtypes_registry: &'d DatatypesRegistry<T>) -> OriginGraphTemplate<'d> {
+        Self::for_uuids(dtypes_registry, None)
+    }
+
+    fn for_uuids<T: DatatypeEnum>(
+        dtypes_registry: &'d DatatypesRegistry<T>,
+        hunk_uuids: Option<&HunkUuidSpec>,
+    ) -> OriginGraphTemplate<'d> {
         let mut origin_ag = ArtifactGraphDescriptionType::new();
 
         let origin_art = ArtifactDescription::New {
-            id: None,
+            id: hunk_uuids.map(|spec| PartialIdentity {uuid: spec.artifact_uuid, hash: None}),
             name: Some("origin".into()),
             dtype: "ArtifactGraph".into(),
             self_partitioning: false,
@@ -178,7 +186,8 @@ impl<'d> OriginGraphTemplate<'d> {
         // AG and AG description.
         let (origin_ag, idx_map) = ArtifactGraph::from_description(
             &origin_ag_desc,
-            dtypes_registry);
+            dtypes_registry,
+            hunk_uuids.map(|spec| spec.hunk_uuid));
 
         OriginGraphTemplate {
             artifact_graph: origin_ag,
@@ -208,14 +217,14 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         dtypes_registry: &'d DatatypesRegistry<T>,
         repo: &Repository,
     ) -> Result<(ArtifactGraph<'d>, ArtifactGraph<'d>), Error> {
-        let origin_hunk_uuid = match self.read_origin_hunk_uuid(repo)? {
-            Some(uuid) => uuid,
+        let origin_uuids = match self.read_origin_uuids(repo)? {
+            Some(uuids) => uuids,
             None => {
-                self.create_origin_root(dtypes_registry, repo)?.uuid
+                self.create_origin_root(dtypes_registry, repo)?
             }
         };
 
-        let origin_ag = self.read_origin_artifact_graph(dtypes_registry, repo, origin_hunk_uuid)?;
+        let origin_ag = self.read_origin_artifact_graph(dtypes_registry, repo, origin_uuids)?;
         // TODO: many temporary hacks
         // - using names instead of refs
         // - assuming unary root versions
@@ -234,14 +243,15 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         &self,
         dtypes_registry: &'d DatatypesRegistry<T>,
         repo: &Repository,
-        origin_hunk_uuid: Uuid,
+        origin_spec: HunkUuidSpec,
     ) -> Result<ArtifactGraph<'d>, Error> {
 
-        let fake_origin = OriginGraphTemplate::new(dtypes_registry);
+        let fake_origin = OriginGraphTemplate::for_uuids(dtypes_registry, Some(&origin_spec));
         let fake_vg = VersionGraph::new_from_source_artifacts(&fake_origin.artifact_graph);
-        let fake_origin_version = Version::new(fake_origin.origin(), RepresentationKind::State);
+        let mut fake_origin_version = Version::new(fake_origin.origin(), RepresentationKind::State);
+        fake_origin_version.id.uuid = origin_spec.version_uuid;
         let fake_origin_hunk = Hunk {
-            id: Identity {uuid: origin_hunk_uuid, hash: 0},
+            id: Identity {uuid: origin_spec.hunk_uuid, hash: 0},
             version: &fake_origin_version,
             partition: Partition {
                 partitioning: &fake_vg[fake_vg.artifact_versions(fake_origin.up())[0]],
@@ -254,21 +264,22 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         let comp = vec![fake_origin_hunk];
         let ag_desc = self.get_composite_state(repo, &comp)?;
 
-        let (origin_ag, _) = ArtifactGraph::from_description(&ag_desc, dtypes_registry);
+        let (origin_ag, _) = ArtifactGraph::from_description(&ag_desc, dtypes_registry,
+            Some(origin_spec.hunk_uuid));
 
         Ok(origin_ag)
     }
 
-    fn read_origin_hunk_uuid(
+    fn read_origin_uuids(
         &self,
         repo: &Repository,
-    ) -> Result<Option<Uuid>, Error>;
+    ) -> Result<Option<HunkUuidSpec>, Error>;
 
     fn create_origin_root<'a, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &'a DatatypesRegistry<T>,
         repo: &Repository,
-    ) -> Result<Identity, Error> {
+    ) -> Result<HunkUuidSpec, Error> {
 
         let origin = OriginGraphTemplate::new(dtypes_registry);
         let origin_art_id = origin.origin().id;
@@ -308,21 +319,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
                 precedence: None,
             };
 
-            self.bootstrap_origin(repo, &origin_hunk)?;
-
-            // Adjust AG descrition so that origin artifact is existing reference.
-            // HACK: Not only is this delta-like descript graph being used as a
-            // state, it is not a valid delta either as the partitioning artifact
-            // will have a relation with this existing origin artifact.
-            let mut origin_ag_delta = origin.artifact_graph.as_description();
-            let origin_art_idx = origin_ag_delta.get_by_uuid(&origin_art_id.uuid).unwrap().0;
-            origin_ag_delta.artifacts[origin_art_idx] = ArtifactDescription::Existing(origin_art_id.uuid);
-            let payload = Payload::State(origin_ag_delta);
-
-            // Write AG description hunk.
-            // HACK: This is violating many contracts, including that a state
-            // hunk has a reference to an existing artifact.
-            self.write_hunk(repo, &origin_hunk, &payload)?;
+            self.bootstrap_origin(repo, &origin_hunk, &ver_graph, &origin.artifact_graph)?;
 
             (origin_ver_idx, origin_hunk.id)
         };
@@ -365,7 +362,8 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         // Empty root AG.
         let (root_ag, _) = ArtifactGraph::from_description(
             &ArtifactGraphDescription::new(),
-            dtypes_registry);
+            dtypes_registry,
+            None);
         let root_ag_payload = Payload::State(root_ag.as_description());
         let root_ag_hunk = Hunk {
             id: ArtifactGraphDtype::hash_payload(&root_ag_payload).into(),
@@ -385,7 +383,11 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         // partitioning to origin artifact and marking commits.
         self.tie_off_origin(repo, &ver_graph, origin_ver_idx)?;
 
-        Ok(origin_hunk_id)
+        Ok(HunkUuidSpec {
+            artifact_uuid: origin_art_id.uuid,
+            version_uuid: ver_graph[origin_ver_idx].id.uuid,
+            hunk_uuid: origin_hunk_id.uuid,
+        })
     }
 
     /// Given an origin hunk, create a reference self-loop such that the
@@ -396,9 +398,11 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
     /// This method is a hook called by heraclitus internals to be implemented
     /// by backends, and should never be called from client code.
     fn bootstrap_origin(
-        &self,
+        &mut self,
         repo: &Repository,
         hunk: &Hunk,
+        ver_graph: &VersionGraph,
+        art_graph: &ArtifactGraph,
     ) -> Result<(), Error>;
 
     /// When creating the origin, after the origin has been bootstrapped and
@@ -460,7 +464,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         // Set the correct ID and hash for the new AG artifacts.
         for node_idx in parent_ag_delta.additions.artifacts.graph().node_indices() {
             if let ArtifactDescription::New {ref mut id, ..} = parent_ag_delta.additions.artifacts[node_idx] {
-                *id = Some(parent[parent_ag_idx_map[&node_idx]].id);
+                *id = Some(parent[parent_ag_idx_map[&node_idx]].id.into());
             }
         }
 
@@ -493,7 +497,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
 
         // Create new AG.
         // Done earlier here so ownership of the description can be transferred.
-        let (art_graph, new_idx_map) = ArtifactGraph::from_description(&art_graph_desc, dtypes_registry);
+        let (mut art_graph, new_idx_map) = ArtifactGraph::from_description(&art_graph_desc, dtypes_registry, None);
 
         // Create version for new artifact graph's artifact.
         let new_ag_art = &parent[parent_ag_idx_map[&new_ag_art_idx]];
@@ -531,6 +535,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
             completion: PartCompletion::Complete,
             precedence: None,
         };
+        art_graph.id.uuid = new_ag_hunk.id.uuid;
         self.create_hunk(repo, &new_ag_hunk)?;
 
         // Write new artifact graph's hunk.
@@ -569,7 +574,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
 
         let ag_desc = self.get_composite_state(repo, composition)?;
 
-        let ag = ArtifactGraph::from_description(&ag_desc, dtypes_registry).0;
+        let ag = ArtifactGraph::from_description(&ag_desc, dtypes_registry, None).0;
 
         Ok(ag)
     }
@@ -838,7 +843,14 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         repo: &Repository,
         hunks: &[H],
     ) -> Result<(), Error>
-        where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>;
+        where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>
+    {
+        for hunk in hunks {
+            self.create_hunk(repo, hunk.borrow())?;
+        }
+
+        Ok(())
+    }
 
     /// Get hunks directly associated with a version.
     ///
@@ -1002,6 +1014,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
 
 
 #[derive(Debug, Hash, PartialEq)]
+#[derive(Deserialize, Serialize)]
 pub struct ArtifactGraphDelta {
     additions: ArtifactGraphDescription,
     removals: Vec<Uuid>,
@@ -1026,6 +1039,7 @@ impl ArtifactGraphDelta {
 
 pub type ArtifactGraphDescriptionType = daggy::Dag<ArtifactDescription, ArtifactRelation>;
 #[derive(Clone, Debug)]
+#[derive(Deserialize, Serialize)]
 pub struct ArtifactGraphDescription {
     pub artifacts: ArtifactGraphDescriptionType,
 }
@@ -1108,7 +1122,7 @@ impl ArtifactGraphDescription {
         self.is_independent() && self.is_valid_payload()
     }
 
-    fn get_by_uuid(
+    pub fn get_by_uuid(
         &self,
         uuid: &Uuid
     ) -> Option<(ArtifactGraphIndex, &ArtifactDescription)> {
@@ -1203,7 +1217,7 @@ impl Hash for ArtifactGraphDescription {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ArtifactDescription {
     New {
-        id: Option<Identity>,
+        id: Option<PartialIdentity>,
         name: Option<String>,
         dtype: String,
         self_partitioning: bool,
@@ -1214,7 +1228,7 @@ pub enum ArtifactDescription {
 impl ArtifactDescription {
     pub fn new_from_artifact(art: &Artifact) -> Self {
         ArtifactDescription::New {
-            id: Some(art.id.clone()),
+            id: Some(art.id.clone().into()),
             name: art.name.clone(),
             dtype: art.dtype.name.clone(),
             self_partitioning: art.self_partitioning,

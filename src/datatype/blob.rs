@@ -18,12 +18,10 @@ impl<T: InterfaceControllerEnum> super::Model<T> for BlobDatatype {
         Description {
             name: "Blob".into(),
             version: 1,
-            representations: vec![
-                        RepresentationKind::State,
-                        RepresentationKind::Delta,
-                    ]
-                    .into_iter()
-                    .collect(),
+            representations: enumset::enum_set!(
+                        RepresentationKind::State |
+                        RepresentationKind::Delta |
+                    ),
             implements: vec![],
             dependencies: vec![],
         }

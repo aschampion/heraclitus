@@ -52,6 +52,7 @@ pub trait RepoController {
 pub mod testing {
     use super::*;
 
+    use rand::Rng;
     use url::Url;
 
     pub fn init_repo<T: DatatypeEnum>(
@@ -64,6 +65,12 @@ pub mod testing {
             Backend::DebugFilesystem => {
                 let mut path = std::env::temp_dir();
                 path.push("hera-tmp");
+                let mut rng = rand::thread_rng();
+                let tmp_path: String = std::iter::repeat(())
+                    .map(|()| rng.sample(rand::distributions::Alphanumeric))
+                    .take(30)
+                    .collect();
+                path.push(tmp_path);
                 std::fs::DirBuilder::new()
                     .recursive(true)
                     .create(&path)

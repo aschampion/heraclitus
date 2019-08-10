@@ -343,6 +343,7 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
 
         impl<RC: heraclitus::repo::RepoController> heraclitus::datatype::StoreOrBackend for #store_backend_name<RC> {
             type Datatype = #name;
+            // type Disjunctive = heraclitus::datatype::BackendMarker;
         }
 
         impl<RC: heraclitus::repo::RepoController> heraclitus::datatype::StoreBackend for #store_backend_name<RC> {
@@ -382,6 +383,7 @@ fn impl_datatype_store(ast: &syn::DeriveInput) -> proc_macro2::TokenStream {
 
         impl heraclitus::datatype::StoreOrBackend for #store_name {
             type Datatype = #name;
+            // type Disjunctive = heraclitus::datatype::StoreMarker;
         }
 
         // Must do this until GATs are available.

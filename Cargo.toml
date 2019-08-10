@@ -19,10 +19,17 @@ members = [
 ]
 
 [features]
-default = ["backend-postgres"]  # At least one backend must be enabled to compile.
+default = ["backend-postgres", "backend-debug-filesystem"]  # At least one backend must be enabled to compile.
+backend-debug-filesystem = [
+  "heraclitus-core/backend-debug-filesystem",
+  "heraclitus-macros/backend-debug-filesystem",
+  "walkdir",
+]
 backend-postgres = ["heraclitus-core/backend-postgres", "heraclitus-macros/backend-postgres"]
 
 [dependencies]
+# Enumset does not reexport well, so must depend on it in both core and heraclitus.
+enumset = { version = "0.4", features = ["serde"] }
 heraclitus-core = { path = "crates/heraclitus-core" }
 heraclitus-macros = { path = "crates/heraclitus-macros" }
 maplit = "*"
@@ -30,6 +37,8 @@ maplit = "*"
 serde = "*"
 serde_derive = "*"
 serde_json = "*"
+
+walkdir = { version = "2", optional = true }
 
 [patch.crates-io]
 schemer = { path = "../schemer/schemer" }

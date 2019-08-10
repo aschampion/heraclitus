@@ -13,7 +13,6 @@ use uuid::Uuid;
 
 use crate::{
     Artifact,
-    Identity,
     RepresentationKind,
     Error,
     Version,
@@ -324,11 +323,9 @@ impl<T: InterfaceControllerEnum> Model<T> for Ref {
         Description {
             name: "Ref".into(),
             version: 1,
-            representations: vec![
-                        RepresentationKind::State,
-                    ]
-                    .into_iter()
-                    .collect(),
+            representations: enumset::enum_set!(
+                    RepresentationKind::State |
+                ),
             implements: vec![],
             dependencies: vec![
                 DependencyDescription::new(
@@ -351,13 +348,13 @@ pub trait Storage {
         &self,
         repo: &Repository,
         artifact: &Artifact,
-    ) -> Result<HashMap<BranchRevisionTip, Identity>, Error>;
+    ) -> Result<HashMap<BranchRevisionTip, Uuid>, Error>;
 
     fn set_branch_revision_tips(
         &mut self,
         repo: &Repository,
         artifact: &Artifact,
-        tip_versions: &HashMap<BranchRevisionTip, Identity>,
+        tip_versions: &HashMap<BranchRevisionTip, Uuid>,
     ) -> Result<(), Error>;
 
     fn write_message(
@@ -380,9 +377,9 @@ pub trait Storage {
         name: &str,
     ) -> Result<(), Error>;
 
-    fn get_version_id(
+    fn get_version_uuid(
         &self,
         repo: &Repository,
         specifier: &VersionSpecifier,
-    ) -> Result<Identity, Error>;
+    ) -> Result<Uuid, Error>;
 }

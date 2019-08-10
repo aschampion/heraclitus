@@ -109,6 +109,7 @@ pub type ArtifactIndexMap = BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex>;
 /// A graph expressing the dependence structure between sets of data artifacts.
 pub struct ArtifactGraph<'a> {
     id: Identity, // Note: currently this hash is the hash of the **version**, not the AG artifact.
+                  // The UUID is usually the UUID of the **hunk** containing this AG.
     pub artifacts: ArtifactGraphType<'a>,
 }
 
@@ -116,13 +117,17 @@ impl<'a> ArtifactGraph<'a> {
     pub fn from_description<T: DatatypeEnum>(
         desc: &ArtifactGraphDescription,
         dtypes_registry: &'a DatatypesRegistry<T>,
+        uuid: Option<Uuid>,
     ) -> (ArtifactGraph<'a>, ArtifactIndexMap) {
 
         let to_visit = daggy::petgraph::algo::toposort(desc.artifacts.graph(), None)
             .expect("TODO: not a DAG");
 
         let mut ag = ArtifactGraph {
-            id: 0.into(),
+            id: Identity {
+                uuid: uuid.unwrap_or_else(Uuid::new_v4),
+                hash: 0,
+            },
             artifacts: ArtifactGraphType::new(),
         };
         let mut idx_map = ArtifactIndexMap::new();
@@ -198,7 +203,7 @@ impl<'a> ArtifactGraph<'a> {
         let a_desc = desc.artifacts.node_weight(node_idx).expect("Graph is malformed.");
         let new_idx = match a_desc {
             ArtifactDescription::New { id, name, self_partitioning, dtype } => {
-                let id_new = id.unwrap_or_else(|| 0.into());
+                let id_new: Identity = id.map(|i| i.into()).unwrap_or_else(|| 0.into());
                 let artifact = {
                     let mut art = Artifact {
                         id: id_new,
@@ -208,9 +213,9 @@ impl<'a> ArtifactGraph<'a> {
                     };
                     art.hash(&mut s);
                     let new_hash = s.finish();
-                    if id.is_some() {
+                    if let Some(PartialIdentity {hash: Some(expected_hash), ..}) = id {
                         // TODO: hash verification should return an error
-                        assert_eq!(art.id.hash, new_hash, "ID mismatch for artifact: {:?}", art);
+                        assert_eq!(*expected_hash, new_hash, "ID mismatch for artifact: {:?}", art);
                     }
                     art.id.hash = new_hash;
                     art
@@ -609,7 +614,8 @@ pub enum VersionRelation<'b>{
     // SufficientAncestor,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
+#[derive(Deserialize, Serialize)]
 #[cfg_attr(feature="backend-postgres", derive(ToSql, FromSql))]
 #[cfg_attr(feature="backend-postgres", postgres(name = "version_status"))]
 pub enum VersionStatus {
@@ -656,13 +662,16 @@ impl<'a, 'b> Identifiable for Version<'a, 'b> {
 pub type PartitionIndex = u64;
 
 #[derive(Clone, Debug)]
+#[derive(Serialize)]
 pub struct Partition<'a: 'b, 'b: 'c, 'c> {
+    #[serde(skip_serializing)]
     pub partitioning: &'c Version<'a, 'b>,
     pub index: PartitionIndex,
     // TODO: also need to be able to handle partition types (leaf v. neighborhood, level, arbitrary)
 }
 
 #[derive(Debug)]
+#[derive(Deserialize, Serialize)]
 #[cfg_attr(feature="backend-postgres", derive(ToSql, FromSql))]
 #[cfg_attr(feature="backend-postgres", postgres(name = "part_completion"))]
 pub enum PartCompletion {
@@ -677,9 +686,11 @@ pub enum PartCompletion {
 /// The absence of a hunk for a partition for a version indicates the version
 /// made no changes relative to its parent versions' hunks for that partition.
 #[derive(Debug)]
+#[derive(Serialize)]
 pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
     // Is this a Hunk or a Patch (in which case changeset items would be hunks)?
     pub id: Identity, // TODO: Not clear hunk needs a UUID.
+    #[serde(skip_serializing)]
     pub version: &'d Version<'a, 'b>,
     pub partition: Partition<'a, 'b, 'c>,
     /// Representation kind of this hunk's contents. `State` versions may
@@ -712,6 +723,21 @@ impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
             None => true
         })
     }
+
+    fn uuid_spec(&self) -> HunkUuidSpec {
+        HunkUuidSpec {
+            artifact_uuid: self.version.artifact.id.uuid,
+            version_uuid: self.version.id.uuid,
+            hunk_uuid: self.id.uuid,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct HunkUuidSpec {
+    pub artifact_uuid: Uuid,
+    pub version_uuid: Uuid,
+    pub hunk_uuid: Uuid,
 }
 
 // /// Indicates for a merge version which ancestral hunk takes precedence.

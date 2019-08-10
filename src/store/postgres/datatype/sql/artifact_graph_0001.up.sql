@@ -136,7 +136,9 @@ CREATE TABLE hunk_precedence (
 );
 
 CREATE TABLE origin (
-  uuid_ uuid NOT NULL REFERENCES hunk (uuid_) DEFERRABLE INITIALLY IMMEDIATE
+  artifact_uuid uuid NOT NULL REFERENCES artifact (uuid_) DEFERRABLE INITIALLY IMMEDIATE,
+  version_uuid uuid NOT NULL REFERENCES version (uuid_) DEFERRABLE INITIALLY IMMEDIATE,
+  hunk_uuid uuid NOT NULL REFERENCES hunk (uuid_) DEFERRABLE INITIALLY IMMEDIATE
 ) WITH (
   OIDS=FALSE
 );

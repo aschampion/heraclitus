@@ -1,7 +1,7 @@
 #![feature(const_fn)]
 
 pub extern crate daggy;
-pub extern crate enum_set;
+pub extern crate enumset;
 pub extern crate lazy_static;
 pub extern crate petgraph;
 #[cfg(any(feature="backend-postgres"))]
@@ -32,9 +32,11 @@ use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::io;
-use std::mem;
 
-use enum_set::EnumSet;
+use enumset::{
+    EnumSet,
+    EnumSetType,
+};
 use lazy_static::lazy_static;
 #[cfg(feature="backend-postgres")]
 use postgres_derive::{ToSql, FromSql};
@@ -113,6 +115,32 @@ impl From<HashType> for Identity {
     }
 }
 
+// TODO: this should be majorly revised with the content-vs-structure hash
+// refactor.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct PartialIdentity {
+    pub uuid: Uuid,
+    pub hash: Option<HashType>,
+}
+
+impl From<Identity> for PartialIdentity {
+    fn from(id: Identity) -> Self {
+        PartialIdentity {
+            uuid: id.uuid,
+            hash: Some(id.hash),
+        }
+    }
+}
+
+impl From<PartialIdentity> for Identity {
+    fn from(id: PartialIdentity) -> Self {
+        Identity {
+            uuid: id.uuid,
+            hash: id.hash.unwrap_or_else(|| 0),
+        }
+    }
+}
+
 pub trait Identifiable {
     fn id(&self) -> &Identity;
 }
@@ -126,8 +154,10 @@ type InterfaceIndexType = petgraph::graph::DefaultIx;
 pub type InterfaceIndex = petgraph::graph::NodeIndex<InterfaceIndexType>;
 type InterfaceExtension = daggy::Dag<Interface, (), InterfaceIndexType>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u32)]
+#[derive(Debug)]
+#[derive(EnumSetType)]
+#[enumset(serialize_as_list)]
+#[derive(Deserialize, Serialize)]
 #[cfg_attr(feature="backend-postgres", derive(ToSql, FromSql))]
 #[cfg_attr(feature="backend-postgres", postgres(name = "representation_kind"))]
 pub enum RepresentationKind {
@@ -148,23 +178,7 @@ pub enum RepresentationKind {
 
 impl RepresentationKind {
     pub fn all() -> EnumSet<Self> {
-        let mut all_rep = EnumSet::new();
-        all_rep.insert(RepresentationKind::State);
-        all_rep.insert(RepresentationKind::CumulativeDelta);
-        all_rep.insert(RepresentationKind::Delta);
-
-        all_rep
-    }
-}
-
-// Boilerplate necessary for EnumSet compatibility.
-impl enum_set::CLike for RepresentationKind {
-    fn to_u32(&self) -> u32 {
-        *self as u32
-    }
-
-    unsafe fn from_u32(v: u32) -> RepresentationKind {
-        mem::transmute(v)
+        EnumSet::all()
     }
 }
 

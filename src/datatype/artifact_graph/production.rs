@@ -5,13 +5,13 @@ use std::collections::{
 
 use heraclitus_core::{
     daggy,
-    enum_set,
     petgraph,
 };
 use daggy::{
     Walker,
 };
 use daggy::petgraph::visit::EdgeRef;
+use enumset::EnumSetType;
 #[cfg(feature="backend-postgres")]
 use heraclitus_core::postgres;
 #[cfg(feature="backend-postgres")]
@@ -269,8 +269,10 @@ impl ProductionPolicy for LeafBootstrapProductionPolicy {
 }
 
 
-#[derive(Clone, Copy, Debug)]
-#[repr(u32)]
+#[derive(Debug)]
+#[derive(EnumSetType)]
+#[derive(Deserialize, Serialize)]
+// #[repr(u32)]
 #[cfg_attr(feature="backend-postgres", derive(ToSql, FromSql))]
 #[cfg_attr(feature="backend-postgres", postgres(name = "production_policy"))]
 pub enum ProductionPolicies {
@@ -280,17 +282,6 @@ pub enum ProductionPolicies {
     LeafBootstrap,
     #[cfg_attr(feature="backend-postgres", postgres(name = "custom"))]
     Custom,
-}
-
-// Boilerplate necessary for EnumSet compatibility.
-impl enum_set::CLike for ProductionPolicies {
-    fn to_u32(&self) -> u32 {
-        *self as u32
-    }
-
-    unsafe fn from_u32(v: u32) -> ProductionPolicies {
-        std::mem::transmute(v)
-    }
 }
 
 
@@ -364,6 +355,7 @@ impl ProductionStrategyPolicy for ParsimoniousRepresentationProductionStrategyPo
 
 
 /// Specifies the production strategy to use for a particular producer version.
+#[derive(Deserialize, Serialize)]
 pub struct ProductionStrategySpecs {
     pub(crate) representation: ProductionStrategyID,
     // TODO: there may be other categories capabilities, strategies and

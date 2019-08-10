@@ -3,6 +3,11 @@ use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
+use serde::{
+    Deserialize,
+    Serialize,
+};
+
 use heraclitus_macros::{
     stored_storage_controller,
 };
@@ -30,6 +35,8 @@ pub mod tracking_branch_producer;
 
 
 #[derive(Debug, Hash, PartialEq)]
+#[derive(Deserialize, Serialize)]
+// #[serde(bound = "S: Serialize + Deserialize, D: Serialize + Deserialize")]
 pub enum Payload<S, D> {
     State(S),
     Delta(D),
@@ -148,10 +155,29 @@ pub trait Storage: StoreOrBackend<Datatype: ComposableState> {
 /// The type is uninstantiable.
 #[allow(unreachable_code, unreachable_patterns)]
 #[derive(Debug, PartialEq)]
+// #[derive(Deserialize, Serialize)]
+// #[serde(transparent)]
 pub struct UnrepresentableType (!);
 
 impl Hash for UnrepresentableType {
     fn hash<H: Hasher>(&self, _state: &mut H) {
+        unreachable!()
+    }
+}
+
+impl<'de> Deserialize<'de> for UnrepresentableType {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>{
+        unreachable!()
+    }
+}
+
+impl Serialize for UnrepresentableType {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
         unreachable!()
     }
 }

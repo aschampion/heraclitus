@@ -1,23 +1,23 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use heraclitus_core::{
-    enum_set,
     petgraph,
+    uuid,
 };
 use heraclitus_macros::{
     DatatypeMarker,
 };
-use enum_set::EnumSet;
+use enumset::enum_set;
 use maplit::{hashmap, hashset};
 use petgraph::Direction;
 use petgraph::visit::EdgeRef;
+use uuid::Uuid;
 
 use crate::{
     ArtifactGraph,
     ArtifactGraphIndex,
     ArtifactRelation,
     Error,
-    Identity,
     IdentifiableGraph,
     ModelError,
     RepresentationKind,
@@ -69,9 +69,7 @@ impl<T> Model<T> for TrackingBranchProducer
         Description {
             name: "TrackingBranchProducer".into(),
             version: 1,
-            representations: vec![RepresentationKind::State]
-                    .into_iter()
-                    .collect(),
+            representations: enum_set!(RepresentationKind::State),
             implements: vec![
                 <T as InterfaceController<ProducerController>>::VARIANT,
                 <T as InterfaceController<CustomProductionPolicyController>>::VARIANT,
@@ -93,7 +91,7 @@ impl<T> Model<T> for TrackingBranchProducer
 
 struct TrackingBranchProductionPolicy {
     /// Version IDs for branch revision tips of the output ref.
-    tips: HashSet<Identity>,
+    tips: HashSet<Uuid>,
 }
 
 impl ProductionPolicy for TrackingBranchProductionPolicy {
@@ -123,7 +121,7 @@ impl ProductionPolicy for TrackingBranchProductionPolicy {
 
         let tip_prod_ver_idxs: BTreeSet<Option<VersionGraphIndex>> = self.tips
             .iter()
-            .map(|t| ver_graph.get_by_id(t).expect("TODO").0)
+            .map(|t| ver_graph.get_by_uuid(t).expect("TODO").0)
             .map(|ref_v_idx| ver_graph.get_related_versions(
                 ref_v_idx,
                 &VersionRelation::Dependence(&ArtifactRelation::ProducedFrom("output".into())),
@@ -163,9 +161,7 @@ impl<RC: RepoController> CustomProductionPolicyController for TrackingBranchProd
 
 impl<RC: RepoController> ProducerController for TrackingBranchProducerBackend<RC> {
     fn production_strategies(&self) -> ProductionStrategies {
-        let mut rep = EnumSet::new();
-        rep.insert(RepresentationKind::State);
-        rep.insert(RepresentationKind::Delta);
+        let rep = enum_set!(RepresentationKind::State | RepresentationKind::Delta);
 
         hashmap!{
             "normal".into() => ProductionRepresentationCapability::new(
@@ -267,11 +263,11 @@ impl<RC: RepoController> ProducerController for TrackingBranchProducerBackend<RC
             // Leaf bootstrapping.
             ref_control.create_branch(repo, &ver_graph[ref_ver_idx], "master")?;
         } else {
-            let new_tips: HashMap<_, _> = old_tips.into_iter().filter_map(|(bprt, id)| {
-                match ver_graph.get_by_id(&id) {
+            let new_tips: HashMap<_, _> = old_tips.into_iter().filter_map(|(bprt, uuid)| {
+                match ver_graph.get_by_uuid(&uuid) {
                     Some((idx, _)) => {
                         if parent_ref_ver_idxs.contains(&idx) {
-                            Some((bprt, ver_graph[ref_ver_idx].id))
+                            Some((bprt, ver_graph[ref_ver_idx].id.uuid))
                         } else {
                             None
                         }

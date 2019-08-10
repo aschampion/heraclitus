@@ -40,9 +40,9 @@ impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
         Description {
             name: "NoopProducer".into(),
             version: 1,
-            representations: vec![RepresentationKind::State]
-                    .into_iter()
-                    .collect(),
+            representations:  enumset::enum_set!(
+                    RepresentationKind::State |
+                ),
             implements: vec![
                 <T as InterfaceController<ProducerController>>::VARIANT,
             ],
@@ -97,11 +97,10 @@ pub(crate) mod tests {
     use std::hash::{Hash, Hasher};
 
     use heraclitus_core::{
-        enum_set,
         petgraph,
         uuid,
     };
-    use enum_set::EnumSet;
+    use enumset::enum_set;
     use maplit::hashset;
     use petgraph::Direction;
     use petgraph::visit::EdgeRef;
@@ -128,9 +127,9 @@ pub(crate) mod tests {
             Description {
                 name: "NegateBlobProducer".into(),
                 version: 1,
-                representations: vec![RepresentationKind::State]
-                        .into_iter()
-                        .collect(),
+                representations:  enum_set!(
+                        RepresentationKind::State |
+                    ),
                 implements: vec![
                     <T as InterfaceController<ProducerController>>::VARIANT,
                 ],
@@ -152,9 +151,10 @@ pub(crate) mod tests {
 
     impl<RC: RepoController> ProducerController for NegateBlobProducerBackend<RC> {
         fn production_strategies(&self) -> ProductionStrategies {
-            let mut rep = EnumSet::new();
-            rep.insert(RepresentationKind::State);
-            rep.insert(RepresentationKind::Delta);
+            let rep = enum_set!(
+                    RepresentationKind::State |
+                    RepresentationKind::Delta |
+                );
 
             hashmap!{
                 "normal".into() => ProductionRepresentationCapability::new(

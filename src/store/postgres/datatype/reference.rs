@@ -21,9 +21,6 @@ use crate::{
     Error,
     Version,
 };
-// use crate::datatype::{
-//     MetaController,
-// };
 use crate::datatype::reference::{
     ArtifactSpecifier,
     BranchRevisionTip,
@@ -57,8 +54,6 @@ impl PostgresMigration for PGMigrationRefs {
     }
 }
 
-// impl MetaController for RefBackend<PostgresRepository> {}
-
 impl PostgresMigratable for RefBackend<PostgresRepository> {
     fn migrations(&self) -> Vec<Box<<PostgresAdapter as schemer::Adapter>::MigrationType>> {
         vec![
@@ -74,7 +69,7 @@ impl Storage for RefBackend<PostgresRepository> {
         &self,
         repo: &crate::repo::Repository,
         artifact: &Artifact,
-    ) -> Result<HashMap<BranchRevisionTip, Identity>, Error> {
+    ) -> Result<HashMap<BranchRevisionTip, Uuid>, Error> {
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
@@ -84,10 +79,9 @@ impl Storage for RefBackend<PostgresRepository> {
             BranchName = 0,
             RevisionPathName,
             VersionUUID,
-            VersionHash,
         };
         let branch_head_rows = trans.query(r#"
-            SELECT b.name, rp.name, rv.uuid_, rv.hash
+            SELECT b.name, rp.name, rv.uuid_
             FROM artifact a
             JOIN branch b ON (b.ref_artifact_id = a.id)
             JOIN revision_path rp ON (rp.branch_id = b.id AND rp.name = 'HEAD')
@@ -101,11 +95,8 @@ impl Storage for RefBackend<PostgresRepository> {
                 revision: RevisionPath::from_str(&row.get::<_, String>(BranchHeadRow::RevisionPathName as usize))
                     .expect("TODO"),
             };
-            let id = Identity {
-                uuid: row.get(BranchHeadRow::VersionUUID as usize),
-                hash: row.get::<_, i64>(BranchHeadRow::VersionHash as usize) as HashType,
-            };
-            (br_tip, id)
+            let uuid = row.get(BranchHeadRow::VersionUUID as usize);
+            (br_tip, uuid)
         }).collect();
 
         Ok(map)
@@ -115,7 +106,7 @@ impl Storage for RefBackend<PostgresRepository> {
         &mut self,
         repo: &crate::repo::Repository,
         artifact: &Artifact,
-        tip_versions: &HashMap<BranchRevisionTip, Identity>,
+        tip_versions: &HashMap<BranchRevisionTip, Uuid>,
     ) -> Result<(), Error> {
         let rc: &PostgresRepository = repo.borrow();
 
@@ -125,34 +116,32 @@ impl Storage for RefBackend<PostgresRepository> {
         let mut b_names = vec![];
         let mut rp_names = vec![];
         let mut v_uuids = vec![];
-        let mut v_hashes = vec![];
 
-        for (tip, id) in tip_versions {
+        for (tip, uuid) in tip_versions {
             b_names.push(&tip.name);
             rp_names.push(tip.revision.to_string());
-            v_uuids.push(id.uuid);
-            v_hashes.push(id.hash as i64);
+            v_uuids.push(uuid);
         }
 
         trans.execute(r#"
                 INSERT INTO revision_path (branch_id, name, ref_version_id)
                 (SELECT b.id, r.rp_name, v.id
-                FROM UNNEST($1::text[], $2::text[], $3::uuid[], $4::bigint[])
-                  AS r (b_name, rp_name, v_uuid, v_hash)
+                FROM UNNEST($1::text[], $2::text[], $3::uuid[])
+                  AS r (b_name, rp_name, v_uuid)
                 JOIN branch b ON (
                     b.name = r.b_name AND
                     b.ref_artifact_id = (
                         SELECT id
                         FROM artifact
-                        WHERE uuid_ = $5::uuid
-                          AND hash = $6::bigint
+                        WHERE uuid_ = $4::uuid
+                          AND hash = $5::bigint
                     )
                 )
                 JOIN version v
-                  ON (v.uuid_ = r.v_uuid AND v.hash = r.v_hash))
+                  ON (v.uuid_ = r.v_uuid))
                 ON CONFLICT (branch_id, name) DO UPDATE SET ref_version_id = EXCLUDED.ref_version_id;
             "#,
-            &[&b_names, &rp_names, &v_uuids, &v_hashes, &artifact.id.uuid, &(artifact.id.hash as i64)])?;
+            &[&b_names, &rp_names, &v_uuids, &artifact.id.uuid, &(artifact.id.hash as i64)])?;
 
         Ok(trans.commit()?)
     }
@@ -237,11 +226,11 @@ impl Storage for RefBackend<PostgresRepository> {
         Ok(())
     }
 
-    fn get_version_id(
+    fn get_version_uuid(
         &self,
         repo: &crate::repo::Repository,
         specifier: &VersionSpecifier,
-    ) -> Result<Identity, Error> {
+    ) -> Result<Uuid, Error> {
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
@@ -252,14 +241,14 @@ impl Storage for RefBackend<PostgresRepository> {
                 match *us {
                     UuidSpecifier::Complete(ref uuid) => {
                         trans.query(r#"
-                            SELECT v.uuid_, v.hash
+                            SELECT v.uuid_
                             FROM version v
                             WHERE v.uuid_ = $1::uuid;
                         "#, &[uuid])?
                     },
                     UuidSpecifier::Partial(ref prefix) => {
                         trans.query(r#"
-                            SELECT v.uuid_, v.hash
+                            SELECT v.uuid_
                             FROM version v
                             WHERE v.uuid_::text ILIKE $1::text || '%';
                         "#, &[prefix])?
@@ -327,7 +316,7 @@ impl Storage for RefBackend<PostgresRepository> {
 
                 trans.query(
                     &format!(r#"
-                        SELECT tv.uuid_, tv.hash
+                        SELECT tv.uuid_
                         FROM artifact ra
                         JOIN branch b ON (b.ref_artifact_id = ra.id)
                         JOIN revision_path rp ON (rp.branch_id = b.id)
@@ -347,10 +336,7 @@ impl Storage for RefBackend<PostgresRepository> {
 
         match version_rows.len() {
             0 => panic!("TODO: no rows"),
-            1 => Ok(Identity {
-                uuid: version_rows.get(0).get(0),
-                hash: version_rows.get(0).get::<_, i64>(1) as HashType,
-            }),
+            1 => Ok(version_rows.get(0).get(0)),
             _ => panic!("TODO: too many rows"),
         }
     }

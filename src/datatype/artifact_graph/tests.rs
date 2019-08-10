@@ -2,7 +2,6 @@ use super::*;
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::iter::FromIterator;
 
 use maplit::{
     btreeset,
@@ -178,13 +177,13 @@ fn test_artifact_graph_description_reflection() {
 
     let (ag_0_desc, ag_0_idxs) = simple_blob_prod_ag_fixture(None);
 
-    let (mut ag_1, ag_1_idxs) = ArtifactGraph::from_description(&ag_0_desc, &dtypes_registry);
+    let (mut ag_1, ag_1_idxs) = ArtifactGraph::from_description(&ag_0_desc, &dtypes_registry, None);
 
     let ag_desc_1 = ag_1.as_description();
     assert!(ag_desc_1.is_valid_state());
     assert_eq!(ag_desc_1, ag_desc_1);
 
-    let (ag_2, _) = ArtifactGraph::from_description(&ag_desc_1, &dtypes_registry);
+    let (ag_2, _) = ArtifactGraph::from_description(&ag_desc_1, &dtypes_registry, None);
 
     let ag_desc_2 = ag_2.as_description();
     assert_eq!(ag_desc_1, ag_desc_2);
@@ -193,6 +192,20 @@ fn test_artifact_graph_description_reflection() {
 
     let ag_desc_1_changed = ag_1.as_description();
     assert_ne!(ag_desc_1, ag_desc_1_changed);
+}
+
+fn test_create_origin(backend: Backend) {
+
+    let dtypes_registry = crate::datatype::testing::init_dtypes_registry::<TestDatatypes>();
+    let repo = crate::repo::testing::init_repo(backend, &dtypes_registry);
+
+    let mut model_ctrl = ArtifactGraphDtype::store(&repo);
+    let (origin_ag_1, root_ag_1) = model_ctrl.get_or_create_origin_root(&dtypes_registry, &repo).unwrap();
+    let (origin_ag_2, root_ag_1) = model_ctrl.get_or_create_origin_root(&dtypes_registry, &repo).unwrap();
+    assert_eq!(origin_ag_1.id, origin_ag_2.id);
+    let root_art_idx_1 = origin_ag_1.find_by_name("root").expect("TODO: malformed origin AG");
+    let root_art_idx_2 = origin_ag_2.find_by_name("root").expect("TODO: malformed origin AG");
+    assert_eq!(origin_ag_1[root_art_idx_1].id, origin_ag_2[root_art_idx_2].id);
 }
 
 fn test_create_get_artifact_graph(backend: Backend) {
@@ -345,9 +358,8 @@ fn test_production(backend: Backend) {
     model_ctrl.write_production_policies(
         &repo,
         &ag[idxs["TBP"]],
-        EnumSet::from_iter(
-            vec![ProductionPolicies::LeafBootstrap, ProductionPolicies::Custom]
-            .into_iter())).unwrap();
+        enum_set!(ProductionPolicies::LeafBootstrap | ProductionPolicies::Custom),
+    ).unwrap();
 
     let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
@@ -582,8 +594,8 @@ fn test_production(backend: Backend) {
         use crate::datatype::reference::Storage as RefStorage;
         let ref_control = crate::datatype::reference::Ref::store(&repo);
         assert_eq!(
-            vg3[blob3_vg3_idxs[1]].id,
-            ref_control.get_version_id(
+            vg3[blob3_vg3_idxs[1]].id.uuid,
+            ref_control.get_version_uuid(
                 &mut repo,
                 &VersionSpecifier::from_str("blobs/master/Test Blob 3").unwrap()).unwrap(),
             "Tracking branch has wrong version for Blob 3.");
@@ -594,6 +606,11 @@ macro_rules! backend_test_suite {
     ( $backend_name:ident, $backend:path ) => {
         mod $backend_name {
             use super::*;
+
+            #[test]
+            fn test_create_origin() {
+                super::test_create_origin($backend);
+            }
 
             #[test]
             fn test_create_get_artifact_graph() {
@@ -612,6 +629,10 @@ macro_rules! backend_test_suite {
         }
     }
 }
+
+
+#[cfg(feature="backend-debug-filesystem")]
+backend_test_suite!(debug_filesystem, Backend::DebugFilesystem);
 
 #[cfg(feature="backend-postgres")]
 backend_test_suite!(postgres, Backend::Postgres);

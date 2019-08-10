@@ -1,7 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use heraclitus_core::enum_set;
-use enum_set::EnumSet;
+use enumset::EnumSet;
 use heraclitus_macros::{interface, stored_interface_controller};
 
 use crate::{
@@ -85,7 +84,7 @@ impl ProductionRepresentationCapability {
     ) -> bool {
         for &(input, rep) in inputs {
             if let Some(representations) = self.inputs.get(input) {
-                if !representations.contains(&rep) {
+                if !representations.contains(rep) {
                     return false;
                 }
             }
@@ -146,19 +145,16 @@ pub trait CustomProductionPolicyController {
 mod tests {
     use super::*;
 
+    use enumset::enum_set;
     use maplit::hashmap;
 
     #[test]
     fn test_production_representation_capability_matching() {
-        let mut state = EnumSet::new();
-        state.insert(RepresentationKind::State);
+        let state = enum_set!(RepresentationKind::State);
 
-        let mut delta = EnumSet::new();
-        delta.insert(RepresentationKind::Delta);
+        let delta = enum_set!(RepresentationKind::Delta);
 
-        let mut state_delta = EnumSet::new();
-        state_delta.insert(RepresentationKind::State);
-        state_delta.insert(RepresentationKind::Delta);
+        let state_delta = enum_set!(RepresentationKind::State | RepresentationKind::Delta);
 
         let capability = ProductionRepresentationCapability::new(
             hashmap!{"a" => state, "b" => state_delta},

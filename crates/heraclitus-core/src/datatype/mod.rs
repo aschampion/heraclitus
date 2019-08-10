@@ -1,7 +1,9 @@
 use std;
 use std::collections::{HashMap, HashSet};
 
-use enum_set::EnumSet;
+use enumset::{
+    EnumSet,
+};
 
 use crate::Datatype;
 use crate::repo::{Repository, RepoController};
@@ -16,8 +18,13 @@ use crate::store::postgres::datatype::PostgresMetaController;
 #[macro_use]
 pub mod macros;
 
+pub trait StoreOrBackendMarker {}
+pub struct StoreMarker; impl StoreOrBackendMarker for StoreMarker {}
+pub struct BackendMarker; impl StoreOrBackendMarker for BackendMarker {}
+
 pub trait StoreOrBackend {
     type Datatype: DatatypeMarker;
+    // type Disjunctive: StoreOrBackendMarker;
 }
 
 pub trait StoreBackend: StoreOrBackend {

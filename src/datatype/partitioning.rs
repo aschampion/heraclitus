@@ -38,9 +38,9 @@ impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
         Description {
             name: "UnaryPartitioning".into(),
             version: 1,
-            representations: vec![RepresentationKind::State]
-                    .into_iter()
-                    .collect(),
+            representations: enumset::enum_set!(
+                    RepresentationKind::State |
+                ),
             implements: vec![
                 <T as InterfaceController<PartitioningState>>::VARIANT,
             ],
@@ -117,9 +117,9 @@ pub mod arbitrary {
             Description {
                 name: "ArbitraryPartitioning".into(),
                 version: 1,
-                representations: vec![RepresentationKind::State]
-                        .into_iter()
-                        .collect(),
+                representations:  enumset::enum_set!(
+                        RepresentationKind::State |
+                    ),
                 implements: vec![
                     <T as InterfaceController<PartitioningState>>::VARIANT,
                 ],
@@ -131,6 +131,7 @@ pub mod arbitrary {
     }
 
     #[derive(Debug, Hash, PartialEq)]
+    #[derive(Deserialize, Serialize)]
     pub struct ArbitraryPartitioningState {
         pub partition_ids: BTreeSet<PartitionIndex>,
     }
