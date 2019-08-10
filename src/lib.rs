@@ -300,6 +300,19 @@ impl<'a> ArtifactGraph<'a> {
         }
     }
 
+    pub fn get_neighbors(
+        &self,
+        a_idx: ArtifactGraphIndex,
+        dir: petgraph::Direction,
+    ) -> Vec<ArtifactGraphIndex> {
+        self.artifacts.graph().edges_directed(a_idx, dir)
+            .map(|e| match dir {
+                petgraph::Direction::Outgoing => e.target(),
+                petgraph::Direction::Incoming => e.source(),
+            })
+            .collect()
+    }
+
     pub fn get_related_artifacts(
         &self,
         a_idx: ArtifactGraphIndex,

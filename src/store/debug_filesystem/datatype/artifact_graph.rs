@@ -1,5 +1,6 @@
 use std::collections::{
     BTreeSet,
+    HashSet,
 };
 use std::fs::File;
 use std::path::PathBuf;
@@ -131,6 +132,41 @@ impl ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         Ok(v_idx)
     }
 
+    fn load_version_by_artifact<'a, 'b>(
+        &self,
+        rc: &DebugFilesystemRepository,
+        artifact: &'b Artifact<'a>,
+        ver_graph: &mut VersionGraph<'a, 'b>,
+        version_uuid: Uuid,
+    ) -> Result<VersionGraphIndex, Error> {
+        let mut path = rc.path();
+        path.push(artifact.id.uuid.to_string());
+
+        path.push(VERSION_FILE);
+        let partial: VersionPartial = read_json(path)?;
+        let version = partial.to_version(artifact);
+
+        let v_idx = ver_graph.emplace(&version.id.clone(), || version);
+
+        Ok(v_idx)
+    }
+
+    fn artifact_version_uuids(
+        &self,
+        rc: &DebugFilesystemRepository,
+        artifact_uuid: Uuid,
+    ) -> Result<Vec<Uuid>, Error> {
+        let mut path = rc.path();
+        path.push(artifact_uuid.to_string());
+        Ok(WalkDir::new(path)
+            .min_depth(1).max_depth(1)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_dir())
+            .map(|e| Uuid::parse_str(&e.file_name().to_string_lossy()).unwrap())
+            .collect())
+    }
+
     fn get_version_relations<'a, 'b>(
         &self,
         rc: &DebugFilesystemRepository,
@@ -164,9 +200,36 @@ impl ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
            ancestry_direction == Some(petgraph::Direction::Outgoing) {
             // For all other versions of each artifact in v_idxs that are not
             // the version in v_idx.
+            let v_uuids: HashSet<Uuid> = v_idxs.iter().map(|v| ver_graph[*v].id.uuid).collect();
+            let artifact_uuids: HashSet<Uuid> = v_idxs.iter()
+                .map(|v| ver_graph[*v].artifact.id.uuid).collect();
+            let other_v = artifact_uuids.into_iter()
+                .map(|a| self.artifact_version_uuids(rc, a).unwrap()
+                    .into_iter()
+                    .filter(|v_uuid| !v_uuids.contains(v_uuid))
+                    .map(move |v_uuid| (a, v_uuid)))
+                .flatten();
+
             // Get the relations from their directories, and add any that point
             // to v_idxs.
-            unimplemented!()
+            for (a_uuid, v_uuid) in other_v {
+                let mut path = rc.path();
+                path.push(a_uuid.to_string());
+                path.push(v_uuid.to_string());
+                path.push(VERSION_PARENTS_FILE);
+                let mut parent_uuids: Vec<Uuid> = read_json(path)?;
+                parent_uuids.retain(|v| v_uuids.contains(v));
+
+                if !parent_uuids.is_empty() {
+                    let (_, artifact) = art_graph.get_by_uuid(&a_uuid).unwrap();
+                    let other_idx = self.load_version_by_artifact(rc, artifact, ver_graph, v_uuid)?;
+                    for uuid in parent_uuids {
+                        let (parent_idx, _) = ver_graph.get_by_uuid(&uuid)
+                            .expect("Relation with version not in graph");
+                        ver_graph.versions.add_edge(parent_idx, other_idx, VersionRelation::Parent)?;
+                    }
+                }
+            }
         }
 
         // Dependence:
@@ -195,10 +258,49 @@ impl ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         if dependence_direction.is_none() ||
            dependence_direction == Some(petgraph::Direction::Outgoing) {
             // Collect the set of artifacts outgoing from the v_idxs' artifacts.
-            // let arts = v_idxs.iter()
-            //     .map(|v| ver_graph[*v].artifact);
-            // For this new set of artifacts, get the relatinos from their directories.
-            unimplemented!()
+            let v_uuids: HashSet<Uuid> = v_idxs.iter().map(|v| ver_graph[*v].id.uuid).collect();
+            let artifact_uuids: HashSet<Uuid> = v_idxs.iter()
+                .map(|v| {
+                    let art = ver_graph[*v].artifact;
+                    let art_idx = art_graph.get_by_id(&art.id).unwrap().0;
+                    art_graph.get_neighbors(art_idx, petgraph::Direction::Outgoing)
+                        .into_iter()
+                        .map(|a_idx| art_graph[a_idx].id.uuid)
+                })
+                .flatten()
+                .collect();
+            let other_v = artifact_uuids.into_iter()
+                .map(|a| self.artifact_version_uuids(rc, a).unwrap()
+                    .into_iter()
+                    .filter(|v_uuid| !v_uuids.contains(v_uuid))
+                    .map(move |v_uuid| (a, v_uuid)))
+                .flatten();
+
+            // For this new set of artifacts, get the relations from their
+            // directories, and add any that point to v_idxs.
+            for (a_uuid, v_uuid) in other_v {
+                let mut path = rc.path();
+                path.push(a_uuid.to_string());
+                path.push(v_uuid.to_string());
+                path.push(VERSION_DEPENDENCIES_FILE);
+                let mut dep_uuids: Vec<Uuid> = read_json(path)?;
+                dep_uuids.retain(|v| v_uuids.contains(v));
+
+                if !dep_uuids.is_empty() {
+                    let (art_idx, artifact) = art_graph.get_by_uuid(&a_uuid).unwrap();
+                    let other_idx = self.load_version_by_artifact(rc, artifact, ver_graph, v_uuid)?;
+                    for uuid in dep_uuids {
+                        let (dep_idx, _) = ver_graph.get_by_uuid(&uuid)
+                            .expect("Relation with version not in graph");
+                        let dep_art_idx = art_graph.get_by_id(&ver_graph[dep_idx].artifact.id).unwrap().0;
+                        let art_rel_idx = art_graph.artifacts.find_edge(dep_art_idx, art_idx)
+                            .expect("Version graph references unknown artifact relation");
+                        let art_rel = art_graph.artifacts.edge_weight(art_rel_idx).expect("Graph is malformed");
+                        let edge = VersionRelation::Dependence(art_rel);
+                        ver_graph.versions.add_edge(dep_idx, other_idx, edge)?;
+                    }
+                }
+            }
         }
 
         Ok(())
