@@ -77,6 +77,10 @@ impl Storage for RefBackend<DebugFilesystemRepository> {
 
         let mut map = HashMap::new();
 
+        if !path.exists() {
+            return Ok(map);
+        }
+
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let paths: HashMap<String, HashMap<String, Uuid>> = serde_json::from_reader(reader)

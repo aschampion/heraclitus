@@ -9,9 +9,11 @@ use std::io::{
 };
 
 use heraclitus_core::{
+    daggy,
     petgraph,
     uuid,
 };
+use daggy::Walker;
 use enumset::EnumSet;
 use petgraph::visit::EdgeRef;
 use uuid::Uuid;
@@ -45,6 +47,8 @@ use crate::datatype::{
 use crate::datatype::artifact_graph::{
     ArtifactGraphDtypeBackend,
     production::{
+        PolicyDependencyRequirements,
+        PolicyProducerRequirements,
         ProductionPolicies,
         ProductionPolicyRequirements,
         ProductionStrategySpecs,
@@ -139,8 +143,8 @@ impl ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         ver_graph: &mut VersionGraph<'a, 'b>,
         version_uuid: Uuid,
     ) -> Result<VersionGraphIndex, Error> {
-        let mut path = rc.path();
-        path.push(artifact.id.uuid.to_string());
+        let mut path = artifact_path(rc, artifact);
+        path.push(version_uuid.to_string());
 
         path.push(VERSION_FILE);
         let partial: VersionPartial = read_json(path)?;
@@ -435,7 +439,125 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
     ) -> Result<(), Error> {
-        unimplemented!()
+        let rc: &DebugFilesystemRepository = repo.borrow();
+
+        let p_art = &art_graph.artifacts[p_art_idx];
+
+        // Parent versions of the triggering new dependency version.
+        let ver_parent_uuids: HashSet<Uuid> = ver_graph.versions
+            .parents(v_idx)
+            .iter(&ver_graph.versions)
+            .filter_map(|(e_idx, parent_idx)| {
+                let relation = ver_graph.versions.edge_weight(e_idx)
+                    .expect("Impossible: indices from this graph");
+                match *relation {
+                    VersionRelation::Dependence(_) => None,
+                    VersionRelation::Parent => Some(ver_graph[parent_idx].id.uuid),
+                }
+            })
+            .collect();
+
+        // Load versions of the producer artifact.
+        let prod_ver_idxs = match requirements.producer {
+            PolicyProducerRequirements::None => {vec![]},
+            PolicyProducerRequirements::DependentOnParentVersions |
+            PolicyProducerRequirements::All => {
+                let ver_uuids = match requirements.producer {
+                    PolicyProducerRequirements::None => unreachable!(),
+                    // Any producer version dependent on parent versions of the
+                    // new dependency version.
+                    PolicyProducerRequirements::DependentOnParentVersions => {
+                        let mut uuids = self.artifact_version_uuids(rc, p_art.id.uuid)?;
+                        uuids.retain(|v| {
+                                let mut path = artifact_path(rc, p_art);
+                                path.push(v.to_string());
+                                path.push(VERSION_DEPENDENCIES_FILE);
+                                let dep_uuids: Vec<Uuid> = read_json(path).unwrap();
+                                dep_uuids.into_iter().any(|d| ver_parent_uuids.contains(&d))
+                            });
+                        uuids
+                    },
+                    // All versions of this producer.
+                    PolicyProducerRequirements::All =>
+                        self.artifact_version_uuids(rc, p_art.id.uuid)?,
+                };
+
+                let prod_ver_idxs: Vec<_> = ver_uuids.into_iter()
+                    .map(|uuid| self.load_version_by_artifact(rc, p_art, ver_graph, uuid))
+                    .collect::<Result<_, Error>>()?;
+
+                self.get_version_relations(
+                    rc,
+                    art_graph,
+                    ver_graph,
+                    &prod_ver_idxs,
+                    // TODO: Possible to be more parsimonious about what
+                    // version ancestry to load, but need to think through.
+                    None,
+                    // Only care about dependencies, not dependents that cannot
+                    // affect the policy.
+                    Some(petgraph::Direction::Incoming),
+                )?;
+
+                prod_ver_idxs
+            }
+        };
+
+        match requirements.dependency {
+            PolicyDependencyRequirements::None => {},
+            PolicyDependencyRequirements::DependencyOfProducerVersion |
+            PolicyDependencyRequirements::All => {
+                let dep_ver_idxs: Vec<_> = match requirements.dependency {
+                    PolicyDependencyRequirements::None => unreachable!(),
+                    PolicyDependencyRequirements::DependencyOfProducerVersion =>
+                        // These are in the graph due to the PolicyProducerRequirements above.
+                        prod_ver_idxs.iter()
+                            .flat_map(|v| ver_graph.versions.parents(*v)
+                                .iter(&ver_graph.versions)
+                                .filter_map(|(e_idx, parent_idx)| {
+                                    let relation = ver_graph.versions.edge_weight(e_idx)
+                                        .expect("Impossible: indices from this graph");
+                                    match *relation {
+                                        VersionRelation::Dependence(_) => Some(ver_graph[parent_idx].id.uuid),
+                                        VersionRelation::Parent => None,
+                                    }
+                                }))
+                            .collect::<Vec<Uuid>>().into_iter() // Kill borrows.
+                            .map(|uuid| self.load_version_by_artifact(rc, p_art, ver_graph, uuid))
+                            .collect::<Result<_, Error>>()?,
+                    PolicyDependencyRequirements::All =>
+                        art_graph.artifacts
+                            .parents(p_art_idx)
+                            .iter(&art_graph.artifacts)
+                            .map(|(_, dependency_idx)|
+                                // TODO: Not using relation because not clear variants are
+                                // distinct after changing producers to datatypes.
+                                &art_graph[dependency_idx]
+                            )
+                            .flat_map(|a| {
+                                self.artifact_version_uuids(rc, a.id.uuid).unwrap().into_iter()
+                                    .map(|uuid| self.load_version_by_artifact(rc, a, ver_graph, uuid))
+                                    // Kill borrows.
+                                    .collect::<Vec<Result<VersionGraphIndex, Error>>>().into_iter()
+                            })
+                            .collect::<Result<_, Error>>()?,
+                };
+
+                self.get_version_relations(
+                    rc,
+                    art_graph,
+                    ver_graph,
+                    &dep_ver_idxs,
+                    // Parent ancestry of dependents cannot affect the policy.
+                    Some(petgraph::Direction::Outgoing),
+                    // Only care about dependents, not dependencies that cannot
+                    // affect the policy.
+                    Some(petgraph::Direction::Outgoing),
+                )?;
+            }
+        }
+
+        Ok(())
     }
 
     fn get_version<'a, 'b>(
