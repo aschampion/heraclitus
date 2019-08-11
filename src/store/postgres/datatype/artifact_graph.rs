@@ -780,10 +780,10 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         for (e_idx, p_idx) in ver_graph.versions.parents(v_idx).iter(&ver_graph.versions) {
             let edge = &ver_graph[e_idx];
             let parent = &ver_graph[p_idx];
-            match *edge {
+            assert_eq!(match *edge {
                 VersionRelation::Dependence(_) => &insert_relation,
                 VersionRelation::Parent => &insert_parent,
-            }.execute(&[&parent.id.uuid, &ver_id])?;
+            }.execute(&[&parent.id.uuid, &ver_id])?, 1, "TODO: relation not inserted!");
         }
 
         trans.set_commit();

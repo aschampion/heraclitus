@@ -364,6 +364,10 @@ fn test_production(backend: Backend) {
     let mut ver_graph = VersionGraph::new_from_source_artifacts(&ag);
 
     let up_idx = ver_graph.artifact_versions(&ag[idxs["UP"]])[0];
+    model_ctrl.create_staging_version(
+        &repo,
+        &ver_graph,
+        up_idx.clone()).unwrap();
     let part_art_idx = idxs["Partitioning"];
     let part_idx = ver_graph.versions.add_node(
         Version::new(&ag[part_art_idx], RepresentationKind::State));
