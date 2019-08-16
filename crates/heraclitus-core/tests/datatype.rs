@@ -29,11 +29,9 @@ impl<T: InterfaceControllerEnum> Model<T> for TestDatatype {
         Description {
             name: "Test".into(),
             version: 1,
-            representations: vec![
-                        RepresentationKind::State,
-                    ]
-                    .into_iter()
-                    .collect(),
+            representations: enumset::enum_set![
+                        RepresentationKind::State |
+                    ],
             implements: vec![],
             dependencies: vec![],
         }
