@@ -8,9 +8,10 @@
 use heraclitus_core as heraclitus;
 use heraclitus::{
     datatype::{
-        Description,
+        DatatypeMeta,
         InterfaceControllerEnum,
         Model,
+        Reflection,
     },
     datatype_controllers,
     RepresentationKind,
@@ -24,11 +25,14 @@ use heraclitus_macros::{
 #[derive(DatatypeMarker)]
 pub struct TestDatatype;
 
+impl DatatypeMeta for TestDatatype {
+    const NAME: &'static str = "Test";
+    const VERSION: u64 = 1;
+}
+
 impl<T: InterfaceControllerEnum> Model<T> for TestDatatype {
-    fn info(&self) -> Description<T> {
-        Description {
-            name: "Test".into(),
-            version: 1,
+    fn reflection(&self) -> Reflection<T> {
+        Reflection {
             representations: enumset::enum_set![
                         RepresentationKind::State |
                     ],

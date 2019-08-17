@@ -28,13 +28,14 @@ use crate::{
 };
 use crate::datatype::{
     DatatypeMarker,
+    DatatypeMeta,
     DependencyDescription,
     DependencyCardinalityRestriction,
     DependencyStoreRestriction,
     DependencyTypeRestriction,
-    Description,
     InterfaceController,
     Model,
+    Reflection,
 };
 use crate::datatype::artifact_graph::production::{
     ExtantProductionPolicy,
@@ -62,13 +63,16 @@ use crate::repo::RepoController;
 #[derive(Default, DatatypeMarker)]
 pub struct TrackingBranchProducer;
 
+impl DatatypeMeta for TrackingBranchProducer {
+    const NAME: &'static str = "TrackingBranchProducer";
+    const VERSION: u64 = 1;
+}
+
 impl<T> Model<T> for TrackingBranchProducer
         where T: InterfaceController<ProducerController> +
                  InterfaceController<CustomProductionPolicyController> {
-    fn info(&self) -> Description<T> {
-        Description {
-            name: "TrackingBranchProducer".into(),
-            version: 1,
+    fn reflection(&self) -> Reflection<T> {
+        Reflection {
             representations: enum_set!(RepresentationKind::State),
             implements: vec![
                 <T as InterfaceController<ProducerController>>::VARIANT,
@@ -182,11 +186,11 @@ impl<RC: RepoController> ProducerController for TrackingBranchProducerBackend<RC
         ]
     }
 
-    fn notify_new_version<'a, 'b>(
+    fn notify_new_version<'ag>(
         &self,
         repo: &crate::repo::Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
     ) -> Result<ProductionOutput, Error> {
         let prod_a_idx = art_graph.get_by_id(&ver_graph[v_idx].artifact.id).expect("TODO").0;

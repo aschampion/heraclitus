@@ -37,7 +37,6 @@ use enumset::{
     EnumSet,
     EnumSetType,
 };
-use lazy_static::lazy_static;
 #[cfg(feature="backend-postgres")]
 use postgres_derive::{ToSql, FromSql};
 use serde_derive::{Serialize, Deserialize};
@@ -182,17 +181,12 @@ impl RepresentationKind {
     }
 }
 
-lazy_static! {
-    static ref DATATYPES_UUID_NAMESPACE: Uuid =
-        Uuid::parse_str("a95d827d-3a11-405e-b9e0-e43ffa620d33").unwrap();
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Datatype {
     // TODO: Not clear that identity is needed as canonical resolution is
     // through name, but here for consistency with other data structures.
     id: Identity,
-    pub name: String,
+    pub name: &'static str,
     version: u64,
     #[serde(skip)]
     representations: EnumSet<RepresentationKind>,
@@ -202,12 +196,12 @@ pub struct Datatype {
 
 impl Datatype {
     fn new(
-        name: String,
+        name: &'static str,
+        uuid: Uuid,
         version: u64,
         representations: EnumSet<RepresentationKind>,
         implements: HashSet<InterfaceIndex>,
     ) -> Datatype {
-        let uuid = Uuid::new_v5(&DATATYPES_UUID_NAMESPACE, &name);
         let mut dtype = Datatype {
             id: Identity { uuid, hash: 0 },
             name,

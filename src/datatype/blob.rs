@@ -5,19 +5,23 @@ use heraclitus_macros::{
 
 use crate::RepresentationKind;
 use super::{
-    Description,
+    DatatypeMeta,
     InterfaceControllerEnum,
+    Reflection,
 };
 
 
 #[derive(Default, DatatypeMarker)]
 pub struct BlobDatatype;
 
+impl DatatypeMeta for BlobDatatype {
+    const NAME: &'static str = "Blob";
+    const VERSION: u64 = 1;
+}
+
 impl<T: InterfaceControllerEnum> super::Model<T> for BlobDatatype {
-    fn info(&self) -> Description<T> {
-        Description {
-            name: "Blob".into(),
-            version: 1,
+    fn reflection(&self) -> Reflection<T> {
+        Reflection {
             representations: enumset::enum_set!(
                         RepresentationKind::State |
                         RepresentationKind::Delta |

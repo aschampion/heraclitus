@@ -4,6 +4,8 @@ use std::collections::{HashMap, HashSet};
 use enumset::{
     EnumSet,
 };
+use lazy_static::lazy_static;
+use uuid::Uuid;
 
 use crate::Datatype;
 use crate::repo::{Repository, RepoController};
@@ -56,11 +58,54 @@ pub trait DatatypeMarker: 'static {
     }
 }
 
+lazy_static! {
+    static ref DATATYPES_UUID_NAMESPACE: Uuid =
+        Uuid::parse_str("a95d827d-3a11-405e-b9e0-e43ffa620d33").unwrap();
+}
+
+pub trait DatatypeMeta {
+    const NAME: &'static str;
+    const VERSION: u64;
+
+    fn uuid() -> Uuid {
+        Uuid::new_v5(&DATATYPES_UUID_NAMESPACE, Self::NAME)
+    }
+}
+
+/// Rust stupidly can't resolve consts through trait objects
+/// even though they should just be part of the static vtable.
+pub trait DatatypeMetaIndirection {
+    fn name(&self) -> &'static str;
+
+    fn uuid(&self) -> Uuid;
+
+    fn version(&self) -> u64;
+}
+
+impl<T: DatatypeMeta> DatatypeMetaIndirection for T {
+    fn name(&self) -> &'static str {
+        <Self as DatatypeMeta>::NAME
+    }
+
+    fn uuid(&self) -> Uuid {
+        <Self as DatatypeMeta>::uuid()
+    }
+
+    fn version(&self) -> u64 {
+        <Self as DatatypeMeta>::VERSION
+    }
+}
+
 pub trait Implements<I: ?Sized + interface::InterfaceMeta> {}
 
 pub struct Description<T: InterfaceControllerEnum> {
-    pub name: String,
+    pub name: &'static str,
+    pub uuid: Uuid,
     pub version: u64,
+    pub reflection: Reflection<T>,
+}
+
+pub struct Reflection<T: InterfaceControllerEnum> {
     pub representations: EnumSet<crate::RepresentationKind>,
     // TODO: Not yet clear that this reflection of interfaces is useful.
     pub implements: Vec<T>,
@@ -71,9 +116,10 @@ impl<T: InterfaceControllerEnum> Description<T> {
     fn into_datatype(self, interfaces: &InterfaceRegistry) -> Datatype {
         Datatype::new(
             self.name,
+            self.uuid,
             self.version,
-            self.representations,
-            self.implements.iter().map(|iface| interfaces.get_index(&iface.to_string())).collect(),
+            self.reflection.representations,
+            self.reflection.implements.iter().map(|iface| interfaces.get_index(&iface.to_string())).collect(),
         )
     }
 }
@@ -152,12 +198,21 @@ pub struct InterfaceDescription {
     pub extends: HashSet<&'static str>,
 }
 
-pub trait Model<T: InterfaceControllerEnum> {
+pub trait Model<T: InterfaceControllerEnum>: DatatypeMetaIndirection {
     // Necessary to be able to create this as a trait object. See:
     // https://www.reddit.com/r/rust/comments/620m1v//dfirs5s/
     //fn clone(&self) -> Self where Self: Sized;
 
-    fn info(&self) -> Description<T>;
+    fn info(&self) -> Description<T> {
+        Description {
+            name: self.name(),
+            uuid: self.uuid(),
+            version: self.version(),
+            reflection: self.reflection(),
+        }
+    }
+
+    fn reflection(&self) -> Reflection<T>;
 
     fn meta_controller(&self, repo: crate::store::Backend) -> StoreMetaController;
 
@@ -256,7 +311,7 @@ impl InterfaceRegistry {
 pub struct DatatypesRegistry<T: DatatypeEnum> {
     interfaces: InterfaceRegistry,
     dtypes: HashMap<String, Datatype>,
-    models: HashMap<String, T>,
+    models: HashMap<Uuid, T>,
 }
 
 impl<T: DatatypeEnum> DatatypesRegistry<T> {
@@ -274,20 +329,24 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
 
     // TODO: Kludge around Model/Interface controller mess
     // TODO: Unable to implement as Index trait because of trait obj lifetime?
-    pub fn get_model<'a>(&self, name: &str) -> &(dyn Model<T::InterfaceControllerType> + 'a) {
-        self.models.get(name).expect("Datatype must be known").as_model()
+    pub fn get_model<'a>(&self, uuid: &Uuid) -> &(dyn Model<T::InterfaceControllerType> + 'a) {
+        self.models.get(uuid).expect("Datatype must be known").as_model()
     }
 
-    pub fn get_model_interface<I: ?Sized + interface::InterfaceMeta>(&self, name: &str)
+    pub fn get_model_interface<I: ?Sized + interface::InterfaceMeta>(&self, uuid: &Uuid)
             -> Option<<I as interface::InterfaceMeta>::Generator>
             where T::InterfaceControllerType: InterfaceController<I> {
 
-        self.get_model(name).get_controller()
+        self.get_model(uuid).get_controller()
     }
 
     /// Iterate over datatypes.
     pub fn iter_dtypes(&self) -> impl Iterator<Item = &Datatype> {
         self.dtypes.values()
+    }
+
+    pub fn iter_models(&self) -> impl Iterator<Item =&(dyn Model<T::InterfaceControllerType> + '_)> {
+        self.models.values().map(|m| m.as_model())
     }
 
     pub fn register_interfaces(&mut self, interfaces: &[&InterfaceDescription]) {
@@ -297,8 +356,10 @@ impl<T: DatatypeEnum> DatatypesRegistry<T> {
     pub fn register_datatype_models(&mut self, models: Vec<T>) {
         for model in models {
             let description = model.as_model().info();
-            self.models.insert(description.name.clone(), model);
-            self.dtypes.insert(description.name.clone(), description.into_datatype(&self.interfaces));
+            let name = description.name.to_string();
+            let dtype = description.into_datatype(&self.interfaces);
+            self.models.insert(dtype.id.uuid.clone(), model);
+            self.dtypes.insert(name, dtype);
         }
     }
 }

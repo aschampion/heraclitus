@@ -12,13 +12,14 @@ use crate::{
     VersionGraphIndex,
 };
 use crate::datatype::{
-    Description,
+    DatatypeMeta,
     DependencyDescription,
     DependencyTypeRestriction,
     DependencyCardinalityRestriction,
     DependencyStoreRestriction,
     InterfaceController,
     Model,
+    Reflection,
 };
 use crate::datatype::interface::{
     ProducerController,
@@ -35,11 +36,14 @@ use crate::repo::{
 #[derive(Default, DatatypeMarker)]
 pub struct NoopProducer;
 
+impl DatatypeMeta for NoopProducer {
+    const NAME: &'static str = "NoopProducer";
+    const VERSION: u64 = 1;
+}
+
 impl<T: InterfaceController<ProducerController>> Model<T> for NoopProducer {
-    fn info(&self) -> Description<T> {
-        Description {
-            name: "NoopProducer".into(),
-            version: 1,
+    fn reflection(&self) -> Reflection<T> {
+        Reflection {
             representations:  enumset::enum_set!(
                     RepresentationKind::State |
                 ),
@@ -77,11 +81,11 @@ impl<RC: RepoController> ProducerController for NoopProducerBackend<RC> {
         vec![]
     }
 
-    fn notify_new_version<'a, 'b>(
+    fn notify_new_version<'ag>(
         &self,
         _repo: &Repository,
-        _art_graph: &'b ArtifactGraph<'a>,
-        _ver_graph: &mut VersionGraph<'a, 'b>,
+        _art_graph: &'ag ArtifactGraph,
+        _ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
     ) -> Result<ProductionOutput, Error> {
         Ok(ProductionOutput::Synchronous(vec![v_idx]))
@@ -122,12 +126,15 @@ pub(crate) mod tests {
     #[derive(Default, DatatypeMarker)]
     pub struct NegateBlobProducer;
 
+    impl DatatypeMeta for NegateBlobProducer {
+        const NAME: &'static str = "NegateBlobProducer";
+        const VERSION: u64 = 1;
+    }
+
     impl<T: InterfaceController<ProducerController>> Model<T> for NegateBlobProducer {
-        fn info(&self) -> Description<T> {
-            Description {
-                name: "NegateBlobProducer".into(),
-                version: 1,
-                representations:  enum_set!(
+        fn reflection(&self) -> Reflection<T> {
+            Reflection {
+                representations: enum_set!(
                         RepresentationKind::State |
                     ),
                 implements: vec![
@@ -175,11 +182,11 @@ pub(crate) mod tests {
             ]
         }
 
-        fn notify_new_version<'a, 'b>(
+        fn notify_new_version<'ag>(
             &self,
             repo: &Repository,
-            art_graph: &'b ArtifactGraph<'a>,
-            ver_graph: &mut VersionGraph<'a, 'b>,
+            art_graph: &'ag ArtifactGraph,
+            ver_graph: &mut VersionGraph<'ag>,
             v_idx: VersionGraphIndex,
         ) -> Result<ProductionOutput, Error> {
             // Find input relation, artifact, and versions.

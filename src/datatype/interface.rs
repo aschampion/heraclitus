@@ -2,6 +2,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use enumset::EnumSet;
 use heraclitus_macros::{interface, stored_interface_controller};
+use heraclitus_core::{
+    lazy_static,
+};
+use lazy_static::lazy_static;
 
 use crate::{
     ArtifactGraph,
@@ -119,11 +123,11 @@ pub trait ProducerController {
 
     fn output_descriptions(&self) -> Vec<DependencyDescription>;
 
-    fn notify_new_version<'a, 'b>(
+    fn notify_new_version<'ag>(
         &self,
         repo: &crate::repo::Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
     ) -> Result<ProductionOutput, Error>;
 }

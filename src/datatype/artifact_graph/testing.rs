@@ -23,11 +23,11 @@ use crate::{
     repo::Repository,
 };
 
-pub fn install_fixture<'s, 'd, T: DatatypeEnum>(
-    dtypes_registry: &'d DatatypesRegistry<T>,
+pub fn install_fixture<'s, T: DatatypeEnum>(
+    dtypes_registry: &DatatypesRegistry<T>,
     repo: &Repository,
     fixture: &dyn Fn() -> (ArtifactGraphDescription, HashMap<&'static str, ArtifactGraphIndex>),
-) -> Result<(ArtifactGraph<'d>, HashMap<&'s str, ArtifactGraphIndex>), Error>
+) -> Result<(ArtifactGraph, HashMap<&'s str, ArtifactGraphIndex>), Error>
     where T::InterfaceControllerType: InterfaceController<ArtifactMeta>,
         <T as DatatypeEnum>::InterfaceControllerType :
                 InterfaceController<ProducerController> +

@@ -14,9 +14,10 @@ use crate::{
     VersionGraphIndex,
 };
 use super::{
-    Description,
+    DatatypeMeta,
     InterfaceController,
     Model,
+    Reflection,
 };
 use crate::datatype::interface::PartitioningController;
 use crate::repo::Repository;
@@ -33,11 +34,14 @@ state_interface!(PartitioningState, Partitioning);
 #[derive(Default, DatatypeMarker)]
 pub struct UnaryPartitioning;
 
+impl DatatypeMeta for UnaryPartitioning {
+    const NAME: &'static str = "UnaryPartitioning";
+    const VERSION: u64 = 1;
+}
+
 impl<T: InterfaceController<PartitioningState>> Model<T> for UnaryPartitioning {
-    fn info(&self) -> Description<T> {
-        Description {
-            name: "UnaryPartitioning".into(),
-            version: 1,
+    fn reflection(&self) -> Reflection<T> {
+        Reflection {
             representations: enumset::enum_set!(
                     RepresentationKind::State |
                 ),
@@ -112,12 +116,15 @@ pub mod arbitrary {
     #[derive(Default, DatatypeMarker)]
     pub struct ArbitraryPartitioning;
 
+    impl DatatypeMeta for ArbitraryPartitioning {
+        const NAME: &'static str = "ArbitraryPartitioning";
+        const VERSION: u64 = 1;
+    }
+
     impl<T: InterfaceController<PartitioningState>> Model<T> for ArbitraryPartitioning {
-        fn info(&self) -> Description<T> {
-            Description {
-                name: "ArbitraryPartitioning".into(),
-                version: 1,
-                representations:  enumset::enum_set!(
+        fn reflection(&self) -> Reflection<T> {
+            Reflection {
+                representations: enumset::enum_set!(
                         RepresentationKind::State |
                     ),
                 implements: vec![

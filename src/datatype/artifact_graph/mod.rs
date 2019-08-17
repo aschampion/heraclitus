@@ -9,6 +9,7 @@ use std::hash::Hash;
 use heraclitus_core::{
     daggy,
     enumset,
+    lazy_static,
     petgraph,
     uuid,
 };
@@ -25,6 +26,7 @@ use heraclitus_macros::{
 use enumset::{
     EnumSet,
 };
+use lazy_static::lazy_static;
 use serde_derive::{Deserialize, Serialize};
 use uuid::{
     Uuid,
@@ -63,10 +65,11 @@ use crate::datatype::{
 };
 use super::{
     DatatypeEnum,
+    DatatypeMeta,
     DatatypesRegistry,
-    Description,
     InterfaceController,
     InterfaceDescription,
+    Reflection,
 };
 use crate::datatype::interface::{
     CustomProductionPolicyController,
@@ -111,11 +114,14 @@ pub trait ArtifactMeta {
 #[derive(Default, DatatypeMarker)]
 pub struct ArtifactGraphDtype;
 
+impl DatatypeMeta for ArtifactGraphDtype {
+    const NAME: &'static str = "ArtifactGraph";
+    const VERSION: u64 = 1;
+}
+
 impl<T: InterfaceController<ArtifactMeta>> super::Model<T> for ArtifactGraphDtype {
-    fn info(&self) -> Description<T> {
-        Description {
-            name: "ArtifactGraph".into(),
-            version: 1,
+    fn reflection(&self) -> Reflection<T> {
+        Reflection {
             representations: enum_set!(
                         RepresentationKind::State |
                         RepresentationKind::Delta |
@@ -141,8 +147,8 @@ impl crate::datatype::ComposableState for ArtifactGraphDtype {
     }
 }
 
-struct OriginGraphTemplate<'d> {
-    artifact_graph: ArtifactGraph<'d>,
+struct OriginGraphTemplate {
+    artifact_graph: ArtifactGraph,
     origin_idx: ArtifactGraphIndex,
     root_idx: ArtifactGraphIndex,
     up_idx: ArtifactGraphIndex,
@@ -152,15 +158,15 @@ struct OriginGraphTemplate<'d> {
 /// - Unary partitioning
 /// - Recursive AG artifact itself
 /// - Root AG artifact
-impl<'d> OriginGraphTemplate<'d> {
-    fn new<T: DatatypeEnum>(dtypes_registry: &'d DatatypesRegistry<T>) -> OriginGraphTemplate<'d> {
+impl OriginGraphTemplate {
+    fn new<T: DatatypeEnum>(dtypes_registry: &DatatypesRegistry<T>) -> OriginGraphTemplate {
         Self::for_uuids(dtypes_registry, None)
     }
 
     fn for_uuids<T: DatatypeEnum>(
-        dtypes_registry: &'d DatatypesRegistry<T>,
+        dtypes_registry: &DatatypesRegistry<T>,
         hunk_uuids: Option<&HunkUuidSpec>,
-    ) -> OriginGraphTemplate<'d> {
+    ) -> OriginGraphTemplate {
         let mut origin_ag = ArtifactGraphDescriptionType::new();
 
         let origin_art = ArtifactDescription::New {
@@ -212,11 +218,11 @@ impl<'d> OriginGraphTemplate<'d> {
 
 #[stored_datatype_controller(ArtifactGraphDtype)]
 pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription, DeltaType = ArtifactGraphDelta> {
-    fn get_or_create_origin_root<'d, T: DatatypeEnum>(
+    fn get_or_create_origin_root<T: DatatypeEnum>(
         &mut self,
-        dtypes_registry: &'d DatatypesRegistry<T>,
+        dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
-    ) -> Result<(ArtifactGraph<'d>, ArtifactGraph<'d>), Error> {
+    ) -> Result<(ArtifactGraph, ArtifactGraph), Error> {
         let origin_uuids = match self.read_origin_uuids(repo)? {
             Some(uuids) => uuids,
             None => {
@@ -239,12 +245,12 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         Ok((origin_ag, root_ag))
     }
 
-    fn read_origin_artifact_graph<'d, T: DatatypeEnum>(
+    fn read_origin_artifact_graph<T: DatatypeEnum>(
         &self,
-        dtypes_registry: &'d DatatypesRegistry<T>,
+        dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
         origin_spec: HunkUuidSpec,
-    ) -> Result<ArtifactGraph<'d>, Error> {
+    ) -> Result<ArtifactGraph, Error> {
 
         let fake_origin = OriginGraphTemplate::for_uuids(dtypes_registry, Some(&origin_spec));
         let fake_vg = VersionGraph::new_from_source_artifacts(&fake_origin.artifact_graph);
@@ -275,9 +281,9 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         repo: &Repository,
     ) -> Result<Option<HunkUuidSpec>, Error>;
 
-    fn create_origin_root<'a, T: DatatypeEnum>(
+    fn create_origin_root<T: DatatypeEnum>(
         &mut self,
-        dtypes_registry: &'a DatatypesRegistry<T>,
+        dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
     ) -> Result<HunkUuidSpec, Error> {
 
@@ -305,7 +311,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
                 VersionRelation::Dependence(&origin.artifact_graph[up_origin_art_edge])).unwrap();
 
             // Create origin hunk.
-            let origin_ag_complete = origin.artifact_graph.as_description();
+            let origin_ag_complete = origin.artifact_graph.as_description(dtypes_registry);
             let complete_payload = Payload::State(origin_ag_complete);
             let origin_hunk = Hunk {
                 id: ArtifactGraphDtype::hash_payload(&complete_payload).into(),
@@ -319,7 +325,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
                 precedence: None,
             };
 
-            self.bootstrap_origin(repo, &origin_hunk, &ver_graph, &origin.artifact_graph)?;
+            self.bootstrap_origin(dtypes_registry, repo, &origin_hunk, &ver_graph, &origin.artifact_graph)?;
 
             (origin_ver_idx, origin_hunk.id)
         };
@@ -364,7 +370,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
             &ArtifactGraphDescription::new(),
             dtypes_registry,
             None);
-        let root_ag_payload = Payload::State(root_ag.as_description());
+        let root_ag_payload = Payload::State(root_ag.as_description(dtypes_registry));
         let root_ag_hunk = Hunk {
             id: ArtifactGraphDtype::hash_payload(&root_ag_payload).into(),
             version: &ver_graph[root_ag_ver_idx],
@@ -397,8 +403,9 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
     ///
     /// This method is a hook called by heraclitus internals to be implemented
     /// by backends, and should never be called from client code.
-    fn bootstrap_origin(
+    fn bootstrap_origin<T: DatatypeEnum>(
         &mut self,
+        dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
         hunk: &Hunk,
         ver_graph: &VersionGraph,
@@ -421,15 +428,15 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         origin_v_idx: VersionGraphIndex,
     ) -> Result<(), Error>;
 
-    fn create_artifact_graph<'d, 'a, T: DatatypeEnum>(
+    fn create_artifact_graph<'ag, T: DatatypeEnum>(
         &mut self,
-        dtypes_registry: &'d DatatypesRegistry<T>,
+        dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
         art_graph_desc: ArtifactGraphDescription,
-        parent: &'a mut ArtifactGraph<'d>,
+        parent: &'ag mut ArtifactGraph,
         parent_v_idx: VersionGraphIndex,
         grandp_vg: &mut VersionGraph,
-    ) -> Result<(VersionGraph<'d, 'a>, VersionGraphIndex, ArtifactGraph<'d>, ArtifactIndexMap), Error>
+    ) -> Result<(VersionGraph<'ag>, VersionGraphIndex, ArtifactGraph, ArtifactIndexMap), Error>
         where T::InterfaceControllerType: InterfaceController<ArtifactMeta>,
             // This is only necessary because `commit_version` is called for the
             // new AG's version, even though it will do nothing besides set
@@ -523,7 +530,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         self.create_staging_version(repo, &parent_vg, new_ag_v_idx)?;
 
         // Create hunk for new artifact graph's artifact.
-        let new_ag_payload = Payload::State(art_graph.as_description());
+        let new_ag_payload = Payload::State(art_graph.as_description(dtypes_registry));
         let new_ag_hunk = Hunk {
             id: ArtifactGraphDtype::hash_payload(&new_ag_payload).into(),
             version: &parent_vg[new_ag_v_idx],
@@ -546,7 +553,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         for idx in art_graph.artifacts.graph().node_indices() {
             let art = &art_graph[idx];
             let meta_controller = dtypes_registry
-                .get_model_interface::<ArtifactMeta>(&art.dtype.name)
+                .get_model_interface::<ArtifactMeta>(&art.dtype_uuid)
                 .map(|gen| gen(&repo));
             if let Some(mut meta_controller) = meta_controller {
                 meta_controller.init_artifact(repo, art)?;
@@ -556,13 +563,13 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         Ok((parent_vg, new_ag_v_idx, art_graph, new_idx_map))
     }
 
-    fn get_artifact_graph<'d, T: DatatypeEnum>(
+    fn get_artifact_graph<T: DatatypeEnum>(
         &self,
-        dtypes_registry: &'d DatatypesRegistry<T>,
+        dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
         ver_graph: &VersionGraph,
         v_idx: VersionGraphIndex,
-    ) -> Result<ArtifactGraph<'d>, Error> {
+    ) -> Result<ArtifactGraph, Error> {
 
         let up_part_id = crate::datatype::partitioning::UNARY_PARTITION_INDEX;
         let composition_map = self.get_composition_map(
@@ -591,15 +598,15 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
     ///
     /// Constraints:
     /// - The version must not already be committed.
-    fn commit_version<'a, 'b, T: DatatypeEnum>(
+    fn commit_version<'ag, T: DatatypeEnum>(
         &mut self,
         // TODO: dirty hack to work around mut/immut refs to context. Either
         // look at other Rust workarounds, or better yet finally design a way
         // to get model directly from datatypes.
         dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
             where
@@ -608,12 +615,12 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
                     InterfaceController<CustomProductionPolicyController>;
     // TODO: many args to avoid reloading state. A 2nd-level API should just take an ID.
 
-    fn cascade_notify_producers<'a, 'b, T:DatatypeEnum> (
+    fn cascade_notify_producers<'ag, T:DatatypeEnum> (
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         seed_v_idx: VersionGraphIndex,
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
             where
@@ -644,12 +651,12 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         Ok(outputs)
     }
 
-    fn notify_producers<'a, 'b, T: DatatypeEnum>(
+    fn notify_producers<'ag, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
     ) -> Result<HashMap<Identity, ProductionOutput>, Error>
             where
@@ -679,9 +686,9 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
 
         for (_e_idx, dep_art_idx) in dependent_arts {
             let dependent = &art_graph[dep_art_idx];
-            let dtype = dependent.dtype;
+            let dtype_uuid = dependent.dtype_uuid;
 
-            let producer_interface = dtypes_registry.get_model_interface::<ProducerController>(&dtype.name)
+            let producer_interface = dtypes_registry.get_model_interface::<ProducerController>(&dtype_uuid)
                 .map(|gen| gen(&repo));
             if let Some(producer_controller) = producer_interface {
 
@@ -694,7 +701,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
                             Some(Box::new(LeafBootstrapProductionPolicy) as Box<dyn ProductionPolicy>),
                         ProductionPolicies::Custom => {
                             let custom_policy_interface = dtypes_registry
-                                .get_model_interface::<CustomProductionPolicyController>(&dtype.name)
+                                .get_model_interface::<CustomProductionPolicyController>(&dtype_uuid)
                                 // .get_model(&dtype.name)
                                 // .get_controller()
                                 .map(|gen| gen(&repo));
@@ -807,28 +814,28 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
     /// Constraints:
     /// - The triggering new dependency version (`v_idx`) and all of its
     ///   relations must already be present in the graph.
-    fn fulfill_policy_requirements<'a, 'b>(
+    fn fulfill_policy_requirements<'ag>(
         &self,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
     ) -> Result<(), Error>;
 
-    fn get_version<'a, 'b>(
+    fn get_version<'ag>(
         &self,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
+        art_graph: &'ag ArtifactGraph,
         id: &Identity,
-    ) -> Result<(VersionGraphIndex, VersionGraph<'a, 'b>), Error>;
+    ) -> Result<(VersionGraphIndex, VersionGraph<'ag>), Error>;
 
-    fn get_version_graph<'a, 'b>(
+    fn get_version_graph<'ag>(
         &self,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-    ) -> Result<VersionGraph<'a, 'b>, Error>;
+        art_graph: &'ag ArtifactGraph,
+    ) -> Result<VersionGraph<'ag>, Error>;
 
     fn create_hunk(
         &mut self,
@@ -838,12 +845,12 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         self.create_hunks(repo, &[hunk])
     }
 
-    fn create_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H>(
+    fn create_hunks<'ag: 'vg1 + 'vg2, 'vg1, 'vg2, H>(
         &mut self,
         repo: &Repository,
         hunks: &[H],
     ) -> Result<(), Error>
-        where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>
+        where H: std::borrow::Borrow<Hunk<'ag, 'vg1, 'vg2>>
     {
         for hunk in hunks {
             self.create_hunk(repo, hunk.borrow())?;
@@ -858,26 +865,26 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
     ///
     /// - `partitions` - Partitions indices for which to return hunks. If
     ///                  `None`, return hunks for all partitions.
-    fn get_hunks<'a, 'b, 'c, 'd>(
+    fn get_hunks<'ag: 'vg1 + 'vg2, 'vg1, 'vg2>(
         &self,
         repo: &Repository,
-        version: &'d Version<'a, 'b>,
-        partitioning: &'c Version<'a, 'b>,
+        version: &'vg2 Version<'ag>,
+        partitioning: &'vg1 Version<'ag>,
         partitions: Option<&BTreeSet<PartitionIndex>>,
-    ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error>;
+    ) -> Result<Vec<Hunk<'ag, 'vg1, 'vg2>>, Error>;
 
     /// Get hunk sets sufficient to reconstruct composite states for a set of
     /// partitions.
     ///
     /// Note that partition indices in `partitions` may be abset from the
     /// returned `CompositionMap` if they have never been populated.
-    fn get_composition_map<'a: 'b, 'b: 'r, 'c, 'd, 'r: 'c + 'd>(
+    fn get_composition_map<'ag: 'r, 'vg1, 'vg2, 'r: 'vg1 + 'vg2>(
         &self,
         repo: &Repository,
-        ver_graph: &'r VersionGraph<'a, 'b>,
+        ver_graph: &'r VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
         partitions: BTreeSet<PartitionIndex>,
-    ) -> Result<CompositionMap<'a, 'b, 'c, 'd>, Error>  {
+    ) -> Result<CompositionMap<'ag, 'vg1, 'vg2>, Error>  {
         // TODO: assumes whole version graph is loaded.
         // TODO: not backend-specific, but could be optimized to be so.
         let ancestors = crate::util::petgraph::induced_stream_toposort(
@@ -941,18 +948,18 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
     }
 
     fn iter_version_partitions<
-            'a: 'b + 'q, 'b: 'c + 'p, 'c, // Normal Partition lifetimes.
-            'd: 'c + 'q, // A lifetime for the version graph reference which must outlive
-                         // anything returned by this function.
-            'q: 'p, 'p: 'c, // Shorter Partition lifetimes that 'd will outlive.
+            'ag: 'vg_par, 'vg_par, // Normal Partition lifetimes.
+            'vg: 'vg_par + 'q, // A lifetime for the version graph reference which must outlive
+                               // anything returned by this function.
+            'q: 'vg_par, // Shorter Partition lifetimes that 'd will outlive.
             T: DatatypeEnum,
     >(
         &self,
         dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
-        ver_graph: &'d VersionGraph<'a, 'b>,
+        ver_graph: &'vg VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
-    ) -> Result<Box<dyn Iterator<Item=Partition<'q, 'p, 'c>> + 'd>, Error>
+    ) -> Result<Box<dyn Iterator<Item=Partition<'q, 'vg_par>> + 'vg>, Error>
             where
                 <T as DatatypeEnum>::InterfaceControllerType :
                     InterfaceController<crate::datatype::partitioning::PartitioningState>
@@ -969,7 +976,7 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
             ).unwrap().into_iter().last().unwrap().1;
         let ver_part_control: Box<dyn PartitioningState> =
                 dtypes_registry
-                    .get_model_interface::<dyn PartitioningState>(&ver_partitioning.artifact.dtype.name)
+                    .get_model_interface::<dyn PartitioningState>(&ver_partitioning.artifact.dtype_uuid)
                     .map(|gen| gen(&repo))
                     .expect("Partitioning must have controller for backend");
 
@@ -985,30 +992,30 @@ pub trait Storage: crate::datatype::Storage<StateType = ArtifactGraphDescription
         Ok(Box::new(iter))
     }
 
-    fn write_production_policies<'a>(
+    fn write_production_policies(
         &mut self,
         repo: &Repository,
-        artifact: &Artifact<'a>,
+        artifact: &Artifact,
         policies: EnumSet<ProductionPolicies>,
     ) -> Result<(), Error>;
 
-    fn get_production_policies<'a>(
+    fn get_production_policies(
         &self,
         repo: &Repository,
-        artifact: &Artifact<'a>,
+        artifact: &Artifact,
     ) -> Result<Option<EnumSet<ProductionPolicies>>, Error>;
 
-    fn write_production_specs<'a, 'b>(
+    fn write_production_specs<'ag>(
         &mut self,
         repo: &Repository,
-        version: &Version<'a, 'b>,
+        version: &Version<'ag>,
         specs: ProductionStrategySpecs,
     ) -> Result<(), Error>;
 
-    fn get_production_specs<'a, 'b>(
+    fn get_production_specs<'ag>(
         &self,
         repo: &Repository,
-        version: &Version<'a, 'b>,
+        version: &Version<'ag>,
     ) -> Result<ProductionStrategySpecs, Error>;
 }
 
@@ -1226,11 +1233,14 @@ pub enum ArtifactDescription {
 }
 
 impl ArtifactDescription {
-    pub fn new_from_artifact(art: &Artifact) -> Self {
+    pub fn new_from_artifact<T: DatatypeEnum>(
+        art: &Artifact,
+        dtypes_registry: &DatatypesRegistry<T>,
+    ) -> Self {
         ArtifactDescription::New {
             id: Some(art.id.clone().into()),
             name: art.name.clone(),
-            dtype: art.dtype.name.clone(),
+            dtype: dtypes_registry.get_model(&art.dtype_uuid).info().name.to_string(),
             self_partitioning: art.self_partitioning,
         }
     }

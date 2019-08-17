@@ -136,9 +136,8 @@ impl RepoController for PostgresRepository {
 
         migrator.register(Box::new(PGMigrationDatatypes))?;
 
-        let migrations = dtypes_registry.iter_dtypes()
-            .flat_map(|dtype| {
-                let model = dtypes_registry.get_model(&dtype.name);
+        let migrations = dtypes_registry.iter_models()
+            .flat_map(|model| {
                 let smc: Box<dyn PostgresMetaController> = model
                     .meta_controller(self.backend())
                     .into();
@@ -150,9 +149,12 @@ impl RepoController for PostgresRepository {
         migrator.up(None)?;
 
         let trans = connection.transaction()?;
-        let stmt = trans.prepare("INSERT INTO datatype (version, name) VALUES ($1, $2)")?;
+        let stmt = trans.prepare(r#"
+            INSERT INTO datatype (version, name, uuid_, hash)
+            VALUES ($1::bigint, $2::text, $3::uuid, $4::bigint);
+        "#)?;
         for dtype in dtypes_registry.iter_dtypes() {
-            stmt.execute(&[&(dtype.version as i64), &dtype.name])?;
+            stmt.execute(&[&(dtype.version as i64), &dtype.name, &dtype.id.uuid, &(dtype.id.hash as i64)])?;
         }
 
         Ok(trans.commit()?)

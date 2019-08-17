@@ -95,13 +95,13 @@ pub trait Storage: StoreOrBackend<Datatype: ComposableState> {
 
     /// Write multiple hunks to this model. All hunks should be from the same
     /// version.
-    fn write_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H, P>(
+    fn write_hunks<'ag: 'vg1 + 'vg2, 'vg1, 'vg2, H, P>(
         &mut self,
         repo: &Repository,
         hunks: &[H],
         payloads: &[P],
     ) -> Result<(), Error>
-            where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>>,
+            where H: std::borrow::Borrow<Hunk<'ag, 'vg1, 'vg2>>,
                 P: std::borrow::Borrow<Payload<Self::StateType, Self::DeltaType>> {
 
         for (hunk, payload) in hunks.iter().zip(payloads) {

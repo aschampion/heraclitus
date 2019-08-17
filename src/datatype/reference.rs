@@ -18,13 +18,14 @@ use crate::{
     Version,
 };
 use crate::datatype::{
-    Description,
+    DatatypeMeta,
     DependencyDescription,
     DependencyTypeRestriction,
     DependencyCardinalityRestriction,
     DependencyStoreRestriction,
     InterfaceControllerEnum,
     Model,
+    Reflection,
 };
 use crate::repo::Repository;
 
@@ -318,11 +319,14 @@ impl FromStr for VersionSpecifier {
 #[derive(Default, DatatypeMarker)]
 pub struct Ref;
 
+impl DatatypeMeta for Ref {
+    const NAME: &'static str = "Ref";
+    const VERSION: u64 = 1;
+}
+
 impl<T: InterfaceControllerEnum> Model<T> for Ref {
-    fn info(&self) -> Description<T> {
-        Description {
-            name: "Ref".into(),
-            version: 1,
+    fn reflection(&self) -> Reflection<T> {
+        Reflection {
             representations: enumset::enum_set!(
                     RepresentationKind::State |
                 ),

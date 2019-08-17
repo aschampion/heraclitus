@@ -179,18 +179,18 @@ fn test_artifact_graph_description_reflection() {
 
     let (mut ag_1, ag_1_idxs) = ArtifactGraph::from_description(&ag_0_desc, &dtypes_registry, None);
 
-    let ag_desc_1 = ag_1.as_description();
+    let ag_desc_1 = ag_1.as_description(&dtypes_registry);
     assert!(ag_desc_1.is_valid_state());
     assert_eq!(ag_desc_1, ag_desc_1);
 
     let (ag_2, _) = ArtifactGraph::from_description(&ag_desc_1, &dtypes_registry, None);
 
-    let ag_desc_2 = ag_2.as_description();
+    let ag_desc_2 = ag_2.as_description(&dtypes_registry);
     assert_eq!(ag_desc_1, ag_desc_2);
 
     ag_1[ag_1_idxs[&ag_0_idxs["Test Blob 1"]]].id.uuid = Uuid::new_v4();
 
-    let ag_desc_1_changed = ag_1.as_description();
+    let ag_desc_1_changed = ag_1.as_description(&dtypes_registry);
     assert_ne!(ag_desc_1, ag_desc_1_changed);
 }
 

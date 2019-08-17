@@ -117,11 +117,11 @@ impl ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         Ok((artifact_uuid, version_dir.into_path()))
     }
 
-    fn load_version_by_uuid<'a, 'b>(
+    fn load_version_by_uuid<'ag>(
         &self,
         rc: &DebugFilesystemRepository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         version_uuid: Uuid,
     ) -> Result<VersionGraphIndex, Error> {
         let (artifact_uuid, mut path) = self.find_version_by_uuid(rc, version_uuid)?;
@@ -136,11 +136,11 @@ impl ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         Ok(v_idx)
     }
 
-    fn load_version_by_artifact<'a, 'b>(
+    fn load_version_by_artifact<'ag>(
         &self,
         rc: &DebugFilesystemRepository,
-        artifact: &'b Artifact<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        artifact: &'ag Artifact,
+        ver_graph: &mut VersionGraph<'ag>,
         version_uuid: Uuid,
     ) -> Result<VersionGraphIndex, Error> {
         let mut path = artifact_path(rc, artifact);
@@ -171,11 +171,11 @@ impl ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
             .collect())
     }
 
-    fn get_version_relations<'a, 'b>(
+    fn get_version_relations<'ag>(
         &self,
         rc: &DebugFilesystemRepository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idxs: &[VersionGraphIndex],
         ancestry_direction: Option<petgraph::Direction>,
         dependence_direction: Option<petgraph::Direction>,
@@ -323,8 +323,9 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         read_optional_json(path)
     }
 
-    fn bootstrap_origin(
+    fn bootstrap_origin<T: DatatypeEnum>(
         &mut self,
+        dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
         hunk: &Hunk,
         ver_graph: &VersionGraph,
@@ -345,7 +346,7 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         path.push(ORIGIN_FILE);
         write_json(path, &hunk.uuid_spec())?;
 
-        let payload = crate::datatype::Payload::State(art_graph.as_description());
+        let payload = crate::datatype::Payload::State(art_graph.as_description(dtypes_registry));
         self.write_hunk(repo, hunk, &payload)
     }
 
@@ -395,15 +396,15 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         write_json(path, &dependency_uuids)
     }
 
-    fn commit_version<'a, 'b, T: DatatypeEnum>(
+    fn commit_version<'ag, T: DatatypeEnum>(
         &mut self,
         // TODO: dirty hack to work around mut/immut refs to context. Either
         // look at other Rust workarounds, or better yet finally design a way
         // to get model directly from datatypes.
         dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
             where
@@ -430,11 +431,11 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         Ok(())
     }
 
-    fn fulfill_policy_requirements<'a, 'b>(
+    fn fulfill_policy_requirements<'ag>(
         &self,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
@@ -560,12 +561,12 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         Ok(())
     }
 
-    fn get_version<'a, 'b>(
+    fn get_version<'ag>(
         &self,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
+        art_graph: &'ag ArtifactGraph,
         id: &Identity,
-    ) -> Result<(VersionGraphIndex, VersionGraph<'a, 'b>), Error> {
+    ) -> Result<(VersionGraphIndex, VersionGraph<'ag>), Error> {
         let rc: &DebugFilesystemRepository = repo.borrow();
 
         let mut ver_graph = VersionGraph::new();
@@ -582,11 +583,11 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         Ok((v_idx, ver_graph))
     }
 
-    fn get_version_graph<'a, 'b>(
+    fn get_version_graph<'ag>(
         &self,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-    ) -> Result<VersionGraph<'a, 'b>, Error> {
+        art_graph: &'ag ArtifactGraph,
+    ) -> Result<VersionGraph<'ag>, Error> {
         let rc: &DebugFilesystemRepository = repo.borrow();
 
         let art_uuids = art_graph.artifacts.raw_nodes().iter()
@@ -637,13 +638,13 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         write_json(path, hunk)
     }
 
-    fn get_hunks<'a, 'b, 'c, 'd>(
+    fn get_hunks<'ag: 'vg1 + 'vg2, 'vg1, 'vg2>(
         &self,
         repo: &Repository,
-        version: &'d Version<'a, 'b>,
-        partitioning: &'c Version<'a, 'b>,
+        version: &'vg2 Version<'ag>,
+        partitioning: &'vg1 Version<'ag>,
         partitions: Option<&BTreeSet<PartitionIndex>>,
-    ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error> {
+    ) -> Result<Vec<Hunk<'ag, 'vg1, 'vg2>>, Error> {
         let rc: &DebugFilesystemRepository = repo.borrow();
 
         let ver_path = version_path(rc, version);
@@ -674,10 +675,10 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         Ok(hunks)
     }
 
-    fn write_production_policies<'a>(
+    fn write_production_policies(
         &mut self,
         repo: &Repository,
-        artifact: &Artifact<'a>,
+        artifact: &Artifact,
         policies: EnumSet<ProductionPolicies>,
     ) -> Result<(), Error> {
         let rc: &DebugFilesystemRepository = repo.borrow();
@@ -687,10 +688,10 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         write_json(path, &policies)
     }
 
-    fn get_production_policies<'a>(
+    fn get_production_policies (
         &self,
         repo: &Repository,
-        artifact: &Artifact<'a>,
+        artifact: &Artifact,
     ) -> Result<Option<EnumSet<ProductionPolicies>>, Error> {
         let rc: &DebugFilesystemRepository = repo.borrow();
 
@@ -699,10 +700,10 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         read_optional_json(path)
     }
 
-    fn write_production_specs<'a, 'b>(
+    fn write_production_specs<'ag>(
         &mut self,
         repo: &Repository,
-        version: &Version<'a, 'b>,
+        version: &Version<'ag>,
         specs: ProductionStrategySpecs,
     ) -> Result<(), Error> {
         let rc: &DebugFilesystemRepository = repo.borrow();
@@ -712,10 +713,10 @@ impl Storage for ArtifactGraphDtypeBackend<DebugFilesystemRepository> {
         write_json(path, &specs)
     }
 
-    fn get_production_specs<'a, 'b>(
+    fn get_production_specs<'ag>(
         &self,
         repo: &Repository,
-        version: &Version<'a, 'b>,
+        version: &Version<'ag>,
     ) -> Result<ProductionStrategySpecs, Error> {
         let rc: &DebugFilesystemRepository = repo.borrow();
 
@@ -741,7 +742,7 @@ impl VersionPartial {
         }
     }
 
-    fn to_version<'a: 'b, 'b>(self, artifact: &'b Artifact<'a>) -> Version<'a, 'b> {
+    fn to_version<'ag>(self, artifact: &'ag Artifact) -> Version<'ag> {
         Version {
             id: self.id,
             artifact,
@@ -766,11 +767,11 @@ struct HunkPartial {
 }
 
 impl HunkPartial {
-    fn to_hunk<'a, 'b, 'c, 'd>(
+    fn to_hunk<'ag, 'vg1, 'vg2>(
         self,
-        version: &'d Version<'a, 'b>,
-        partitioning: &'c Version<'a, 'b>,
-    ) -> Hunk<'a, 'b, 'c, 'd> {
+        version: &'vg2 Version<'ag>,
+        partitioning: &'vg1 Version<'ag>,
+    ) -> Hunk<'ag, 'vg1, 'vg2> {
         Hunk {
             id: self.id,
             version: version,

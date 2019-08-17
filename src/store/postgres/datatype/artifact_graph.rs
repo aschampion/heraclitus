@@ -75,10 +75,10 @@ use crate::store::postgres::{
 
 impl ArtifactGraphDtypeBackend<PostgresRepository> {
     /// Load version rows from a query result into a version graph.
-    fn load_version_rows<'a, 'b>(
+    fn load_version_rows<'ag>(
         &self,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         rows: &postgres::rows::Rows,
     ) -> Result<BTreeMap<i64, VersionGraphIndex>, Error> {
         // TODO: not using hash. See other comments.
@@ -123,11 +123,11 @@ impl ArtifactGraphDtypeBackend<PostgresRepository> {
 
     /// Postgres-specific method for adding version relations for a set of
     /// database IDs to a version graph.
-    fn get_version_relations<'a, 'b>(
+    fn get_version_relations<'ag>(
         &self,
         trans: &Transaction,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_db_ids: &[i64],
         idx_map: &mut BTreeMap<i64, VersionGraphIndex>,
         ancestry_direction: Option<petgraph::Direction>,
@@ -605,8 +605,9 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok(origin_uuids)
     }
 
-    fn bootstrap_origin(
+    fn bootstrap_origin<T: DatatypeEnum>(
         &mut self,
+        dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
         hunk: &Hunk,
         ver_graph: &VersionGraph,
@@ -626,12 +627,12 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
                 SELECT r.uuid_, r.hash, 0, r.self_partitioning, r.name, d.id
                 FROM (VALUES ($1::uuid, $2::bigint, $3::boolean, $4::text))
                   AS r (uuid_, hash, self_partitioning, name)
-                JOIN datatype d ON d.name = $5::text
+                JOIN datatype d ON d.uuid_ = $5::uuid
                 RETURNING id;
             "#,
             &[&origin_art.id.uuid, &(origin_art.id.hash as i64),
               &origin_art.self_partitioning, &origin_art.name,
-              &origin_art.dtype.name])?
+              &origin_art.dtype_uuid])?
             .get(0).get(0);
         let ver = hunk.version;
         let ver_db_id: i64 = trans.query(r#"
@@ -674,7 +675,7 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         // state, it is not a valid delta either as the partitioning artifact
         // will have a relation with this existing origin artifact.
         let origin_art_id = hunk.version.artifact.id;
-        let mut origin_ag_delta = art_graph.as_description();
+        let mut origin_ag_delta = art_graph.as_description(dtypes_registry);
         let origin_art_idx = origin_ag_delta.get_by_uuid(&origin_art_id.uuid).unwrap().0;
         origin_ag_delta.artifacts[origin_art_idx] = ArtifactDescription::Existing(origin_art_id.uuid);
         let payload = Payload::State(origin_ag_delta);
@@ -790,18 +791,19 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok(())
     }
 
-    fn commit_version<'a, 'b, T: DatatypeEnum>(
+    fn commit_version<'ag, T: DatatypeEnum>(
         &mut self,
         dtypes_registry: &DatatypesRegistry<T>,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
     ) -> Result<(), Error>
             where
                 <T as DatatypeEnum>::InterfaceControllerType :
                     InterfaceController<ProducerController> +
-                    InterfaceController<CustomProductionPolicyController> {
+                    InterfaceController<CustomProductionPolicyController>,
+    {
         {
             let rc: &PostgresRepository = repo.borrow();
 
@@ -831,11 +833,11 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok(())
     }
 
-    fn fulfill_policy_requirements<'a, 'b>(
+    fn fulfill_policy_requirements<'ag>(
         &self,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-        ver_graph: &mut VersionGraph<'a, 'b>,
+        art_graph: &'ag ArtifactGraph,
+        ver_graph: &mut VersionGraph<'ag>,
         v_idx: VersionGraphIndex,
         p_art_idx: ArtifactGraphIndex,
         requirements: &ProductionPolicyRequirements,
@@ -970,12 +972,12 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok(())
     }
 
-    fn get_version<'a, 'b>(
+    fn get_version<'ag>(
         &self,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
+        art_graph: &'ag ArtifactGraph,
         id: &Identity,
-    ) -> Result<(VersionGraphIndex, VersionGraph<'a, 'b>), Error> {
+    ) -> Result<(VersionGraphIndex, VersionGraph<'ag>), Error> {
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
@@ -1013,11 +1015,11 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok((ver_node_idx, ver_graph))
     }
 
-    fn get_version_graph<'a, 'b>(
+    fn get_version_graph<'ag>(
         &self,
         repo: &Repository,
-        art_graph: &'b ArtifactGraph<'a>,
-    ) -> Result<VersionGraph<'a, 'b>, Error> {
+        art_graph: &'ag ArtifactGraph,
+    ) -> Result<VersionGraph<'ag>, Error> {
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
@@ -1056,12 +1058,13 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok(ver_graph)
     }
 
-    fn create_hunks<'a: 'b, 'b: 'c + 'd, 'c, 'd, H>(
+    fn create_hunks<'ag: 'vg1 + 'vg2, 'vg1, 'vg2, H>(
         &mut self,
         repo: &Repository,
         hunks: &[H],
     ) -> Result<(), Error>
-        where H: std::borrow::Borrow<Hunk<'a, 'b, 'c, 'd>> {
+        where H: std::borrow::Borrow<Hunk<'ag, 'vg1, 'vg2>>
+    {
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
@@ -1117,13 +1120,13 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok(())
     }
 
-    fn get_hunks<'a, 'b, 'c, 'd>(
+    fn get_hunks<'ag: 'vg1 + 'vg2, 'vg1, 'vg2>(
         &self,
         repo: &Repository,
-        version: &'d Version<'a, 'b>,
-        partitioning: &'c Version<'a, 'b>,
+        version: &'vg2 Version<'ag>,
+        partitioning: &'vg1 Version<'ag>,
         partitions: Option<&BTreeSet<PartitionIndex>>,
-    ) -> Result<Vec<Hunk<'a, 'b, 'c, 'd>>, Error> {
+    ) -> Result<Vec<Hunk<'ag, 'vg1, 'vg2>>, Error> {
         let rc: &PostgresRepository = repo.borrow();
 
         let conn = rc.conn()?;
@@ -1183,10 +1186,10 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok(hunks)
     }
 
-    fn write_production_policies<'a>(
+    fn write_production_policies(
         &mut self,
         repo: &Repository,
-        artifact: &Artifact<'a>,
+        artifact: &Artifact,
         policies: EnumSet<ProductionPolicies>,
     ) -> Result<(), Error> {
         let rc: &PostgresRepository = repo.borrow();
@@ -1210,10 +1213,10 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok(())
     }
 
-    fn get_production_policies<'a>(
+    fn get_production_policies(
         &self,
         repo: &Repository,
-        artifact: &Artifact<'a>,
+        artifact: &Artifact,
     ) -> Result<Option<EnumSet<ProductionPolicies>>, Error> {
         let rc: &PostgresRepository = repo.borrow();
 
@@ -1237,10 +1240,10 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         })
     }
 
-    fn write_production_specs<'a, 'b>(
+    fn write_production_specs<'ag>(
         &mut self,
         repo: &Repository,
-        version: &Version<'a, 'b>,
+        version: &Version<'ag>,
         specs: ProductionStrategySpecs,
     ) -> Result<(), Error> {
         let rc: &PostgresRepository = repo.borrow();
@@ -1263,10 +1266,10 @@ impl Storage for ArtifactGraphDtypeBackend<PostgresRepository> {
         Ok(())
     }
 
-    fn get_production_specs<'a, 'b>(
+    fn get_production_specs<'ag>(
         &self,
         repo: &Repository,
-        version: &Version<'a, 'b>,
+        version: &Version<'ag>,
     ) -> Result<ProductionStrategySpecs, Error> {
         let rc: &PostgresRepository = repo.borrow();
 

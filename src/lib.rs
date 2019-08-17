@@ -103,22 +103,22 @@ pub trait IdentifiableGraph {
 type ArtifactGraphIndexType = petgraph::graph::DefaultIx;
 pub type ArtifactGraphIndex = petgraph::graph::NodeIndex<ArtifactGraphIndexType>;
 pub type ArtifactGraphEdgeIndex = petgraph::graph::EdgeIndex<ArtifactGraphIndexType>;
-pub(crate) type ArtifactGraphType<'a> = daggy::Dag<Artifact<'a>, ArtifactRelation, ArtifactGraphIndexType>;
+pub(crate) type ArtifactGraphType = daggy::Dag<Artifact, ArtifactRelation, ArtifactGraphIndexType>;
 pub type ArtifactIndexMap = BTreeMap<ArtifactGraphIndex, ArtifactGraphIndex>;
 
 /// A graph expressing the dependence structure between sets of data artifacts.
-pub struct ArtifactGraph<'a> {
+pub struct ArtifactGraph {
     id: Identity, // Note: currently this hash is the hash of the **version**, not the AG artifact.
                   // The UUID is usually the UUID of the **hunk** containing this AG.
-    pub artifacts: ArtifactGraphType<'a>,
+    pub artifacts: ArtifactGraphType,
 }
 
-impl<'a> ArtifactGraph<'a> {
+impl ArtifactGraph {
     pub fn from_description<T: DatatypeEnum>(
         desc: &ArtifactGraphDescription,
-        dtypes_registry: &'a DatatypesRegistry<T>,
+        dtypes_registry: &DatatypesRegistry<T>,
         uuid: Option<Uuid>,
-    ) -> (ArtifactGraph<'a>, ArtifactIndexMap) {
+    ) -> (ArtifactGraph, ArtifactIndexMap) {
 
         let to_visit = daggy::petgraph::algo::toposort(desc.artifacts.graph(), None)
             .expect("TODO: not a DAG");
@@ -150,7 +150,7 @@ impl<'a> ArtifactGraph<'a> {
     pub fn apply_delta<T: DatatypeEnum>(
         &mut self,
         delta: &crate::datatype::artifact_graph::ArtifactGraphDelta,
-        dtypes_registry: &'a DatatypesRegistry<T>,
+        dtypes_registry: &DatatypesRegistry<T>,
     ) -> ArtifactIndexMap {
 
         for art_uuid in delta.removals() {
@@ -179,7 +179,7 @@ impl<'a> ArtifactGraph<'a> {
     fn add_description_node<T: DatatypeEnum>(
         &mut self,
         desc: &ArtifactGraphDescription,
-        dtypes_registry: &'a DatatypesRegistry<T>,
+        dtypes_registry: &DatatypesRegistry<T>,
         idx_map: &mut ArtifactIndexMap,
         node_idx: ArtifactGraphIndex,
     ) -> ArtifactGraphIndex {
@@ -209,7 +209,8 @@ impl<'a> ArtifactGraph<'a> {
                         id: id_new,
                         name: name.clone(),
                         self_partitioning: *self_partitioning,
-                        dtype: dtypes_registry.get_datatype(&*dtype).expect("Unknown datatype."),
+                        dtype_uuid: dtypes_registry.get_datatype(&*dtype).expect("Unknown datatype.")
+                            .id().uuid,
                     };
                     art.hash(&mut s);
                     let new_hash = s.finish();
@@ -238,14 +239,18 @@ impl<'a> ArtifactGraph<'a> {
         new_idx
     }
 
-    pub fn as_description(&self) -> ArtifactGraphDescription {
+    pub fn as_description<T: DatatypeEnum>(
+        &self,
+        dtypes_registry: &DatatypesRegistry<T>,
+    ) -> ArtifactGraphDescription {
         let mut idx_map = ArtifactIndexMap::new();
 
         let mut desc = ArtifactGraphDescription::new();
 
         for node_idx in self.artifacts.graph().node_indices() {
             let art = &self.artifacts[node_idx];
-            let desc_node_idx = desc.artifacts.add_node(ArtifactDescription::new_from_artifact(art));
+            let desc_node_idx = desc.artifacts.add_node(
+                ArtifactDescription::new_from_artifact(art, dtypes_registry));
 
             idx_map.insert(node_idx, desc_node_idx);
         }
@@ -328,9 +333,11 @@ impl<'a> ArtifactGraph<'a> {
     }
 
     pub fn get_unary_partitioning(&self) -> Option<ArtifactGraphIndex> {
+        use crate::datatype::DatatypeMeta;
         // TODO: brittle
         self.artifacts.graph().node_indices()
-            .find(|i| self.artifacts[*i].dtype.name == "UnaryPartitioning")
+            .find(|i| self.artifacts[*i].dtype_uuid ==
+                crate::datatype::partitioning::UnaryPartitioning::uuid())
     }
 
     pub fn find_by_name(&self, name: &str) -> Option<ArtifactGraphIndex> {
@@ -340,8 +347,8 @@ impl<'a> ArtifactGraph<'a> {
     }
 }
 
-impl<'a> IdentifiableGraph for ArtifactGraph<'a> {
-    type N = Artifact<'a>;
+impl IdentifiableGraph for ArtifactGraph {
+    type N = Artifact;
     type E = ArtifactRelation;
     type IT = ArtifactGraphIndexType;
 
@@ -356,23 +363,23 @@ impl<'a> IdentifiableGraph for ArtifactGraph<'a> {
 
 // Annoyingly, cannot write these impl generically for IdentifiableGraph because
 // of https://doc.rust-lang.org/error-index.html#E0210.
-impl<'a> Index<ArtifactGraphIndex> for ArtifactGraph<'a>
+impl Index<ArtifactGraphIndex> for ArtifactGraph
 {
-    type Output = Artifact<'a>;
+    type Output = Artifact;
 
-    fn index(&self, index: ArtifactGraphIndex) -> &Artifact<'a> {
+    fn index(&self, index: ArtifactGraphIndex) -> &Artifact {
         &self.graph()[index]
     }
 }
 
-impl<'a> IndexMut<ArtifactGraphIndex> for ArtifactGraph<'a>
+impl IndexMut<ArtifactGraphIndex> for ArtifactGraph
 {
-    fn index_mut(&mut self, index: ArtifactGraphIndex) -> &mut Artifact<'a> {
+    fn index_mut(&mut self, index: ArtifactGraphIndex) -> &mut Artifact {
         &mut self.graph_mut()[index]
     }
 }
 
-impl<'a> Index<ArtifactGraphEdgeIndex> for ArtifactGraph<'a>
+impl Index<ArtifactGraphEdgeIndex> for ArtifactGraph
 {
     type Output = ArtifactRelation;
 
@@ -385,11 +392,11 @@ impl<'a> Index<ArtifactGraphEdgeIndex> for ArtifactGraph<'a>
 /// An `Artifact` represents a collection of instances of a `Datatype` that can
 /// exist in dependent relationships with other artifacts and producers.
 #[derive(Debug)]
-pub struct Artifact<'a> {
+pub struct Artifact {
     pub id: Identity,
     /// Name identifier for this artifact. Can not start with '@'.
     name: Option<String>,
-    pub dtype: &'a Datatype,
+    pub dtype_uuid: Uuid,
     /// Because partitioning is a relationship with special status, it is
     /// allowed to be self-cyclic for datatype artifacts if appropriate. For
     /// example, unary partitioning or a self-balancing point octree are both
@@ -398,23 +405,21 @@ pub struct Artifact<'a> {
     pub self_partitioning: bool,
 }
 
-impl<'a> Artifact<'a> {
+impl Artifact {
     pub fn name(&self) -> &Option<String> {
         &self.name
     }
 }
 
-impl<'a> Identifiable for Artifact<'a> {
+impl Identifiable for Artifact {
     fn id(&self) -> &Identity {
         &self.id
     }
 }
 
-impl<'a> Hash for Artifact<'a> {
+impl Hash for Artifact {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // TODO: is there a reason I had this hash the id directly, rather than
-        // use the dtype hash? If there is, it should be commented!
-        self.dtype.id().hash.hash(state);
+        self.dtype_uuid.hash(state);
         self.name.hash(state);
         self.self_partitioning.hash(state);
     }
@@ -431,22 +436,22 @@ pub enum ArtifactRelation {
 type VersionGraphIndexType = petgraph::graph::DefaultIx;
 pub type VersionGraphIndex = petgraph::graph::NodeIndex<VersionGraphIndexType>;
 pub type VersionGraphEdgeIndex = petgraph::graph::EdgeIndex<VersionGraphIndexType>;
-pub struct VersionGraph<'a: 'b, 'b> {
-    pub versions: daggy::Dag<Version<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType>,
+pub struct VersionGraph<'ag> {
+    pub versions: daggy::Dag<Version<'ag>, VersionRelation<'ag>, VersionGraphIndexType>,
 }
 // TODO: should either use the below in most interfaces or make the above also have pruning.
-pub type VersionSubgraph<'a, 'b> = daggy::Dag<VersionNode<'a, 'b>, VersionRelation<'b>, VersionGraphIndexType>;
+pub type VersionSubgraph<'ag> = daggy::Dag<VersionNode<'ag>, VersionRelation<'ag>, VersionGraphIndexType>;
 
-impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
-    pub fn new() -> VersionGraph<'a, 'b> {
+impl<'ag> VersionGraph<'ag> {
+    pub fn new() -> VersionGraph<'ag> {
         VersionGraph {
             versions: daggy::Dag::new()
         }
     }
 
     pub fn new_from_source_artifacts(
-        art_graph: &'b ArtifactGraph<'a>,
-    ) -> VersionGraph<'a, 'b> {
+        art_graph: &'ag ArtifactGraph,
+    ) -> VersionGraph<'ag> {
         let mut versions = daggy::Dag::new();
         for node_idx in art_graph.artifacts.graph().externals(Direction::Incoming) {
             let art = &art_graph.artifacts[node_idx];
@@ -573,9 +578,9 @@ impl<'a: 'b, 'b> VersionGraph<'a, 'b> {
     }
 }
 
-impl<'a: 'b, 'b> IdentifiableGraph for VersionGraph<'a, 'b> {
-    type N = Version<'a, 'b>;
-    type E = VersionRelation<'b>;
+impl<'ag> IdentifiableGraph for VersionGraph<'ag> {
+    type N = Version<'ag>;
+    type E = VersionRelation<'ag>;
     type IT = VersionGraphIndexType;
 
     fn graph(&self) -> &daggy::Dag<Self::N, Self::E, Self::IT> {
@@ -587,36 +592,36 @@ impl<'a: 'b, 'b> IdentifiableGraph for VersionGraph<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Index<VersionGraphIndex> for VersionGraph<'a, 'b>
+impl<'ag> Index<VersionGraphIndex> for VersionGraph<'ag>
 {
-    type Output = Version<'a, 'b>;
+    type Output = Version<'ag>;
 
-    fn index(&self, index: VersionGraphIndex) -> &Version<'a, 'b> {
+    fn index(&self, index: VersionGraphIndex) -> &Version<'ag> {
         &self.graph()[index]
     }
 }
 
-impl<'a, 'b> IndexMut<VersionGraphIndex> for VersionGraph<'a, 'b>
+impl<'ag> IndexMut<VersionGraphIndex> for VersionGraph<'ag>
 {
-    fn index_mut(&mut self, index: VersionGraphIndex) -> &mut Version<'a, 'b> {
+    fn index_mut(&mut self, index: VersionGraphIndex) -> &mut Version<'ag> {
         &mut self.graph_mut()[index]
     }
 }
 
-impl<'a, 'b> Index<VersionGraphEdgeIndex> for VersionGraph<'a, 'b>
+impl<'ag> Index<VersionGraphEdgeIndex> for VersionGraph<'ag>
 {
-    type Output = VersionRelation<'b>;
+    type Output = VersionRelation<'ag>;
 
-    fn index(&self, index: VersionGraphEdgeIndex) -> &VersionRelation<'b> {
+    fn index(&self, index: VersionGraphEdgeIndex) -> &VersionRelation<'ag> {
         &self.graph()[index]
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum VersionRelation<'b>{
+pub enum VersionRelation<'ag>{
     /// The target version is dependent on the source version congruent with
     /// a artifact dependence relationship.
-    Dependence(&'b ArtifactRelation),
+    Dependence(&'ag ArtifactRelation),
     /// The target version is a child version of the source version.
     Parent,
     // /// The target version must walk the ancestry tree back to the source
@@ -638,22 +643,22 @@ pub enum VersionStatus {
 }
 
 #[derive(Debug)]
-pub enum VersionNode<'a: 'b, 'b> {
-    Complete(Version<'a, 'b>),
-    Pruned(Version<'a, 'b>),
+pub enum VersionNode<'ag> {
+    Complete(Version<'ag>),
+    Pruned(Version<'ag>),
 }
 
 #[derive(Debug)]
-pub struct Version<'a: 'b, 'b> {
+pub struct Version<'ag> {
     id: Identity,
-    pub artifact: &'b Artifact<'a>,
+    pub artifact: &'ag Artifact,
     status: VersionStatus,
     representation: RepresentationKind,
 }
 
-impl<'a: 'b, 'b> Version<'a, 'b> {
+impl<'ag> Version<'ag> {
     pub fn new(
-        artifact: &'b Artifact<'a>,
+        artifact: &'ag Artifact,
         representation: RepresentationKind,
     ) -> Self {
         Version {
@@ -665,7 +670,7 @@ impl<'a: 'b, 'b> Version<'a, 'b> {
     }
 }
 
-impl<'a, 'b> Identifiable for Version<'a, 'b> {
+impl<'ag> Identifiable for Version<'ag> {
     fn id(&self) -> &Identity {
         &self.id
     }
@@ -675,9 +680,9 @@ pub type PartitionIndex = u64;
 
 #[derive(Clone, Debug)]
 #[derive(Serialize)]
-pub struct Partition<'a: 'b, 'b: 'c, 'c> {
+pub struct Partition<'ag: 'vg, 'vg> {
     #[serde(skip_serializing)]
-    pub partitioning: &'c Version<'a, 'b>,
+    pub partitioning: &'vg Version<'ag>,
     pub index: PartitionIndex,
     // TODO: also need to be able to handle partition types (leaf v. neighborhood, level, arbitrary)
 }
@@ -699,12 +704,12 @@ pub enum PartCompletion {
 /// made no changes relative to its parent versions' hunks for that partition.
 #[derive(Debug)]
 #[derive(Serialize)]
-pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
+pub struct Hunk<'ag: 'vg1 + 'vg2, 'vg1, 'vg2> {
     // Is this a Hunk or a Patch (in which case changeset items would be hunks)?
     pub id: Identity, // TODO: Not clear hunk needs a UUID.
     #[serde(skip_serializing)]
-    pub version: &'d Version<'a, 'b>,
-    pub partition: Partition<'a, 'b, 'c>,
+    pub version: &'vg2 Version<'ag>,
+    pub partition: Partition<'ag, 'vg1>,
     /// Representation kind of this hunk's contents. `State` versions may
     /// contains only `State` hunks, `CumulativeDelta` versions may contain either
     /// `State` or `CumulativeDelta` hunks, and 'Delta' versions may contain
@@ -716,7 +721,7 @@ pub struct Hunk<'a: 'b, 'b: 'c + 'd, 'c, 'd> {
     pub precedence: Option<Uuid>,
 }
 
-impl<'a: 'b, 'b: 'c + 'd, 'c, 'd> Hunk<'a, 'b, 'c, 'd> {
+impl<'ag: 'vg1 + 'vg2, 'vg1, 'vg2> Hunk<'ag, 'vg1, 'vg2> {
     /// Check that local properties of this hunk are consistent with the model
     /// constraints. Note that this does *not* verify data contained by this
     /// hunk, graph-level constraints, or consistency with the stored
@@ -761,7 +766,7 @@ pub struct HunkUuidSpec {
 
 /// A sequence of hunks for a partition sufficient to compose state for that
 /// partition's data.
-pub type Composition<'a, 'b, 'c, 'd> = Vec<Hunk<'a, 'b, 'c, 'd>>;
+pub type Composition<'ag, 'vg1, 'vg2> = Vec<Hunk<'ag, 'vg1, 'vg2>>;
 
 /// A mapping of compositions for a set of partitions.
-pub type CompositionMap<'a, 'b, 'c, 'd> = BTreeMap<PartitionIndex, Composition<'a, 'b, 'c, 'd>>;
+pub type CompositionMap<'ag, 'vg1, 'vg2> = BTreeMap<PartitionIndex, Composition<'ag, 'vg1, 'vg2>>;
