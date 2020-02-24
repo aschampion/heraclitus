@@ -1,14 +1,8 @@
-# Heraclitus [![Build Status](https://travis-ci.org/aschampion/heraclitus.svg?branch=master)](https://travis-ci.org/aschampion/heraclitus)
+**THIS IS AN ABANDONED PROBLEM SPACE EXPLORATION AND NOT COMPLETE OR FUNCTIONAL FOR REAL DATA WORKFLOWS**
 
-> B12. *potamoisi toisin autoisin embainousin hetera kai hetera hudata epirrei.*
->
-> On those stepping into rivers staying the same other and other waters flow. (Cleanthes from Arius Didymus from Eusebius)
->
-> ...
->
-> If this interpretation is right, the message of the one river fragment, B12, is not that all things are changing so that we cannot encounter them twice, but something much more subtle and profound. It is that some things stay the same only by changing. One kind of long-lasting material reality exists by virtue of constant turnover in its constituent matter. **Here constancy and change are not opposed but inextricably connected.**
->
-> &mdash; <cite>[Daniel W. Graham on Heraclitus, *SEP 2015*][1]</cite>
+There may be references in comments and code to VISAG and ESCHATOM. These were domain data and service libraries built on top of Heraclitus that are unlikely to be made public.
+
+# Heraclitus [![Build Status](https://travis-ci.org/aschampion/heraclitus.svg?branch=master)](https://travis-ci.org/aschampion/heraclitus)
 
 Heraclitus is a framework for the specification, persistence, and production of dependent, versioned, derived data artifacts. This framework provides a differential dataflow computation graph engine focused on the persistence and versioning of data artifacts at each edge of the graph.
 
@@ -26,6 +20,18 @@ Heraclitus provides a framework for all of these capabilities, as well as many o
 Currently Heraclitus supports these backing databases:
 
 - PostgreSQL
+
+## Name
+
+> B12. *potamoisi toisin autoisin embainousin hetera kai hetera hudata epirrei.*
+>
+> On those stepping into rivers staying the same other and other waters flow. (Cleanthes from Arius Didymus from Eusebius)
+>
+> ...
+>
+> If this interpretation is right, the message of the one river fragment, B12, is not that all things are changing so that we cannot encounter them twice, but something much more subtle and profound. It is that some things stay the same only by changing. One kind of long-lasting material reality exists by virtue of constant turnover in its constituent matter. **Here constancy and change are not opposed but inextricably connected.**
+>
+> &mdash; <cite>[Daniel W. Graham on Heraclitus, *SEP 2015*][1]</cite>
 
 ## License
 
