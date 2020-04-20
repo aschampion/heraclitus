@@ -5,6 +5,30 @@
 #![feature(trivial_bounds)]
 #![feature(vec_remove_item)]
 
+// Inject mermaid into doc in a way that works with both `rust doc` and docs.rs.
+// Adapted from: https://docs.rs/crate/horrible-katex-hack/
+#![doc(html_favicon_url = r#"
+">
+<script defer
+    src="https://cdn.jsdelivr.net/npm/mermaid@8.5.0/dist/mermaid.min.js"
+    integrity="sha256-bTMqpr7baOlzavIdddfmnQZsEBdfnK5p6KG8FcrwwD8="
+    crossorigin="anonymous">
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    let to_do = [];
+    for (let e of document.querySelectorAll("code.language-mermaid")) {
+        let x = document.createElement("p");
+        x.innerHTML = e.innerHTML;
+        x.classList.add("mermaid");
+        e.parentNode.parentNode.replaceChild(x, e.parentNode);
+    }
+    mermaid.initialize({startOnLoad:true});
+});
+</script>
+" // Errant character to fix broken rls-vscode parsing of raw string literals in attributes.
+"#)]
+
 #[macro_use]
 pub extern crate heraclitus_core;
 

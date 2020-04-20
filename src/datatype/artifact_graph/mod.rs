@@ -147,6 +147,18 @@ impl crate::datatype::ComposableState for ArtifactGraphDtype {
     }
 }
 
+/// An origin artifact graph which contains:
+/// - Unary partitioning
+/// - Recursive AG artifact itself
+/// - Root AG artifact
+///
+/// ```mermaid
+/// graph TB
+///     subgraph origin_artifact_graph
+///         origin_artifact-->|depends|unary_partitioning
+///         root_artifact-->|depends|unary_partitioning
+///     end
+/// ```
 struct OriginGraphTemplate {
     artifact_graph: ArtifactGraph,
     origin_idx: ArtifactGraphIndex,
@@ -154,10 +166,6 @@ struct OriginGraphTemplate {
     up_idx: ArtifactGraphIndex,
 }
 
-/// An origin artifact graph which contains:
-/// - Unary partitioning
-/// - Recursive AG artifact itself
-/// - Root AG artifact
 impl OriginGraphTemplate {
     fn new<T: DatatypeEnum>(dtypes_registry: &DatatypesRegistry<T>) -> OriginGraphTemplate {
         Self::for_uuids(dtypes_registry, None)
